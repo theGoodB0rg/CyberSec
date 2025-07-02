@@ -1,0 +1,706 @@
+2025-07-02 16:38:23 [ERROR]: Error generating PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:38:24 [ERROR]: Error in exportReport: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:795:13)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:699:18)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:38:24 [ERROR]: Error exporting report: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:795:13)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:699:18)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:38:35 [ERROR]: Error generating PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:38:36 [ERROR]: Error in exportReport: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:795:13)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:699:18)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:38:36 [ERROR]: Error exporting report: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:795:13)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:699:18)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:39:31 [ERROR]: Error generating PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:39:31 [ERROR]: Error in exportReport: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:795:13)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:699:18)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:39:31 [ERROR]: Error exporting report: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:795:13)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:699:18)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:37 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:40 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:41 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:47 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:50 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:50 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:56 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:56 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:57 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:57 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:57 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:57 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:57 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:57 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:43:57 [ERROR]: PDF generation attempt 1 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:04 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:05 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:05 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:05 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:05 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:05 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:05 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:05 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:05 [ERROR]: PDF generation attempt 2 failed: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+TypeError: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:819:20)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:07 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:07 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:09 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:09 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:09 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:09 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:09 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:09 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:44:22 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: page.waitForTimeout is not a function
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:877:17)
+    at async ReportGenerator.exportReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:700:20)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:145:26
+2025-07-02 16:49:31 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:49:31 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:49:35 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:49:35 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:49:36 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:49:36 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:49:44 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:49:44 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:49:49 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:49:49 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:49:50 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:49:50 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:49:56 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:49:56 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:00 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:00 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:01 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:50:01 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:04 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:04 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:08 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:08 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:09 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:50:09 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:12 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:12 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:17 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:17 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:17 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:50:17 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:20 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:20 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:25 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:25 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:26 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:50:26 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:29 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:29 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:33 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:33 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:34 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:50:34 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:38 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:38 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:42 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:42 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:42 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:50:42 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:46 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:46 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:50 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:50 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:50 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:50:50 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:54 [ERROR]: PDF generation attempt 1 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:54 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:58 [ERROR]: PDF generation attempt 2 failed: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app","name":"TargetCloseError","cause":{"name":"ProtocolError"}}
+TargetCloseError: Protocol error (Page.printToPDF): Target closed
+    at CallbackRegistry.clear (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\common\CallbackRegistry.js:81:36)
+    at CdpCDPSession.onClosed (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\CdpSession.js:114:25)
+    at #onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:181:21)
+    at WebSocket.<anonymous> (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\node\NodeWebSocketTransport.js:48:30)
+    at callListener (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:290:14)
+    at WebSocket.onClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\event-target.js:220:9)
+    at WebSocket.emit (node:events:524:28)
+    at WebSocket.emitClose (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:272:10)
+    at Receiver.receiverOnFinish (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\node_modules\ws\lib\websocket.js:1209:20)
+    at Receiver.emit (node:events:524:28)
+2025-07-02 16:50:58 [ERROR]: Error closing page: Protocol error: Connection closed. | {"service":"cybersecurity-app"}
+Error: Protocol error: Connection closed.
+    at Connection._rawSend (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:97:35)
+    at Connection.send (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Connection.js:90:21)
+    at CdpPage.close (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\node_modules\puppeteer-core\lib\cjs\puppeteer\cdp\Page.js:842:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:925:13)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 16:50:58 [ERROR]: PDF generation from queue failed | {"service":"cybersecurity-app","reportId":"b7353b68-57cc-4b6b-8dce-c5a473729598","error":"Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed"}
+2025-07-02 16:50:58 [ERROR]: PDF generation failed, attempting fallback options: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed | {"service":"cybersecurity-app"}
+Error: Failed to generate PDF report after 2 attempts: Protocol error (Page.printToPDF): Target closed
+    at ReportGenerator.generatePDFReport (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:941:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ReportGenerator.processPDFQueue (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:778:26)
+2025-07-02 17:04:42 [ERROR]: PDF test failed: Test PDF buffer is not valid | {"service":"cybersecurity-app"}
+Error: Test PDF buffer is not valid
+    at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1134:15)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27
+2025-07-02 17:04:42 [ERROR]: PDF test failed: Test PDF buffer is not valid | {"service":"cybersecurity-app"}
+Error: Test PDF buffer is not valid
+    at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1134:15)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27
+2025-07-02 17:05:13 [ERROR]: PDF test failed: Test PDF buffer is not valid. Header: "37,80,68,70,45,49,46,52,10,37", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111 | {"service":"cybersecurity-app"}
+Error: Test PDF buffer is not valid. Header: "37,80,68,70,45,49,46,52,10,37", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111
+    at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1143:15)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27
+2025-07-02 17:05:13 [ERROR]: PDF test failed: Test PDF buffer is not valid. Header: "37,80,68,70,45,49,46,52,10,37", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111 | {"service":"cybersecurity-app"}
+Error: Test PDF buffer is not valid. Header: "37,80,68,70,45,49,46,52,10,37", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111
+    at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1143:15)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27
+2025-07-02 17:06:05 [ERROR]: PDF test failed: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111 | {"service":"cybersecurity-app"}
+Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111
+    at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1143:15)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27
+2025-07-02 17:06:05 [ERROR]: PDF test failed: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111 | {"service":"cybersecurity-app"}
+Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111
+    at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1143:15)
+    at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27

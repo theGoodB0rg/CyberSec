@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Comprehensive Cybersecurity Web App with Interactive Terminal and SQLMap Integration" />
+    <meta name="keywords" content="cybersecurity, sql injection, penetration testing, security audit, sqlmap" />
+    <meta name="author" content="Professional Developer" />
+    <title>Cybersecurity Web App</title>
+    <style>
+      /* Prevent flash of unstyled content */
+      html {
+        background-color: #0d1117;
+        color: #c9d1d9;
+      }
+      
+      /* Custom scrollbar for webkit browsers */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      
+      ::-webkit-scrollbar-track {
+        background: #21262d;
+      }
+      
+      ::-webkit-scrollbar-thumb {
+        background: #484f58;
+        border-radius: 4px;
+      }
+      
+      ::-webkit-scrollbar-thumb:hover {
+        background: #6e7681;
+      }
+      
+      /* Loading animation */
+      .loading-spinner {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #21262d;
+        border-radius: 50%;
+        border-top-color: #58a6ff;
+        animation: spin 1s ease-in-out infinite;
+      }
+      
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      
+      /* Terminal cursor blink */
+      .cursor-blink {
+        animation: blink 1s infinite;
+      }
+      
+      @keyframes blink {
+        0%, 50% { opacity: 1; }
+        51%, 100% { opacity: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div class="text-center">
+          <div class="loading-spinner mx-auto mb-4"></div>
+          <p class="text-gray-400">Loading Cybersecurity App...</p>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html> 
