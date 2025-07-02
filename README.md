@@ -123,8 +123,8 @@ A comprehensive, professional cybersecurity web application featuring an interac
 
 3. **Review Results**
    - Automatic report generation upon completion
-- Structured CSV output with downloadable files
-- Session data preservation for analysis
+   - Structured CSV output with downloadable files
+   - Session data preservation for analysis
    - View vulnerabilities and recommendations
    - Export reports in multiple formats
 
@@ -379,5 +379,4 @@ For support and questions:
 
 **⚠️ Legal Notice**: This tool is for authorized security testing only. Always ensure you have proper authorization before testing any systems. The developers are not responsible for any misuse of this application.
 
-**🔒 Security Disclosure**: If you discover a security vulnerability, please report it responsibly to the maintainers. #   C y b e r S e c 
- 
+**🔒 Security Disclosure**: If you discover a security vulnerability, please report it responsibly to the maintainers.
