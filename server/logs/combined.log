@@ -1901,3 +1901,6 @@ Press Enter to continue...
 2025-07-02 17:06:56 [INFO]: PDF test successful | {"service":"cybersecurity-app","pdfSize":39704}
 2025-07-02 17:07:12 [INFO]: Client disconnected: 7xJICOj0XimrO4UNAAAB | {"service":"cybersecurity-app"}
 2025-07-02 17:07:14 [INFO]: Client connected: 5T8g_T4V2lYnhSh8AAAG | {"service":"cybersecurity-app"}
+2025-07-02 17:26:39 [INFO]: Client disconnected: s9ZodnaLkX2DL0fQAAAD | {"service":"cybersecurity-app"}
+2025-07-02 17:26:40 [INFO]: Client connected: RTYWvH0ptxnEBmNlAAAJ | {"service":"cybersecurity-app"}
+2025-07-02 17:37:22 [INFO]: SIGINT received, shutting down gracefully | {"service":"cybersecurity-app"}
