@@ -379,5 +379,6 @@ For support and questions:
 
 **⚠️ Legal Notice**: This tool is for authorized security testing only. Always ensure you have proper authorization before testing any systems. The developers are not responsible for any misuse of this application.
 
-**🔒 Security Disclosure**: If you discover a security vulnerability, please report it responsibly to the maintainers. #   C y b e r S e c  
+**🔒 Security Disclosure**: If you discover a security vulnerability, please report it responsibly to the maintainers. #   C y b e r S e c 
+ 
  
