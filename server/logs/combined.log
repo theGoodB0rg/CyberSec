@@ -1904,3 +1904,18 @@ Press Enter to continue...
 2025-07-02 17:26:39 [INFO]: Client disconnected: s9ZodnaLkX2DL0fQAAAD | {"service":"cybersecurity-app"}
 2025-07-02 17:26:40 [INFO]: Client connected: RTYWvH0ptxnEBmNlAAAJ | {"service":"cybersecurity-app"}
 2025-07-02 17:37:22 [INFO]: SIGINT received, shutting down gracefully | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: Direct sqlmap command not available, trying alternatives... | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [WARN]: SQLMap not found via version check, using default command | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [ERROR]: SQLMap validation failed: | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [WARN]: SQLMap may not be properly installed. | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: To install SQLMap on Linux/Mac: | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: 1. sudo apt install sqlmap  (Ubuntu/Debian) | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: 2. brew install sqlmap  (macOS) | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: 3. pip install sqlmapapi | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-08-31 00:35:06 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-08-31 00:35:07 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}

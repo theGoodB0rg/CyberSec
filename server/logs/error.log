@@ -704,3 +704,4 @@ Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,
 Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111
     at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1143:15)
     at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27
+2025-08-31 00:35:06 [ERROR]: SQLMap validation failed: | {"service":"cybersecurity-app"}
