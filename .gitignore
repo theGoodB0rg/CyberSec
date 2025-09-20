@@ -32,3 +32,37 @@ assets/
 media/
 docs/
 node_modules/
+client/node_modules/
+
+# Build outputs
+dist/
+build/
+client/dist/
+client/.vite/
+client/.next/
+client/.nuxt/
+
+# Logs
+*.log
+logs/
+server/logs/
+
+# Databases and local data
+*.sqlite
+server/data/*.db
+server/temp/
+
+# Env files
+.env
+.env.*.local
+.env.local
+
+# IDE settings
+.vscode/
+.idea/
+
+# Test coverage
+coverage/
+
+# Windows temp
+%TEMP%/
