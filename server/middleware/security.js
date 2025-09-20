@@ -4,6 +4,36 @@ const rateLimit = require('express-rate-limit');
 const Logger = require('../utils/logger');
 
 class SecurityMiddleware {
+  static requireProxyIfEnabled(options = {}) {
+    const requireProxyEnv = process.env.REQUIRE_PROXY;
+    const enforced = ['true', '1', 'yes', 'on'].includes(String(requireProxyEnv).toLowerCase());
+    if (!enforced) return { enforced: false, ok: true };
+
+    const proxy = options.proxy || options.proxiedUrl || options.PROXY;
+    if (!proxy) {
+      return { enforced: true, ok: false, error: 'Proxy required: Set a proxy when REQUIRE_PROXY is enabled.' };
+    }
+    if (!this.isValidProxyURL(proxy)) {
+      return { enforced: true, ok: false, error: 'Invalid proxy URL. Must be http(s):// or socks5:// host:port' };
+    }
+    return { enforced: true, ok: true };
+  }
+
+  static isValidProxyURL(url) {
+    try {
+      if (typeof url !== 'string') return false;
+      const parsed = new URL(url);
+      const allowedProtocols = ['http:', 'https:', 'socks5:'];
+      if (!allowedProtocols.includes(parsed.protocol)) return false;
+      if (!parsed.hostname || !parsed.port) return false;
+      // Basic length checks
+      if (parsed.username && parsed.username.length > 128) return false;
+      if (parsed.password && parsed.password.length > 128) return false;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
   static validateInput(req, res, next) {
     try {
       // Skip validation for certain routes

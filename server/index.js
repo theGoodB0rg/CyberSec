@@ -14,6 +14,7 @@ const SQLMapIntegration = require('./sqlmap');
 const ReportGenerator = require('./reports');
 const SecurityMiddleware = require('./middleware/security');
 const Logger = require('./utils/logger');
+const ReconEngine = require('./recon');
 
 // Initialize Express app
 const app = express();
@@ -83,6 +84,7 @@ if (process.env.NODE_ENV === 'production') {
 const database = new Database(DB_PATH);
 const sqlmapIntegration = new SQLMapIntegration();
 const reportGenerator = new ReportGenerator(database);
+const reconEngine = new ReconEngine();
 
 // Track running scans and their output directories
 let scanProcesses = new Map();
@@ -104,6 +106,43 @@ app.get('/api/scans', async (req, res) => {
   } catch (error) {
     Logger.error('Error fetching scans:', error);
     res.status(500).json({ error: 'Failed to fetch scans' });
+  }
+});
+
+// Phase 0 Recon endpoint
+app.post('/api/recon', async (req, res) => {
+  try {
+    const { target } = req.body;
+    if (!target || !SecurityMiddleware.isValidURL(target)) {
+      return res.status(400).json({ error: 'Valid target URL required' });
+    }
+    Logger.info('Starting recon', { target });
+    const reconResult = await reconEngine.run(target);
+    await database.saveReconParameters(target, reconResult.parameters.map(p => ({
+      ...p,
+      name_length: p.name_length,
+      name_entropy: p.name_entropy,
+      base_latency_ms: p.base_latency_ms,
+      reflection_latency_ms: p.reflection_latency_ms,
+      priority_score: p.priority_score
+    })));
+    await database.saveReconPages(target, reconResult.pages || []);
+    res.json(reconResult);
+  } catch (error) {
+    Logger.error('Recon error', error);
+    res.status(500).json({ error: 'Recon failed', details: error.message });
+  }
+});
+
+app.get('/api/recon', async (req, res) => {
+  try {
+    const { target } = req.query;
+    if (!target) return res.status(400).json({ error: 'target query param required' });
+    const params = await database.getReconParameters(target);
+    res.json({ target, parameters: params });
+  } catch (e) {
+    Logger.error('Fetch recon params error', e);
+    res.status(500).json({ error: 'Failed to fetch recon parameters' });
   }
 });
 
@@ -173,13 +212,14 @@ app.get('/api/reports/:id/files/:filename', async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    // Check if the report has structured results with files
-    if (!report.outputFiles || !report.outputFiles.dumps) {
+    // Check if the report has structured results with files (stored under extractedData)
+    const dumps = report.extractedData && report.extractedData.outputFiles && report.extractedData.outputFiles.dumps;
+    if (!dumps || !Array.isArray(dumps)) {
       return res.status(404).json({ error: 'No output files found for this report' });
     }
 
     // Find the requested file
-    const file = report.outputFiles.dumps.find(f => f.name === filename);
+    const file = dumps.find(f => f.name === filename);
     if (!file || !fs.existsSync(file.path)) {
       return res.status(404).json({ error: 'File not found' });
     }
@@ -253,6 +293,13 @@ io.on('connection', (socket) => {
       // Validate input
       if (!target || !SecurityMiddleware.isValidURL(target)) {
         socket.emit('scan-error', { message: 'Invalid target URL provided' });
+        return;
+      }
+
+      // Enforce proxy requirement if configured
+      const proxyCheck = SecurityMiddleware.requireProxyIfEnabled(options || {});
+      if (!proxyCheck.ok) {
+        socket.emit('scan-error', { message: proxyCheck.error });
         return;
       }
 

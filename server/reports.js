@@ -399,7 +399,7 @@ class ReportGenerator {
           vulnerabilities.push({
             id: uuidv4(),
             type: 'Potential SQL Injection',
-            parameter: 'Unknown',
+            parameter: this.extractParameter(output) || 'Unknown',
             severity: 'Medium',
             cvss: 5.0,
             description: 'SQLMap detected potential SQL injection indicators',
@@ -446,30 +446,27 @@ class ReportGenerator {
 
   calculateRiskScore(vulnerabilities) {
     if (vulnerabilities.length === 0) return 0;
-    
+
     const severityWeights = {
       'Critical': 10,
       'High': 7,
       'Medium': 4,
       'Low': 1
     };
-    
-    let totalScore = 0;
-    let totalWeight = 0;
-    
-    for (const vuln of vulnerabilities) {
-      const weight = severityWeights[vuln.severity] || 1;
-      totalScore += vuln.cvss * weight;
-      totalWeight += weight;
-    }
-    
-    return totalWeight > 0 ? (totalScore / totalWeight).toFixed(1) : 0;
+
+    // Determine the highest severity weight present
+    const highestWeight = Math.max(
+      ...vulnerabilities.map(v => severityWeights[v.severity] || 0)
+    );
+
+    // Scale to 0-100 for a simple score (weight * 10)
+    return highestWeight * 10;
   }
 
   getRiskLevel(score) {
-    if (score >= 75) return 'Critical';
-    if (score >= 50) return 'High';
-    if (score >= 25) return 'Medium';
+    if (score >= 90) return 'Critical';
+    if (score >= 70) return 'High';
+    if (score >= 40) return 'Medium';
     if (score > 0) return 'Low';
     return 'Informational';
   }
@@ -682,12 +679,12 @@ class ReportGenerator {
     // Check if dates are valid
     if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) return null;
     
-    const duration = Math.round((endTime - startTime) / 1000);
-    
-    // Return null if duration is negative or unreasonably large (more than 24 hours)
-    if (duration < 0 || duration > 86400) return null;
+    const durationMs = endTime - startTime; // milliseconds
 
-    return duration;
+    // Return null if duration is negative or unreasonably large (more than 24 hours)
+    if (durationMs < 0 || durationMs > 86_400_000) return null;
+
+    return durationMs;
   }
 
   sanitizeReportData(reportData) {

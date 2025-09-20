@@ -45,8 +45,10 @@
     "socket.io": "^4.7.4",
     "sqlite3": "^5.1.6",
     "uuid": "^9.0.1",
-    "validator": "^13.11.0",
-    "winston": "^3.11.0"
+  "validator": "^13.11.0",
+  "winston": "^3.11.0",
+  "axios": "^1.7.2",
+  "cheerio": "^1.0.0-rc.12"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

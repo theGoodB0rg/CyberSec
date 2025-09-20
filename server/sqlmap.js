@@ -7,7 +7,31 @@ const Logger = require('./utils/logger');
 
 class SQLMapIntegration {
   constructor() {
-    this.sqlmapPath = this.findSQLMapPath();
+    // Allow environment override
+    const envPath = process.env.SQLMAP_PATH && process.env.SQLMAP_PATH.trim();
+    if (envPath) {
+      try {
+        // Basic existence / executable check (if absolute path)
+        if (envPath.includes(path.sep)) {
+          if (!fs.existsSync(envPath)) {
+            Logger.warn(`SQLMAP_PATH provided but file does not exist: ${envPath}. Falling back to auto-detect.`);
+            this.sqlmapPath = this.findSQLMapPath();
+          } else {
+            this.sqlmapPath = envPath;
+            Logger.info(`Using SQLMap path from environment: ${envPath}`);
+          }
+        } else {
+          // Likely a command name; accept and rely on downstream validation
+          this.sqlmapPath = envPath;
+          Logger.info(`Using SQLMap command from environment: ${envPath}`);
+        }
+      } catch (e) {
+        Logger.warn(`Failed to use SQLMAP_PATH override (${envPath}): ${e.message}. Falling back to detection.`);
+        this.sqlmapPath = this.findSQLMapPath();
+      }
+    } else {
+      this.sqlmapPath = this.findSQLMapPath();
+    }
     this.tempDir = path.join(os.tmpdir(), 'cybersec-sqlmap');
     this.runningProcesses = new Map();
     
@@ -497,8 +521,8 @@ class SQLMapIntegration {
     const lines = logContent.split('\n');
 
     for (const line of lines) {
-      // Parse vulnerability findings
-      if (line.includes('Parameter:') && line.includes('is vulnerable')) {
+      // Parse vulnerability findings for patterns like "Parameter: foo" or "POST parameter 'foo' is vulnerable"
+      if ((line.includes('Parameter:') && line.toLowerCase().includes('is vulnerable')) || /\b(?:get|post)\s+parameter\s+['\"][^'\"]+['\"]\s+is\s+vulnerable/i.test(line)) {
         findings.push({
           type: 'vulnerability',
           parameter: this.extractParameter(line),
@@ -531,7 +555,14 @@ class SQLMapIntegration {
   }
 
   extractParameter(line) {
-    const match = line.match(/Parameter:\s*([^\s]+)/);
+    // Try multiple patterns in order of specificity
+    let match = line.match(/Parameter:\s*['\"]?([^'\"\s(]+)/i);
+    if (!match) {
+      match = line.match(/\b(?:GET|POST)\s+parameter\s+['\"]([^'\"]+)['\"]/i);
+    }
+    if (!match) {
+      match = line.match(/parameter\s+['\"]([^'\"]+)['\"]/i);
+    }
     return match ? match[1] : null;
   }
 

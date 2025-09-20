@@ -73,10 +73,65 @@ class Database {
       )
     `;
 
+    const createReconParams = `
+      CREATE TABLE IF NOT EXISTS recon_parameters (
+        id TEXT PRIMARY KEY,
+        scan_target TEXT,
+        name TEXT,
+        sources TEXT,
+        methods TEXT,
+        actions TEXT,
+        types TEXT,
+        observations INTEGER,
+        reflected INTEGER,
+        occurrences INTEGER,
+        transformed INTEGER,
+        length_delta INTEGER,
+        name_length INTEGER,
+        name_entropy REAL,
+        base_latency_ms INTEGER,
+        reflection_latency_ms INTEGER,
+        priority_score REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    const createReconPages = `
+      CREATE TABLE IF NOT EXISTS recon_pages (
+        id TEXT PRIMARY KEY,
+        scan_target TEXT,
+        url TEXT,
+        parent_url TEXT,
+        depth INTEGER,
+        status INTEGER,
+        content_type TEXT,
+        fetch_time_ms INTEGER,
+        discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
     this.db.serialize(() => {
       this.db.run(createScansTable);
       this.db.run(createReportsTable);
       this.db.run(createSettingsTable);
+  this.db.run(createReconParams);
+      this.db.run(createReconPages);
+
+      // Attempt to add new columns if upgrading existing recon_parameters
+      const alterCols = [
+        'ADD COLUMN name_length INTEGER',
+        'ADD COLUMN name_entropy REAL',
+        'ADD COLUMN base_latency_ms INTEGER',
+        'ADD COLUMN reflection_latency_ms INTEGER',
+        'ADD COLUMN priority_score REAL'
+      ];
+      alterCols.forEach(stmt => {
+        this.db.run(`ALTER TABLE recon_parameters ${stmt}`, (err) => {
+          if (err && !/duplicate column/i.test(err.message)) {
+            Logger.debug('Alter table recon_parameters skipped', { stmt, error: err.message });
+          }
+        });
+      });
       
       // Add metadata column if it doesn't exist (migration)
       this.db.run(`ALTER TABLE reports ADD COLUMN metadata TEXT`, (err) => {
@@ -132,8 +187,15 @@ class Database {
           if (err) {
             reject(err);
           } else {
-            if (row && row.options) {
-              row.options = JSON.parse(row.options);
+            if (row) {
+              if (row.options) {
+                row.options = JSON.parse(row.options);
+              }
+              // Provide camelCase aliases expected by frontend
+              row.createdAt = row.created_at;
+              row.updatedAt = row.updated_at;
+              row.startTime = row.start_time;
+              row.endTime = row.end_time;
             }
             resolve(row);
           }
@@ -155,6 +217,11 @@ class Database {
               if (row.options) {
                 row.options = JSON.parse(row.options);
               }
+              // Add camelCase aliases
+              row.createdAt = row.created_at;
+              row.updatedAt = row.updated_at;
+              row.startTime = row.start_time;
+              row.endTime = row.end_time;
               return row;
             });
             resolve(scans);
@@ -311,6 +378,11 @@ class Database {
               row.extracted_data = JSON.parse(row.extracted_data || '{}');
               row.recommendations = JSON.parse(row.recommendations || '[]');
               row.metadata = JSON.parse(row.metadata || '{}');
+
+              // Provide camelCase aliases expected by frontend
+              row.createdAt = row.created_at;
+              row.scanDuration = row.scan_duration;
+              row.extractedData = row.extracted_data;
             }
             resolve(row);
           }
@@ -334,6 +406,10 @@ class Database {
               row.extracted_data = JSON.parse(row.extracted_data || '{}');
               row.recommendations = JSON.parse(row.recommendations || '[]');
               row.metadata = JSON.parse(row.metadata || '{}');
+
+              row.createdAt = row.created_at;
+              row.scanDuration = row.scan_duration;
+              row.extractedData = row.extracted_data;
               return row;
             });
             resolve(reports);
@@ -406,6 +482,100 @@ class Database {
         }
       });
     });
+  }
+
+  // Recon parameter persistence
+  async saveReconParameters(target, params = []) {
+    return new Promise((resolve, reject) => {
+      if (!params.length) return resolve(0);
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO recon_parameters (
+          id, scan_target, name, sources, methods, actions, types, observations,
+          reflected, occurrences, transformed, length_delta,
+          name_length, name_entropy, base_latency_ms, reflection_latency_ms, priority_score
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      let inserted = 0;
+      for (const p of params) {
+        try {
+          stmt.run([
+            p.id,
+            target,
+            p.name,
+            JSON.stringify(p.sources || []),
+            JSON.stringify(p.methods || []),
+            JSON.stringify(p.actions || []),
+            JSON.stringify(p.types || []),
+            p.observations || 1,
+            p.reflection?.reflected ? 1 : 0,
+            p.reflection?.occurrences || 0,
+            p.reflection?.transformed ? 1 : 0,
+            p.reflection?.lengthDelta || 0,
+            p.name_length || p.name?.length || 0,
+            p.name_entropy || null,
+            p.base_latency_ms || null,
+            p.reflection_latency_ms || null,
+            p.priority_score || null
+          ]);
+          inserted++;
+        } catch (e) {
+          Logger.warn('Failed to insert recon parameter', { name: p.name, error: e.message });
+        }
+      }
+      stmt.finalize(err => {
+        if (err) reject(err); else resolve(inserted);
+      });
+    });
+  }
+
+  async saveReconPages(target, pages = []) {
+    return new Promise((resolve, reject) => {
+      if (!pages.length) return resolve(0);
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO recon_pages (
+          id, scan_target, url, parent_url, depth, status, content_type, fetch_time_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      let count = 0;
+      for (const pg of pages) {
+        try {
+          stmt.run([
+            pg.id,
+            target,
+            pg.url,
+            pg.parent_url || null,
+            pg.depth || 0,
+            pg.status || null,
+            pg.content_type || null,
+            pg.fetch_time_ms || null
+          ]);
+          count++;
+        } catch (e) {
+          Logger.warn('Failed to insert recon page', { url: pg.url, error: e.message });
+        }
+      }
+      stmt.finalize(err => err ? reject(err) : resolve(count));
+    });
+  }
+
+  async getReconParameters(target) {
+    return new Promise((resolve, reject) => {
+      this.db.all('SELECT * FROM recon_parameters WHERE scan_target = ? ORDER BY created_at DESC', [target], (err, rows) => {
+        if (err) return reject(err);
+        const parsed = rows.map(r => ({
+          ...r,
+          sources: this.safeJson(r.sources, []),
+          methods: this.safeJson(r.methods, []),
+          actions: this.safeJson(r.actions, []),
+          types: this.safeJson(r.types, [])
+        }));
+        resolve(parsed);
+      });
+    });
+  }
+
+  safeJson(str, fallback) {
+    try { return JSON.parse(str); } catch { return fallback; }
   }
 
   async backup(backupPath) {

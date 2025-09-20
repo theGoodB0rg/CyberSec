@@ -30,6 +30,10 @@ export default function Terminal() {
   const { addScan, updateScan, isConnected, runningScans } = useAppStore()
 
   // Initialize terminal
+  const lastStartedTargetRef = useRef<string>('')
+  const lastStartedOptionsRef = useRef<any>({})
+  const lastStartedProfileRef = useRef<string>('basic')
+
   useEffect(() => {
     if (terminalRef.current && !xtermRef.current) {
       const term = new XTerm({
@@ -82,7 +86,23 @@ export default function Terminal() {
       }
     }
 
-    const handleScanComplete = (data: { scanId: string; result: any }) => {
+    const handleScanStarted = (data: { scanId: string }) => {
+      const now = new Date().toISOString()
+      addScan({
+        id: data.scanId,
+        target: lastStartedTargetRef.current,
+        options: lastStartedOptionsRef.current,
+        scanProfile: lastStartedProfileRef.current,
+        status: 'running',
+        startTime: now,
+        output: '',
+        createdAt: now,
+        updatedAt: now,
+      } as any)
+    }
+
+  // Server emits 'scan-completed'; keep backward compatibility if older event name was used
+  const handleScanComplete = (data: { scanId: string; result: any }) => {
       setIsScanning(false)
       
       if (xtermRef.current) {
@@ -109,15 +129,17 @@ export default function Terminal() {
     }
 
     on('scan-output', handleScanOutput)
-    on('scan-complete', handleScanComplete)
+    on('scan-started', handleScanStarted)
+    on('scan-completed', handleScanComplete)
     on('scan-error', handleScanError)
 
     return () => {
-      off('scan-output', handleScanOutput)
-      off('scan-complete', handleScanComplete)
-      off('scan-error', handleScanError)
+    off('scan-output', handleScanOutput)
+    off('scan-started', handleScanStarted)
+    off('scan-completed', handleScanComplete)
+    off('scan-error', handleScanError)
     }
-  }, [on, off, updateScan])
+  }, [on, off, updateScan, addScan])
 
   const startScan = async () => {
     if (!targetUrl.trim()) {
@@ -140,7 +162,9 @@ export default function Terminal() {
 
     try {
       setIsScanning(true)
-      
+      lastStartedTargetRef.current = targetUrl.trim()
+      lastStartedProfileRef.current = selectedProfile
+      lastStartedOptionsRef.current = scanOptions
       if (xtermRef.current) {
         xtermRef.current.writeln('')
         xtermRef.current.writeln(`\\x1b[1;36m→ Starting ${selectedProfile} scan for: ${targetUrl}\\x1b[0m`)
@@ -209,10 +233,12 @@ export default function Terminal() {
 
           {/* Scan Profile */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="scanProfile" className="block text-sm font-medium text-gray-300 mb-2">
               Scan Profile
             </label>
             <select
+              id="scanProfile"
+              aria-label="Scan Profile"
               value={selectedProfile}
               onChange={(e) => setSelectedProfile(e.target.value)}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"

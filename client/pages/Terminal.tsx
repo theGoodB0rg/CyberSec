@@ -20,12 +20,12 @@ const Terminal: React.FC = () => {
 
   useEffect(() => {
     socket.on('scan-output', handleScanOutput)
-    socket.on('scan-complete', handleScanComplete)
+  socket.on('scan-completed', handleScanComplete)
     socket.on('scan-error', handleScanError)
 
     return () => {
       socket.off('scan-output', handleScanOutput)
-      socket.off('scan-complete', handleScanComplete)
+  socket.off('scan-completed', handleScanComplete)
       socket.off('scan-error', handleScanError)
     }
   }, [socket])
