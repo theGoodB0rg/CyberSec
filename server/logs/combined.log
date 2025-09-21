@@ -2283,3 +2283,198 @@ Press Enter to continue...
 2025-09-21 12:40:18 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
 2025-09-21 12:40:18 [INFO]: Client connected: h20WDFFjDwwwFaHjAAAB | {"service":"cybersecurity-app"}
 2025-09-21 12:40:21 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 12:44:25 [INFO]: Direct sqlmap command not available, trying alternatives... | {"service":"cybersecurity-app"}
+2025-09-21 12:44:25 [INFO]: python not available | {"service":"cybersecurity-app"}
+2025-09-21 12:44:26 [INFO]: python3 not available | {"service":"cybersecurity-app"}
+2025-09-21 12:44:26 [INFO]: SQLMap module not available for py | {"service":"cybersecurity-app"}
+2025-09-21 12:44:26 [WARN]: SQLMap not found via version check, using default command | {"service":"cybersecurity-app"}
+2025-09-21 12:44:26 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 12:44:27 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 12:44:27 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[12:44:27] [ERROR] exit
+[12:44:27] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 12:44:27 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 12:44:27 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 12:44:27 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 12:44:27 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 12:44:27 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 12:44:27 [INFO]: Client connected: BDVBDPkcEjrxiv2XAAAB | {"service":"cybersecurity-app"}
+2025-09-21 12:44:28 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:13:54 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:13:54 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:13:55 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:13:55 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:13:54] [ERROR] exit
+[13:13:54] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:13:55 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:13:55 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:13:55 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:13:55 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:13:55 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:13:57 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:13:59 [INFO]: Client connected: V8168IRHnt8UA7y0AAAB | {"service":"cybersecurity-app"}
+2025-09-21 13:14:15 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:14:15 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:14:16 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:14:16 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:14:16] [ERROR] exit
+[13:14:16] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:14:16 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:14:16 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:14:16 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:14:16 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:14:17 [INFO]: Client connected: H4ib7lZhnVL3lJkJAAAB | {"service":"cybersecurity-app"}
+2025-09-21 13:14:17 [WARN]: Marked 12 running scans as interrupted on startup | {"service":"cybersecurity-app"}
+2025-09-21 13:14:17 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:14:18 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:22:39 [INFO]: Client disconnected: H4ib7lZhnVL3lJkJAAAB | {"service":"cybersecurity-app"}
+2025-09-21 13:22:40 [INFO]: Client connected: Yng_IzvyvknuDlPIAAAE | {"service":"cybersecurity-app"}
+2025-09-21 13:25:25 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:25:25 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:25:26 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:25:26 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:25:26] [ERROR] exit
+[13:25:26] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:25:26 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:25:26 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:25:26 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:25:26 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:25:27 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:25:28 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:31:04 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:31:04 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:31:05 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:31:05 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:31:05] [ERROR] exit
+[13:31:05] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:31:05 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:31:05 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:31:05 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:31:05 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:31:05 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:31:07 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:31:22 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:31:22 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:31:23 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:31:23 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:31:23] [ERROR] exit
+[13:31:23] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:31:23 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:31:23 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:31:23 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:31:23 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:31:23 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:31:25 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:31:40 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:31:40 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:31:41 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:31:41 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:31:41] [ERROR] exit
+[13:31:41] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:31:41 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:31:41 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:31:41 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:31:41 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:31:41 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:31:42 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:32:08 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:32:08 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:32:09 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:32:09 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:32:09] [ERROR] exit
+[13:32:09] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:32:09 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:32:09 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:32:09 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:32:09 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:32:09 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:32:10 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:39:11 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:39:11 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:39:12 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:39:12 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:39:12] [ERROR] exit
+[13:39:12] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:39:12 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:39:12 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:39:12 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:39:12 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:39:12 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:42:13 [ERROR]: Puppeteer test launch failed: | {"service":"cybersecurity-app"}
+2025-09-21 13:42:13 [WARN]: PDF generation may not work correctly | {"service":"cybersecurity-app"}
+2025-09-21 13:43:18 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:43:18 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:43:19 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:43:19 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:43:18] [ERROR] exit
+[13:43:18] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:43:19 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:43:19 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:43:19 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:43:19 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:43:19 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:43:21 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 13:43:42 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 13:43:42 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 13:43:43 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 13:43:43 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[13:43:43] [ERROR] exit
+[13:43:43] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 13:43:43 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 13:43:43 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 13:43:43 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 13:43:43 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 13:43:43 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 13:43:44 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 14:09:32 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 14:09:32 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 14:09:33 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 14:09:33 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[14:09:33] [ERROR] exit
+[14:09:33] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 14:09:33 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 14:09:33 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 14:09:33 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 14:09:33 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 14:09:33 [INFO]: Output retention cleanup scheduled daily at 03:30, retention=7 days | {"service":"cybersecurity-app"}
+2025-09-21 14:09:33 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 14:09:37 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}
+2025-09-21 14:09:43 [INFO]: Found SQLMap command in PATH | {"service":"cybersecurity-app"}
+2025-09-21 14:09:43 [INFO]: SQLMap integration initialized with path: sqlmap | {"service":"cybersecurity-app"}
+2025-09-21 14:09:44 [INFO]: SQLMap installation validated successfully | {"service":"cybersecurity-app"}
+2025-09-21 14:09:44 [INFO]: SQLMap version: 1.9.2#pip
+
+Press Enter to continue...
+[14:09:44] [ERROR] exit
+[14:09:44] [WARNING] your sqlmap version is outdated | {"service":"cybersecurity-app"}
+2025-09-21 14:09:44 [INFO]: Validating Puppeteer setup... | {"service":"cybersecurity-app"}
+2025-09-21 14:09:44 [INFO]: Puppeteer version: 24.11.1 | {"service":"cybersecurity-app"}
+2025-09-21 14:09:44 [INFO]: Server running on port 3001 | {"service":"cybersecurity-app"}
+2025-09-21 14:09:44 [INFO]: Environment: development | {"service":"cybersecurity-app"}
+2025-09-21 14:09:44 [INFO]: Output retention cleanup scheduled daily at 03:30, retention=7 days | {"service":"cybersecurity-app"}
+2025-09-21 14:09:44 [INFO]: Metadata column already exists in reports table | {"service":"cybersecurity-app"}
+2025-09-21 14:09:46 [INFO]: Puppeteer setup validation successful | {"service":"cybersecurity-app"}

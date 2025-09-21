@@ -37,6 +37,7 @@ class Database {
         scan_profile TEXT,
         user_id TEXT,
         org_id TEXT,
+        output_dir TEXT,
         status TEXT DEFAULT 'pending',
         start_time TEXT,
         end_time TEXT,
@@ -112,6 +113,19 @@ class Database {
       )
     `;
 
+    const createScanEventsTable = `
+      CREATE TABLE IF NOT EXISTS scan_events (
+        id TEXT PRIMARY KEY,
+        scan_id TEXT NOT NULL,
+        user_id TEXT,
+        org_id TEXT,
+        event_type TEXT NOT NULL,
+        at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        metadata TEXT,
+        FOREIGN KEY (scan_id) REFERENCES scans (id)
+      )
+    `;
+
     const createReconParams = `
       CREATE TABLE IF NOT EXISTS recon_parameters (
         id TEXT PRIMARY KEY,
@@ -158,6 +172,10 @@ class Database {
   this.db.run(createReconParams);
       this.db.run(createReconPages);
     this.db.run(createUsersTable);
+      this.db.run(createScanEventsTable);
+
+      // Helpful indices
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_scans_output_dir ON scans(output_dir)`);
 
       // Attempt to add new columns if upgrading existing recon_parameters
       const alterCols = [
@@ -178,6 +196,7 @@ class Database {
       const migrateStatements = [
         { table: 'scans', stmt: 'ADD COLUMN user_id TEXT' },
         { table: 'scans', stmt: 'ADD COLUMN org_id TEXT' },
+        { table: 'scans', stmt: 'ADD COLUMN output_dir TEXT' },
         { table: 'reports', stmt: 'ADD COLUMN user_id TEXT' },
         { table: 'reports', stmt: 'ADD COLUMN org_id TEXT' }
       ];
@@ -208,14 +227,77 @@ class Database {
   }
 
   // Scan operations
+  async interruptRunningScans() {
+    // Fetch scans currently marked as running, then mark them as interrupted.
+    return new Promise((resolve, reject) => {
+      this.db.all(`SELECT id, user_id, org_id, start_time FROM scans WHERE status = 'running'`, [], (err, rows) => {
+        if (err) return reject(err);
+        const now = new Date().toISOString();
+        this.db.run(`UPDATE scans SET status = 'interrupted', end_time = ?, updated_at = ? WHERE status = 'running'`, [now, now], (uErr) => {
+          if (uErr) return reject(uErr);
+          resolve(rows || []);
+        });
+      });
+    });
+  }
+
+  async logScanEvent({ id = uuidv4(), scan_id, user_id = 'system', org_id = null, event_type, at = new Date().toISOString(), metadata = {} }) {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = this.db.prepare(`
+          INSERT INTO scan_events (id, scan_id, user_id, org_id, event_type, at, metadata)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run([id, scan_id, user_id, org_id, event_type, at, JSON.stringify(metadata || {})], function(err) {
+          if (err) return reject(err);
+          resolve(id);
+        });
+        stmt.finalize();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  async getScanEventsForUser(scanId, userId, orgId = null, isAdmin = false, limit = 200, offset = 0) {
+    return new Promise((resolve, reject) => {
+      // Build query with ownership constraint
+      let sql = `
+        SELECT e.* FROM scan_events e
+        JOIN scans s ON s.id = e.scan_id
+        WHERE e.scan_id = ?
+      `;
+      const params = [scanId];
+      if (!isAdmin) {
+        if (orgId) {
+          sql += ' AND s.org_id = ?';
+          params.push(orgId);
+        } else {
+          sql += ' AND s.user_id = ?';
+          params.push(userId);
+        }
+      }
+      sql += ' ORDER BY e.at ASC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+
+      this.db.all(sql, params, (err, rows) => {
+        if (err) return reject(err);
+        const events = (rows || []).map(r => ({
+          ...r,
+          metadata: this.safeJson(r.metadata, {})
+        }));
+        resolve(events);
+      });
+    });
+  }
   async createScan(scanData) {
     return new Promise((resolve, reject) => {
       const id = uuidv4();
-      const { target, options, scanProfile, status, start_time, user_id = 'system', org_id = null } = scanData;
+      const { target, options, scanProfile, status, start_time, user_id = 'system', org_id = null, output_dir = null } = scanData;
       
       const stmt = this.db.prepare(`
-        INSERT INTO scans (id, target, options, scan_profile, user_id, org_id, status, start_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO scans (id, target, options, scan_profile, user_id, org_id, output_dir, status, start_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run([
@@ -225,6 +307,7 @@ class Database {
         scanProfile,
         user_id,
         org_id,
+        output_dir,
         status,
         start_time
       ], function(err) {
@@ -603,6 +686,26 @@ class Database {
           }
         }
       );
+    });
+  }
+
+  // Output retention helpers
+  async getScansWithOutputBefore(cutoffIso) {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT id, output_dir FROM scans WHERE output_dir IS NOT NULL AND end_time IS NOT NULL AND end_time < ?`;
+      this.db.all(sql, [cutoffIso], (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+  }
+
+  async clearScanOutputDir(scanId) {
+    return new Promise((resolve, reject) => {
+      this.db.run('UPDATE scans SET output_dir = NULL WHERE id = ?', [scanId], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
     });
   }
 

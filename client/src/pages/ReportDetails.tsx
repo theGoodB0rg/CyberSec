@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, FileText, FileJson, CheckCircle } from 'lucide-react';
+import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw } from 'lucide-react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { getScanEvents, type ScanEvent } from '../utils/api';
 
 // You might need to create this type based on your actual report structure
 type Report = {
@@ -66,6 +67,11 @@ export default function ReportDetails() {
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'vulns' | 'recs' | 'command' | 'outputs' | 'activity'>('vulns');
+  const [events, setEvents] = useState<ScanEvent[] | null>(null);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [eventsLastRefreshed, setEventsLastRefreshed] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -89,6 +95,36 @@ export default function ReportDetails() {
       fetchReport();
     }
   }, [reportId]);
+
+  const scanId = useMemo(() => {
+    // Prefer a direct scanId on the report if available; otherwise try to infer from metadata/extracted data
+    // Our server stores scan_id as report.scan_id in the DB, but the client Report type doesn’t have it;
+    // fetchReport returns the full row, so we can try (report as any).scan_id safely.
+    return (report as any)?.scan_id || (report as any)?.scanId || '';
+  }, [report]);
+
+  const fetchEvents = () => {
+    if (!scanId) {
+      setEvents([]);
+      return;
+    }
+    setEventsLoading(true);
+    setEventsError(null);
+    getScanEvents(scanId)
+      .then((data) => {
+        setEvents(data);
+        setEventsLastRefreshed(Date.now());
+      })
+      .catch((e) => {
+        setEventsError(e.message || 'Failed to load events');
+      })
+      .finally(() => setEventsLoading(false));
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'activity') return;
+    fetchEvents();
+  }, [activeTab, scanId]);
 
   const getSeverityClass = (severity: string) => {
     switch (severity?.toLowerCase()) {
@@ -178,7 +214,41 @@ export default function ReportDetails() {
         </div>
       </div>
 
-      {/* Vulnerabilities */}
+      {/* Tabs */}
+      <div className="flex border-b border-gray-700 mb-4">
+        <button
+          className={`px-4 py-2 ${activeTab==='vulns' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400'}`}
+          onClick={() => setActiveTab('vulns')}
+        >
+          Vulnerabilities
+        </button>
+        <button
+          className={`px-4 py-2 ${activeTab==='recs' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400'}`}
+          onClick={() => setActiveTab('recs')}
+        >
+          Recommendations
+        </button>
+        <button
+          className={`px-4 py-2 ${activeTab==='command' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400'}`}
+          onClick={() => setActiveTab('command')}
+        >
+          Command
+        </button>
+        <button
+          className={`px-4 py-2 ${activeTab==='outputs' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400'}`}
+          onClick={() => setActiveTab('outputs')}
+        >
+          Outputs
+        </button>
+        <button
+          className={`px-4 py-2 ${activeTab==='activity' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400'}`}
+          onClick={() => setActiveTab('activity')}
+        >
+          Activity
+        </button>
+      </div>
+
+      {activeTab === 'vulns' && (
       <div className="bg-gray-800 p-6 rounded-lg mb-8">
         <h2 className="text-2xl font-bold mb-6 flex items-center">
           <ExclamationTriangleIcon className="h-7 w-7 mr-3 text-red-400" />
@@ -278,8 +348,9 @@ export default function ReportDetails() {
           )}
         </div>
       </div>
+      )}
 
-      {/* Recommendations */}
+      {activeTab === 'recs' && (
       <div className="bg-gray-800 p-6 rounded-lg">
         <h2 className="text-2xl font-bold mb-4">Recommendations</h2>
         <div className="prose prose-invert max-w-none">
@@ -348,14 +419,99 @@ export default function ReportDetails() {
           )}
         </div>
       </div>
+      )}
 
-       {/* Scan Command */}
+      {activeTab === 'command' && (
        <div className="bg-gray-800 p-6 rounded-lg mt-8">
         <h2 className="text-2xl font-bold mb-4">Scan Command</h2>
         <code className="bg-gray-900 p-4 rounded-md block text-sm text-gray-300 overflow-x-auto">
           {report.command}
         </code>
       </div>
+      )}
+
+      {activeTab === 'outputs' && (
+        <div className="bg-gray-800 p-6 rounded-lg">
+          <h2 className="text-2xl font-bold mb-4">Outputs</h2>
+          {(() => {
+            const dumps = (report as any)?.extractedData?.outputFiles?.dumps as Array<{ name: string }>|undefined;
+            if (!dumps || dumps.length === 0) {
+              return <div className="text-gray-400">No downloadable outputs available.</div>;
+            }
+            return (
+              <ul className="divide-y divide-gray-700">
+                {dumps.map((f) => (
+                  <li key={f.name} className="py-2 flex items-center justify-between">
+                    <span className="text-gray-200 break-all">{f.name}</span>
+                    <a
+                      className="text-blue-400 hover:text-blue-300 text-sm"
+                      href={`/api/reports/${report.id}/files/${encodeURIComponent(f.name)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
+        </div>
+      )}
+
+      {activeTab === 'activity' && (
+        <div className="bg-gray-800 p-6 rounded-lg">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold">Scan Activity</h2>
+            <div className="flex items-center gap-3">
+              {eventsLastRefreshed && (
+                <span className="text-xs text-gray-400">
+                  Last refreshed: {new Date(eventsLastRefreshed).toLocaleTimeString()}
+                </span>
+              )}
+              <button
+                onClick={fetchEvents}
+                disabled={eventsLoading || !scanId}
+                className={`btn-secondary flex items-center gap-2 ${eventsLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                title={scanId ? 'Refresh activity' : 'No scan ID to refresh'}
+              >
+                <RefreshCcw size={16} className={eventsLoading ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            </div>
+          </div>
+          {eventsLoading && <div className="text-gray-400">Loading events…</div>}
+          {eventsError && <div className="text-red-400">Error: {eventsError}</div>}
+          {!eventsLoading && !eventsError && (!events || events.length === 0) && (
+            <div className="text-gray-400">No activity recorded for this scan.</div>
+          )}
+          <ul className="divide-y divide-gray-700">
+            {events?.map((e) => (
+              <li key={e.id} className="py-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="text-gray-200 font-medium capitalize">{e.event_type.replace('-', ' ')}</div>
+                    {e.event_type === 'output' && e.metadata?.chunk && (
+                      <pre className="mt-1 text-xs text-gray-300 bg-gray-900 border border-gray-700 rounded p-2 overflow-x-auto max-h-40">
+                        {e.metadata.chunk}
+                      </pre>
+                    )}
+                    {e.event_type !== 'output' && e.metadata && Object.keys(e.metadata).length > 0 && (
+                      <details className="mt-1">
+                        <summary className="text-xs text-gray-400 cursor-pointer">Details</summary>
+                        <pre className="mt-1 text-xs text-gray-300 bg-gray-900 border border-gray-700 rounded p-2 overflow-x-auto">
+                          {JSON.stringify(e.metadata, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-400 ml-4 whitespace-nowrap">{new Date(e.at).toLocaleString()}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

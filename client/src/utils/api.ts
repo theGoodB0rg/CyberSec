@@ -41,3 +41,18 @@ export async function apiFetch<T = any>(input: string, init: ApiOptions = {}): P
   }
   return body as T;
 }
+
+// Scan Events types and helper
+export type ScanEvent = {
+  id: string
+  scan_id: string
+  user_id?: string
+  org_id?: string | null
+  event_type: string
+  at: string
+  metadata?: any
+}
+
+export async function getScanEvents(scanId: string): Promise<ScanEvent[]> {
+  return apiFetch<ScanEvent[]>(`/api/scans/${encodeURIComponent(scanId)}/events`)
+}

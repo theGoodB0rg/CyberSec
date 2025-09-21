@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { PlayIcon, StopIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
@@ -132,12 +132,22 @@ export default function Terminal() {
     on('scan-started', handleScanStarted)
     on('scan-completed', handleScanComplete)
     on('scan-error', handleScanError)
+    on('scan-terminated', () => {
+      setIsScanning(false)
+      if (xtermRef.current) {
+        xtermRef.current.writeln('')
+        xtermRef.current.writeln('\x1b[1;33m! Scan was terminated by user or server\x1b[0m')
+        xtermRef.current.writeln('')
+      }
+      toast('Scan terminated', { icon: '🛑' })
+    })
 
     return () => {
     off('scan-output', handleScanOutput)
     off('scan-started', handleScanStarted)
     off('scan-completed', handleScanComplete)
     off('scan-error', handleScanError)
+    off('scan-terminated')
     }
   }, [on, off, updateScan, addScan])
 

@@ -6,7 +6,6 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 
 // Import custom modules
 const Database = require('./database');
@@ -260,8 +259,8 @@ app.get('/api/reports/:id/files/:filename', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // Check if the report has structured results with files (stored under extractedData)
-    const dumps = report.extractedData && report.extractedData.outputFiles && report.extractedData.outputFiles.dumps;
+  // Check if the report has structured results with files (stored under extractedData)
+  const dumps = report.extractedData && report.extractedData.outputFiles && report.extractedData.outputFiles.dumps;
     if (!dumps || !Array.isArray(dumps)) {
       return res.status(404).json({ error: 'No output files found for this report' });
     }
@@ -272,10 +271,12 @@ app.get('/api/reports/:id/files/:filename', async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    // Security check - ensure file is within temp directory
-    const tempDir = path.join(os.tmpdir(), 'cybersec-sqlmap');
+    // Security check - ensure file path is within recorded output_dir for this scan
+    const scan = await database.getScan(report.scan_id);
     const normalizedPath = path.normalize(file.path);
-    if (!normalizedPath.startsWith(tempDir)) {
+    const recordedDir = scan?.output_dir ? path.normalize(scan.output_dir) : '';
+    const rel = recordedDir ? path.relative(recordedDir, normalizedPath) : '..';
+    if (!recordedDir || rel.startsWith('..') || path.isAbsolute(rel)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -296,6 +297,30 @@ app.delete('/api/reports/:id', async (req, res) => {
     if (req.user.role !== 'admin' && report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
+    // Best-effort: remove output directory for the underlying scan if it exists and is owned by the same user/org
+    try {
+      const scan = report.scan_id ? await database.getScan(report.scan_id) : null;
+      if (scan?.output_dir) {
+        // Double-check ownership matches report
+        const owns = (req.user.role === 'admin') || (scan.user_id === req.user.id) || (req.user.orgId && scan.org_id === req.user.orgId);
+        if (owns) {
+          const recordedDir = scan.output_dir;
+          // Remove the directory recursively (safe because we validated ownership and use normalized path checks below if needed)
+          try {
+            if (recordedDir && fs.existsSync(recordedDir)) {
+              fs.rmSync(recordedDir, { recursive: true, force: true });
+            }
+            // Clear reference in DB
+            await database.clearScanOutputDir(scan.id);
+          } catch (e) {
+            Logger.warn('Failed to remove output dir during report delete', { error: e.message, dir: recordedDir });
+          }
+        }
+      }
+    } catch (e) {
+      Logger.warn('Cleanup on report delete failed', { error: e.message });
+    }
+
     const success = await database.deleteReport(req.params.id);
     if (!success) {
       return res.status(404).json({ error: 'Report not found' });
@@ -340,6 +365,15 @@ io.use(AuthMiddleware.verifySocketAuth);
 
 io.on('connection', (socket) => {
   Logger.info(`Client connected: ${socket.id}`);
+
+  // Join a user-specific room to allow multi-tab updates
+  if (socket.user?.id) {
+    try {
+      socket.join(`user:${socket.user.id}`);
+    } catch (e) {
+      Logger.warn('Failed to join user room', { error: e.message });
+    }
+  }
 
   // Handle SQLMap scan initiation
   socket.on('start-sqlmap-scan', async (data) => {
@@ -399,23 +433,37 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Create scan session
+      // Start SQLMap scan (creates per-user output directory)
+      const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, options, scanProfile, userId);
+
+      // Create scan session and record output directory
       const scanId = await database.createScan({
         target,
         options,
         scanProfile,
         user_id: userId,
         org_id: orgId,
+        output_dir: outputDir,
         status: 'running',
         start_time: new Date().toISOString()
       });
 
+      // Log audit event: started
+      try {
+        await database.logScanEvent({
+          scan_id: scanId,
+          user_id: userId,
+          org_id: orgId,
+          event_type: 'started',
+          metadata: { target, scanProfile, options }
+        });
+      } catch (e) {
+        Logger.warn('Failed to log scan start event', { error: e.message, scanId });
+      }
+
       // Increment usage started counter
       try { await database.incrementUsageOnStart(userId, period); } catch (e) { Logger.warn('Failed to increment usage on start', { error: e.message }); }
 
-      // Start SQLMap scan
-  const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, options, scanProfile, userId);
-      
       // Store the scan process and its output directory for tracking
       scanProcesses.set(scanId, {
         process: proc,
@@ -432,12 +480,31 @@ io.on('connection', (socket) => {
         const output = data.toString();
         socket.emit('scan-output', { scanId, output, type: 'stdout' });
         database.appendScanOutput(scanId, output, 'stdout');
+        // Opportunistic event logging with throttling by chunk size
+        if (output && output.trim()) {
+          database.logScanEvent({
+            scan_id: scanId,
+            user_id: userId,
+            org_id: orgId,
+            event_type: 'output',
+            metadata: { type: 'stdout', chunk: output.slice(0, 1000) }
+          }).catch(()=>{});
+        }
       });
 
       proc.stderr.on('data', (data) => {
         const output = data.toString();
         socket.emit('scan-output', { scanId, output, type: 'stderr' });
         database.appendScanOutput(scanId, output, 'stderr');
+        if (output && output.trim()) {
+          database.logScanEvent({
+            scan_id: scanId,
+            user_id: userId,
+            org_id: orgId,
+            event_type: 'output',
+            metadata: { type: 'stderr', chunk: output.slice(0, 1000) }
+          }).catch(()=>{});
+        }
       });
 
       proc.on('close', async (code) => {
@@ -486,6 +553,15 @@ io.on('connection', (socket) => {
             exit_code: code,
             hasStructuredResults: !!sqlmapResults
           });
+          try {
+            await database.logScanEvent({
+              scan_id: scanId,
+              user_id: userId,
+              org_id: orgId,
+              event_type: code === 0 ? 'completed' : 'failed',
+              metadata: { exit_code: code, reportId, hasStructuredResults: !!sqlmapResults }
+            });
+          } catch (e) { Logger.warn('Failed to log completion event', { scanId, error: e.message }); }
           
           Logger.info(`Report generated successfully for scan ${scanId}, report ID: ${reportId}`);
           // Increment usage completion counters
@@ -512,6 +588,13 @@ io.on('connection', (socket) => {
         Logger.error('SQLMap process error:', error);
         socket.emit('scan-error', { scanId, message: error.message });
         database.updateScan(scanId, { status: 'failed', error: error.message });
+        database.logScanEvent({
+          scan_id: scanId,
+          user_id: socket.user?.id || 'system',
+          org_id: socket.user?.orgId || null,
+          event_type: 'process-error',
+          metadata: { message: error.message }
+        }).catch(()=>{});
         scanProcesses.delete(scanId);
       });
 
@@ -549,6 +632,13 @@ io.on('connection', (socket) => {
         status: 'terminated',
         end_time: new Date().toISOString()
       });
+      database.logScanEvent({
+        scan_id: reqScanId,
+        user_id: procInfo.userId,
+        org_id: procInfo.orgId || null,
+        event_type: 'terminated',
+        metadata: { by: socket.user?.id, role: socket.user?.role }
+      }).catch(()=>{});
       scanProcesses.delete(reqScanId);
     } catch (e) {
       socket.emit('scan-error', { message: 'Failed to terminate scan.' });
@@ -611,8 +701,81 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1);
 });
 
+// Authenticated routes: scan events API
+app.get('/api/scans/:id/events', async (req, res) => {
+  try {
+    // Optional: ensure scan exists and ownership
+    const scan = await database.getScan(req.params.id);
+    if (!scan) return res.status(404).json({ error: 'Scan not found' });
+    if (req.user.role !== 'admin') {
+      const owns = (scan.user_id === req.user.id) || (req.user.orgId && scan.org_id === req.user.orgId);
+      if (!owns) return res.status(403).json({ error: 'Forbidden' });
+    }
+    const events = await database.getScanEventsForUser(
+      req.params.id,
+      req.user.id,
+      req.user.orgId,
+      req.user.role === 'admin',
+      500, 0
+    );
+    res.json(events);
+  } catch (e) {
+    Logger.error('Failed to fetch scan events', e);
+    res.status(500).json({ error: 'Failed to fetch events' });
+  }
+});
+
 // Start server
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   Logger.info(`Server running on port ${PORT}`);
   Logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  // Startup recovery: mark previously running scans as interrupted and log audit
+  try {
+    const interrupted = await database.interruptRunningScans();
+    if (interrupted && interrupted.length) {
+      Logger.warn(`Marked ${interrupted.length} running scans as interrupted on startup`);
+      for (const s of interrupted) {
+        try {
+          await database.logScanEvent({
+            scan_id: s.id,
+            user_id: s.user_id || 'system',
+            org_id: s.org_id || null,
+            event_type: 'server-restart',
+            metadata: { note: 'Server restarted while scan was running; status set to interrupted' }
+          });
+        } catch (_) {}
+      }
+    }
+  } catch (e) {
+    Logger.error('Startup recovery failed', e);
+  }
+
+  // Schedule a daily cleanup of old scan output directories (default retention 7 days)
+  try {
+    const cron = require('node-cron');
+    const retentionDays = parseInt(process.env.OUTPUT_RETENTION_DAYS || '7', 10);
+    if (retentionDays > 0) {
+      cron.schedule('30 3 * * *', async () => {
+        try {
+          const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+          const stale = await database.getScansWithOutputBefore(cutoff);
+          for (const s of stale) {
+            const dir = s.output_dir;
+            try {
+              if (dir && fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+              await database.clearScanOutputDir(s.id);
+            } catch (e) {
+              Logger.warn('Failed retention cleanup for dir', { dir, error: e.message });
+            }
+          }
+          if (stale.length) Logger.info(`Retention cleanup removed ${stale.length} output directories older than ${retentionDays} days`);
+        } catch (e) {
+          Logger.warn('Retention cleanup task failed', { error: e.message });
+        }
+      });
+      Logger.info(`Output retention cleanup scheduled daily at 03:30, retention=${retentionDays} days`);
+    }
+  } catch (e) {
+    Logger.warn('Failed to schedule retention cleanup', { error: e.message });
+  }
 }); 

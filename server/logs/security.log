@@ -774,3 +774,7 @@ Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,
 2025-09-10 19:05:07 [WARN]: PDF generation may not work correctly | {"service":"cybersecurity-app"}
 2025-09-21 12:19:55 [ERROR]: Puppeteer test launch failed: | {"service":"cybersecurity-app"}
 2025-09-21 12:19:55 [WARN]: PDF generation may not work correctly | {"service":"cybersecurity-app"}
+2025-09-21 12:44:26 [WARN]: SQLMap not found via version check, using default command | {"service":"cybersecurity-app"}
+2025-09-21 13:14:17 [WARN]: Marked 12 running scans as interrupted on startup | {"service":"cybersecurity-app"}
+2025-09-21 13:42:13 [ERROR]: Puppeteer test launch failed: | {"service":"cybersecurity-app"}
+2025-09-21 13:42:13 [WARN]: PDF generation may not work correctly | {"service":"cybersecurity-app"}
