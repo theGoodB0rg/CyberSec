@@ -13,8 +13,11 @@ const Database = require('./database');
 const SQLMapIntegration = require('./sqlmap');
 const ReportGenerator = require('./reports');
 const SecurityMiddleware = require('./middleware/security');
+const AuthMiddleware = require('./middleware/auth');
+const createAuthRouter = require('./routes/auth');
 const Logger = require('./utils/logger');
 const ReconEngine = require('./recon');
+const createTargetsRouter = require('./routes/targets');
 
 // Initialize Express app
 const app = express();
@@ -86,22 +89,34 @@ const sqlmapIntegration = new SQLMapIntegration();
 const reportGenerator = new ReportGenerator(database);
 const reconEngine = new ReconEngine();
 
-// Track running scans and their output directories
+// Track running scans and their output directories and ownership
 let scanProcesses = new Map();
 
 // Security middleware
 app.use('/api', SecurityMiddleware.validateInput);
 app.use('/api', SecurityMiddleware.sanitizeInput);
 
+// Public auth routes
+app.use('/api/auth', createAuthRouter(database));
+// Targets verification routes
+app.use('/api/targets', createTargetsRouter(database));
+
 // API Routes
 app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Get all scans
+// Authenticated routes
+app.use('/api', AuthMiddleware.requireAuth);
+
+// Get user-scoped scans
 app.get('/api/scans', async (req, res) => {
   try {
-    const scans = await database.getScans();
+    const scans = await database.getScansForUser(
+      req.user.id,
+      req.user.orgId,
+      req.user.role === 'admin'
+    );
     res.json(scans);
   } catch (error) {
     Logger.error('Error fetching scans:', error);
@@ -149,11 +164,31 @@ app.get('/api/recon', async (req, res) => {
 // Get all scan reports
 app.get('/api/reports', async (req, res) => {
   try {
-    const reports = await database.getReports();
+    const reports = await database.getReportsForUser(
+      req.user.id,
+      req.user.orgId,
+      req.user.role === 'admin'
+    );
     res.json(reports);
   } catch (error) {
     Logger.error('Error fetching reports:', error);
     res.status(500).json({ error: 'Failed to fetch reports' });
+  }
+});
+
+// Usage summary endpoint
+app.get('/api/usage', async (req, res) => {
+  try {
+    const period = new Date().toISOString().slice(0,7);
+    const usage = await database.getUsageForUser(req.user.id, period);
+    const limits = {
+      concurrent: parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10),
+      monthly: parseInt(process.env.MAX_SCANS_PER_MONTH || '100', 10)
+    };
+    res.json({ period, usage, limits });
+  } catch (e) {
+    Logger.error('Usage endpoint error', e);
+    res.status(500).json({ error: 'Failed to retrieve usage' });
   }
 });
 
@@ -163,6 +198,10 @@ app.get('/api/reports/:id', async (req, res) => {
     const report = await database.getReport(req.params.id);
     if (!report) {
       return res.status(404).json({ error: 'Report not found' });
+    }
+    // Enforce ownership unless admin
+    if (req.user.role !== 'admin' && report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
     res.json(report);
   } catch (error) {
@@ -179,6 +218,11 @@ app.get('/api/reports/:id/export/:format', async (req, res) => {
     
     if (!report) {
       return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Enforce ownership unless admin
+    if (req.user.role !== 'admin' && report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
     const exportedData = await reportGenerator.exportReport(report, format);
@@ -210,6 +254,10 @@ app.get('/api/reports/:id/files/:filename', async (req, res) => {
     
     if (!report) {
       return res.status(404).json({ error: 'Report not found' });
+    }
+    // Enforce ownership unless admin
+    if (req.user.role !== 'admin' && report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
     // Check if the report has structured results with files (stored under extractedData)
@@ -243,6 +291,11 @@ app.get('/api/reports/:id/files/:filename', async (req, res) => {
 // Delete report
 app.delete('/api/reports/:id', async (req, res) => {
   try {
+    const report = await database.getReport(req.params.id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    if (req.user.role !== 'admin' && report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const success = await database.deleteReport(req.params.id);
     if (!success) {
       return res.status(404).json({ error: 'Report not found' });
@@ -282,6 +335,9 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Socket.io connection handling
+// Authenticate socket connections
+io.use(AuthMiddleware.verifySocketAuth);
+
 io.on('connection', (socket) => {
   Logger.info(`Client connected: ${socket.id}`);
 
@@ -303,50 +359,88 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Enforce per-user concurrency and quotas
+      const userId = socket.user?.id || 'system';
+      const orgId = socket.user?.orgId || null;
+      const isAdmin = socket.user?.role === 'admin';
+
+      // Concurrency limit
+      const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
+      const runningForUser = Array.from(scanProcesses.values()).filter(p => p.userId === userId).length;
+      if (!isAdmin && runningForUser >= MAX_CONCURRENT) {
+        socket.emit('scan-error', { message: `Concurrent scan limit reached (${MAX_CONCURRENT}). Please wait for existing scans to finish.` });
+        return;
+      }
+
+      // Monthly quota (YYYY-MM)
+      const period = new Date().toISOString().slice(0,7);
+      const MAX_SCANS_MONTH = parseInt(process.env.MAX_SCANS_PER_MONTH || '100', 10);
+      if (!isAdmin) {
+        const usage = await database.getUsageForUser(userId, period);
+        if ((usage?.scans_started || 0) >= MAX_SCANS_MONTH) {
+          socket.emit('scan-error', { message: `Monthly scan quota reached (${MAX_SCANS_MONTH} in ${period}).` });
+          return;
+        }
+      }
+
+      // Require verified target unless explicitly allowed
+      const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
+      if (!allowUnverified && !isAdmin) {
+        try {
+          const hostname = new URL(target).hostname;
+          const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
+          if (!verified) {
+            socket.emit('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
+            return;
+          }
+        } catch (e) {
+          socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
+          return;
+        }
+      }
+
       // Create scan session
       const scanId = await database.createScan({
         target,
         options,
         scanProfile,
+        user_id: userId,
+        org_id: orgId,
         status: 'running',
         start_time: new Date().toISOString()
       });
 
+      // Increment usage started counter
+      try { await database.incrementUsageOnStart(userId, period); } catch (e) { Logger.warn('Failed to increment usage on start', { error: e.message }); }
+
       // Start SQLMap scan
-      const scanProcess = await sqlmapIntegration.startScan(target, options, scanProfile);
+  const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, options, scanProfile, userId);
       
       // Store the scan process and its output directory for tracking
       scanProcesses.set(scanId, {
-        process: scanProcess,
-        outputDir: null, // Will be set when we get the output directory from sqlmap
+        process: proc,
+        outputDir: outputDir,
         target,
         scanProfile,
-        startTime: new Date()
+        startTime: new Date(),
+        userId,
+        orgId
       });
       
       // Handle real-time output
-      scanProcess.stdout.on('data', (data) => {
+      proc.stdout.on('data', (data) => {
         const output = data.toString();
         socket.emit('scan-output', { scanId, output, type: 'stdout' });
         database.appendScanOutput(scanId, output, 'stdout');
-        
-        // Try to extract output directory from SQLMap output
-        const outputDirMatch = output.match(/output directory: '([^']+)'/i);
-        if (outputDirMatch && scanProcesses.has(scanId)) {
-          const processInfo = scanProcesses.get(scanId);
-          processInfo.outputDir = outputDirMatch[1];
-          scanProcesses.set(scanId, processInfo);
-          Logger.info(`Captured output directory for scan ${scanId}: ${outputDirMatch[1]}`);
-        }
       });
 
-      scanProcess.stderr.on('data', (data) => {
+      proc.stderr.on('data', (data) => {
         const output = data.toString();
         socket.emit('scan-output', { scanId, output, type: 'stderr' });
         database.appendScanOutput(scanId, output, 'stderr');
       });
 
-      scanProcess.on('close', async (code) => {
+      proc.on('close', async (code) => {
         const endTime = new Date().toISOString();
         let scanData = await database.getScan(scanId);
         
@@ -368,39 +462,9 @@ io.on('connection', (socket) => {
           if (code === 0) {
             try {
               const processInfo = scanProcesses.get(scanId);
-              let outputDir = null;
-              
-              if (processInfo && processInfo.outputDir) {
-                // Use the tracked output directory
-                outputDir = processInfo.outputDir;
-                Logger.info(`Using tracked output directory for scan ${scanId}: ${outputDir}`);
-              } else {
-                // Fallback: search for the most recent directory
-                const tempDir = path.join(os.tmpdir(), 'cybersec-sqlmap');
-                
-                if (fs.existsSync(tempDir)) {
-                  const sessionDirs = fs.readdirSync(tempDir).filter(dir => {
-                    const dirPath = path.join(tempDir, dir);
-                    return fs.statSync(dirPath).isDirectory();
-                  });
-                  
-                  if (sessionDirs.length > 0) {
-                    const latestDir = sessionDirs
-                      .map(dir => ({
-                        name: dir,
-                        path: path.join(tempDir, dir),
-                        mtime: fs.statSync(path.join(tempDir, dir)).mtime
-                      }))
-                      .sort((a, b) => b.mtime - a.mtime)[0];
-                    
-                    outputDir = latestDir.path;
-                    Logger.warn(`Fallback: using most recent output directory for scan ${scanId}: ${outputDir}`);
-                  }
-                }
-              }
-              
-              if (outputDir && fs.existsSync(outputDir)) {
-                sqlmapResults = await sqlmapIntegration.parseResults(outputDir, scanId);
+              const outDir = processInfo?.outputDir;
+              if (outDir && fs.existsSync(outDir)) {
+                sqlmapResults = await sqlmapIntegration.parseResults(outDir, scanId);
                 Logger.info(`Successfully parsed SQLMap results for scan ${scanId}`);
               } else {
                 Logger.warn(`No valid output directory found for scan ${scanId}`);
@@ -413,7 +477,7 @@ io.on('connection', (socket) => {
           }
 
           const reportData = await reportGenerator.generateReport(scanId, scanData, sqlmapResults);
-          const reportId = await database.createReport(reportData);
+          const reportId = await database.createReport({ ...reportData, user_id: socket.user?.id || 'system', org_id: socket.user?.orgId || null });
           
           socket.emit('scan-completed', { 
             scanId, 
@@ -424,6 +488,13 @@ io.on('connection', (socket) => {
           });
           
           Logger.info(`Report generated successfully for scan ${scanId}, report ID: ${reportId}`);
+          // Increment usage completion counters
+          try {
+            const runtime = (new Date(scanData.end_time).getTime() - new Date(scanData.start_time).getTime()) || 0;
+            await database.incrementUsageOnComplete(userId, period, Math.max(0, runtime));
+          } catch (e) {
+            Logger.warn('Failed to increment usage on complete', { error: e.message });
+          }
           
         } catch (reportError) {
           Logger.error('Error generating report:', reportError);
@@ -437,7 +508,7 @@ io.on('connection', (socket) => {
         }
       });
 
-      scanProcess.on('error', (error) => {
+      proc.on('error', (error) => {
         Logger.error('SQLMap process error:', error);
         socket.emit('scan-error', { scanId, message: error.message });
         database.updateScan(scanId, { status: 'failed', error: error.message });
@@ -445,7 +516,7 @@ io.on('connection', (socket) => {
       });
 
       // Store process reference for potential termination
-      socket.scanProcess = scanProcess;
+      socket.scanProcess = proc;
       socket.scanId = scanId;
 
       socket.emit('scan-started', { scanId });
@@ -457,19 +528,30 @@ io.on('connection', (socket) => {
   });
 
   // Handle scan termination (Ctrl+C functionality)
-  socket.on('terminate-scan', () => {
-    if (socket.scanProcess) {
-      socket.scanProcess.kill('SIGTERM');
-      socket.emit('scan-terminated', { scanId: socket.scanId });
-      
-      // Update scan status
-      if (socket.scanId) {
-        database.updateScan(socket.scanId, { 
-          status: 'terminated',
-          end_time: new Date().toISOString()
-        });
-        scanProcesses.delete(socket.scanId);
-      }
+  socket.on('terminate-scan', (payload = {}) => {
+    const reqScanId = payload.scanId || socket.scanId;
+    const procInfo = scanProcesses.get(reqScanId);
+    if (!procInfo) {
+      socket.emit('scan-error', { message: 'Scan not found or already finished.' });
+      return;
+    }
+    const isAdmin = socket.user?.role === 'admin';
+    const sameUser = procInfo.userId === (socket.user?.id || '');
+    const sameOrg = socket.user?.orgId && procInfo.orgId && socket.user.orgId === procInfo.orgId;
+    if (!(isAdmin || sameUser || sameOrg)) {
+      socket.emit('scan-error', { message: 'You do not have permission to terminate this scan.' });
+      return;
+    }
+    try {
+      procInfo.process.kill('SIGTERM');
+      socket.emit('scan-terminated', { scanId: reqScanId });
+      database.updateScan(reqScanId, { 
+        status: 'terminated',
+        end_time: new Date().toISOString()
+      });
+      scanProcesses.delete(reqScanId);
+    } catch (e) {
+      socket.emit('scan-error', { message: 'Failed to terminate scan.' });
     }
   });
 
@@ -497,11 +579,7 @@ io.on('connection', (socket) => {
   // Handle disconnect
   socket.on('disconnect', () => {
     Logger.info(`Client disconnected: ${socket.id}`);
-    
-    // Clean up any running processes
-    if (socket.scanProcess) {
-      socket.scanProcess.kill('SIGTERM');
-    }
+    // Do not kill running processes on disconnect; scans continue in background
   });
 });
 

@@ -1,6 +1,4 @@
 const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
-const path = require('path');
 const puppeteer = require('puppeteer');
 const Logger = require('./utils/logger');
 
@@ -983,7 +981,10 @@ class ReportGenerator {
         await new Promise(resolve => setTimeout(resolve, 3000));
         
         // Evaluate if the content is properly loaded
-        const contentLength = await page.evaluate(() => document.body.innerText.length);
+        const contentLength = await page.evaluate(() => {
+          const d = globalThis.document;
+          return d && d.body ? d.body.innerText.length : 0;
+        });
         if (contentLength < 100) {
           throw new Error(`Page content appears to be incomplete (${contentLength} characters)`);
         }
@@ -1037,8 +1038,7 @@ class ReportGenerator {
         
         Logger.info('PDF generated and validated successfully', { 
           pdfSize: pdfBuffer.length, 
-          attempt,
-          pdfHeader: pdfHeader 
+          attempt
         });
         
         return pdfBuffer;
@@ -1194,7 +1194,10 @@ class ReportGenerator {
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Validate content loaded properly
-      const contentLength = await page.evaluate(() => document.body.innerText.length);
+      const contentLength = await page.evaluate(() => {
+        const d = globalThis.document;
+        return d && d.body ? d.body.innerText.length : 0;
+      });
       if (contentLength < 50) {
         throw new Error(`Page content appears incomplete (${contentLength} characters)`);
       }
@@ -1243,8 +1246,7 @@ class ReportGenerator {
       }
       
       Logger.info('Simple PDF generated and validated successfully', { 
-        pdfSize: pdfBuffer.length,
-        pdfHeader: pdfHeader 
+        pdfSize: pdfBuffer.length
       });
       return pdfBuffer;
       
@@ -1283,6 +1285,18 @@ class ReportGenerator {
         title, target, command, vulnerabilities, extractedData,
         recommendations, scanDuration, metadata
       } = sanitizedData;
+
+      const humanizeDuration = (ms) => {
+        if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return 'N/A';
+        const sec = Math.floor(ms / 1000);
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        if (h > 0) return `${h}h ${m}m ${s}s`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+      };
+      const scanDurationText = humanizeDuration(scanDuration);
 
       const riskScore = this.calculateRiskScore(vulnerabilities.findings || []);
       const riskLevel = this.getRiskLevel(riskScore);
@@ -1382,6 +1396,10 @@ class ReportGenerator {
                 <h3>Vulnerabilities</h3>
                 <p>${vulnerabilities.total}</p>
               </div>
+              <div class="summary-item">
+                <h3>Scan Duration</h3>
+                <p>${scanDurationText}</p>
+              </div>
             </div>
 
             <div class="section">
@@ -1394,6 +1412,50 @@ class ReportGenerator {
               <ul>
                 ${(recommendations.general || []).map(rec => `<li>${rec}</li>`).join('')}
               </ul>
+            </div>
+
+            <div class="section">
+              <h2>Extracted Data</h2>
+              ${(() => {
+                const parts = [];
+                if (Array.isArray(extractedData.databases) && extractedData.databases.length) {
+                  parts.push(`
+                    <h3>Databases</h3>
+                    <ul>${extractedData.databases.map(db => `<li>${db}</li>`).join('')}</ul>
+                  `);
+                }
+                if (Array.isArray(extractedData.tables) && extractedData.tables.length) {
+                  parts.push(`
+                    <h3>Tables</h3>
+                    <ul>${extractedData.tables.map(t => `<li>${t}</li>`).join('')}</ul>
+                  `);
+                }
+                if (Array.isArray(extractedData.users) && extractedData.users.length) {
+                  parts.push(`
+                    <h3>Users</h3>
+                    <ul>${extractedData.users.map(u => `<li>${u}</li>`).join('')}</ul>
+                  `);
+                }
+                if (extractedData.systemInfo && (extractedData.systemInfo.dbms || extractedData.systemInfo.version)) {
+                  parts.push(`
+                    <h3>System Info</h3>
+                    <ul>
+                      ${extractedData.systemInfo.dbms ? `<li>DBMS: ${Array.isArray(extractedData.systemInfo.dbms) ? extractedData.systemInfo.dbms.join(', ') : extractedData.systemInfo.dbms}</li>` : ''}
+                      ${extractedData.systemInfo.version ? `<li>Version: ${extractedData.systemInfo.version}</li>` : ''}
+                    </ul>
+                  `);
+                }
+                if (Array.isArray(extractedData.csvFiles) && extractedData.csvFiles.length) {
+                  parts.push(`
+                    <h3>Dumped Files</h3>
+                    <ul>${extractedData.csvFiles.map(f => `<li>${f.name} (${f.size} bytes)</li>`).join('')}</ul>
+                  `);
+                }
+                if (!parts.length) {
+                  return '<p>No structured data was extracted.</p>';
+                }
+                return parts.join('');
+              })()}
             </div>
 
             <div class="section">

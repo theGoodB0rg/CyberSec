@@ -324,10 +324,10 @@ class SQLMapIntegration {
     return validatedFlags;
   }
 
-  async startScan(target, options = {}, scanProfile = 'basic') {
+  async startScan(target, options = {}, scanProfile = 'basic', userId = 'system') {
     const sessionId = uuidv4();
-    // Use system temp directory to avoid issues with spaces in project path
-    const outputDir = path.join(os.tmpdir(), 'cybersec-sqlmap', sessionId);
+    // Use per-user directory inside system temp directory
+    const outputDir = path.join(os.tmpdir(), 'cybersec-sqlmap', String(userId), sessionId);
     
     // Ensure output directory exists
     if (!fs.existsSync(outputDir)) {
@@ -421,7 +421,22 @@ class SQLMapIntegration {
       Logger.error(`SQLMap spawn error: ${error.message}`);
     });
 
-    return childProcess;
+    // Track process for management/cleanup
+    this.runningProcesses.set(sessionId, {
+      process: childProcess,
+      outputDir,
+      target,
+      scanProfile,
+      startTime: new Date(),
+      userId
+    });
+
+    // On close, remove from map
+    childProcess.on('close', () => {
+      this.runningProcesses.delete(sessionId);
+    });
+
+    return { process: childProcess, outputDir, sessionId };
   }
 
   // Parse SQLMap results for structured report generation
@@ -522,7 +537,7 @@ class SQLMapIntegration {
 
     for (const line of lines) {
       // Parse vulnerability findings for patterns like "Parameter: foo" or "POST parameter 'foo' is vulnerable"
-      if ((line.includes('Parameter:') && line.toLowerCase().includes('is vulnerable')) || /\b(?:get|post)\s+parameter\s+['\"][^'\"]+['\"]\s+is\s+vulnerable/i.test(line)) {
+      if ((line.includes('Parameter:') && line.toLowerCase().includes('is vulnerable')) || /\b(?:get|post)\s+parameter\s+(['"]) [^'"]+ \1\s+is\s+vulnerable/iu.test(line)) {
         findings.push({
           type: 'vulnerability',
           parameter: this.extractParameter(line),
@@ -556,14 +571,12 @@ class SQLMapIntegration {
 
   extractParameter(line) {
     // Try multiple patterns in order of specificity
-    let match = line.match(/Parameter:\s*['\"]?([^'\"\s(]+)/i);
-    if (!match) {
-      match = line.match(/\b(?:GET|POST)\s+parameter\s+['\"]([^'\"]+)['\"]/i);
-    }
-    if (!match) {
-      match = line.match(/parameter\s+['\"]([^'\"]+)['\"]/i);
-    }
-    return match ? match[1] : null;
+    let match = line.match(/Parameter:\s*(['"]) ?([^'"\s(]+)/i);
+    if (match) return match[2];
+    match = line.match(/\b(?:GET|POST)\s+parameter\s+(['"])([^'"]+)\1/i);
+    if (match) return match[2];
+    match = line.match(/parameter\s+(['"])([^'"]+)\1/i);
+    return match ? match[2] : null;
   }
 
   extractTechnique(line) {

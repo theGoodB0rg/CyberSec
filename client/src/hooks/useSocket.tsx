@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { useAppStore } from '../store/appStore'
 import toast from 'react-hot-toast'
@@ -28,14 +28,18 @@ interface SocketProviderProps {
 export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const { setConnected, addScan, updateScan, addReport, addTerminalOutput } = useAppStore()
+  const { setConnected, addScan, updateScan, addReport, addTerminalOutput, authToken, isAuthenticated } = useAppStore()
+
+  // Derive WS host once
+  const WS_HOST = useMemo(() => (
+    import.meta.env.VITE_WS_URL || `${window.location.protocol}//${window.location.hostname}:3001`
+  ), [])
 
   useEffect(() => {
     // Build the websocket URL dynamically so it works regardless of which port
     // the Vite dev-server happens to use (5173, 5174, etc.). In production you
     // can still override this via VITE_WS_URL.
-    const WS_HOST = import.meta.env.VITE_WS_URL || `${window.location.protocol}//${window.location.hostname}:3001`
-
+    const token = authToken || localStorage.getItem('authToken') || undefined
     const socketInstance = io(WS_HOST, {
       transports: ['websocket', 'polling'],
       timeout: 20000,
@@ -45,6 +49,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       // flood of "transport close" errors produced when forceNew continually
       // spins up fresh connections.
       forceNew: false,
+      auth: token ? { token } : undefined,
     })
 
     setSocket(socketInstance)
@@ -81,13 +86,13 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     })
 
     socketInstance.on('scan-output', (data) => {
-      const { scanId, output, type } = data
+      const { scanId, output } = data
       addTerminalOutput(output)
       updateScan(scanId, { output: output })
     })
 
     socketInstance.on('scan-completed', (data) => {
-      const { scanId, status, reportId } = data
+      const { scanId, status } = data
       console.log('Scan completed:', data)
       
       updateScan(scanId, { 
@@ -111,7 +116,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         endTime: new Date().toISOString()
       })
       
-      toast.warning('Scan terminated')
+      toast('Scan terminated')
     })
 
     socketInstance.on('scan-error', (data) => {
@@ -146,7 +151,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       socketInstance.removeAllListeners()
       socketInstance.disconnect()
     }
-  }, [setConnected, addScan, updateScan, addReport, addTerminalOutput])
+  // Recreate socket when authToken changes (login/logout) so the server sees
+  // updated credentials without a full page refresh.
+  }, [WS_HOST, authToken, isAuthenticated, setConnected, addScan, updateScan, addReport, addTerminalOutput])
 
   const emit = (event: string, data?: any) => {
     if (socket && isConnected) {

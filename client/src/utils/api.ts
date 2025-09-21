@@ -1,0 +1,43 @@
+export type ApiOptions = RequestInit & { auth?: boolean };
+
+function getToken() {
+  try {
+    return localStorage.getItem('authToken') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function apiFetch<T = any>(input: string, init: ApiOptions = {}): Promise<T> {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(init.headers || {}),
+  };
+
+  const token = getToken();
+  if (token) {
+    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(input, { ...init, headers });
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const body = isJson ? await res.json().catch(() => ({})) : await res.text();
+  // Auto-handle unauthorized responses globally so the UI can react (logout, redirect)
+  if (res.status === 401 || res.status === 403) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('app:unauthorized', {
+          detail: { status: res.status, body },
+        })
+      );
+    } catch {
+      // no-op if window is unavailable
+    }
+  }
+  if (!res.ok) {
+    const message = isJson && body?.error ? body.error : res.statusText;
+    throw new Error(message || `HTTP ${res.status}`);
+  }
+  return body as T;
+}

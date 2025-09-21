@@ -1,7 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import { Toaster } from 'react-hot-toast'
 import App from './App.tsx'
 import './index.css'
 
@@ -41,7 +40,7 @@ class ErrorBoundary extends React.Component<
             >
               Refresh Page
             </button>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <details className="mt-4 text-left">
                 <summary className="text-gray-400 cursor-pointer">
                   Error Details
@@ -65,29 +64,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <BrowserRouter>
         <App />
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#1f2937',
-              color: '#f9fafb',
-              border: '1px solid #374151',
-            },
-            success: {
-              iconTheme: {
-                primary: '#10b981',
-                secondary: '#f9fafb',
-              },
-            },
-            error: {
-              iconTheme: {
-                primary: '#ef4444',
-                secondary: '#f9fafb',
-              },
-            },
-          }}
-        />
       </BrowserRouter>
     </ErrorBoundary>
   </React.StrictMode>

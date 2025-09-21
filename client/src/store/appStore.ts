@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
+import { apiFetch } from '@/utils/api'
 
 // Types
 export interface Vulnerability {
@@ -97,6 +98,10 @@ interface AppState {
   // Connection state
   isConnected: boolean
   connectionError: string | null
+  // Auth
+  authToken: string | null
+  currentUser: { id: string; email: string; role: string } | null
+  isAuthenticated: boolean
   
   // Application state
   isLoading: boolean
@@ -128,6 +133,12 @@ interface AppState {
 interface AppActions {
   // Initialization
   initialize: () => Promise<void>
+  // Auth
+  setAuthToken: (token: string | null) => void
+  fetchMe: () => Promise<void>
+  login: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string) => Promise<void>
+  logout: () => void
   
   // Connection management
   setConnected: (connected: boolean) => void
@@ -223,6 +234,9 @@ export const useAppStore = create<AppState & AppActions>()(
         // Initial state
         isConnected: false,
         connectionError: null,
+  authToken: null,
+  currentUser: null,
+  isAuthenticated: false,
         isLoading: false,
         scans: [],
         currentScan: null,
@@ -258,6 +272,16 @@ export const useAppStore = create<AppState & AppActions>()(
               throw new Error('Server health check failed')
             }
 
+            // Restore token from localStorage if present
+            const token = localStorage.getItem('authToken')
+            if (token) {
+              set((state) => {
+                state.authToken = token
+                state.isAuthenticated = true
+              })
+              await get().fetchMe().catch(() => set((s) => { s.isAuthenticated = false; s.authToken = null; s.currentUser = null }))
+            }
+
             // Load initial data
             await get().loadReports()
             await get().loadScans()
@@ -290,6 +314,58 @@ export const useAppStore = create<AppState & AppActions>()(
               state.isConnected = false
             }
           })
+        },
+
+        setAuthToken: (token) => {
+          set((state) => {
+            state.authToken = token
+            state.isAuthenticated = !!token
+            if (token) localStorage.setItem('authToken', token)
+            else localStorage.removeItem('authToken')
+          })
+        },
+
+        fetchMe: async () => {
+          const me = await apiFetch<{ id: string; email: string; role: string }>('/api/auth/me')
+          set((state) => {
+            state.currentUser = me
+            state.isAuthenticated = true
+          })
+        },
+
+        login: async (email, password) => {
+          const res = await apiFetch<{ token: string; user: { id: string; email: string; role: string } }>(
+            '/api/auth/login',
+            { method: 'POST', body: JSON.stringify({ email, password }) }
+          )
+          set((state) => {
+            state.authToken = res.token
+            state.currentUser = res.user
+            state.isAuthenticated = true
+          })
+          localStorage.setItem('authToken', res.token)
+        },
+
+        register: async (email, password) => {
+          const res = await apiFetch<{ token: string; user: { id: string; email: string; role: string } }>(
+            '/api/auth/register',
+            { method: 'POST', body: JSON.stringify({ email, password }) }
+          )
+          set((state) => {
+            state.authToken = res.token
+            state.currentUser = res.user
+            state.isAuthenticated = true
+          })
+          localStorage.setItem('authToken', res.token)
+        },
+
+        logout: () => {
+          set((state) => {
+            state.authToken = null
+            state.currentUser = null
+            state.isAuthenticated = false
+          })
+          localStorage.removeItem('authToken')
         },
 
         addScan: (scan) => {
@@ -327,13 +403,8 @@ export const useAppStore = create<AppState & AppActions>()(
 
         loadScans: async () => {
           try {
-            const response = await fetch('/api/scans')
-            if (response.ok) {
-              const scans = await response.json()
-              set((state) => {
-                state.scans = scans
-              })
-            }
+            const scans = await apiFetch<Scan[]>('/api/scans')
+            set((state) => { state.scans = scans })
           } catch (error) {
             console.error('Failed to load scans:', error)
           }
@@ -374,13 +445,8 @@ export const useAppStore = create<AppState & AppActions>()(
 
         loadReports: async () => {
           try {
-            const response = await fetch('/api/reports')
-            if (response.ok) {
-              const reports = await response.json()
-              set((state) => {
-                state.reports = reports
-              })
-            }
+            const reports = await apiFetch<Report[]>('/api/reports')
+            set((state) => { state.reports = reports })
           } catch (error) {
             console.error('Failed to load reports:', error)
           }
@@ -456,6 +522,8 @@ export const useAppStore = create<AppState & AppActions>()(
           settings: state.settings,
           terminalHistory: state.terminalHistory,
           sidebarCollapsed: state.sidebarCollapsed,
+          authToken: state.authToken,
+          currentUser: state.currentUser,
         }),
       }
     ),

@@ -769,3 +769,8 @@ Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,
 Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111
     at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1143:15)
     at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27
+2025-07-03 10:40:52 [WARN]: Fallback: using most recent output directory for scan f5698904-2423-46fd-9385-5973bb29dcf1: C:\Users\HP\AppData\Local\Temp\cybersec-sqlmap\2e8bc369-9c1d-4dc8-bebc-16966b87bcc6 | {"service":"cybersecurity-app"}
+2025-09-10 19:05:07 [ERROR]: Puppeteer test launch failed: | {"service":"cybersecurity-app"}
+2025-09-10 19:05:07 [WARN]: PDF generation may not work correctly | {"service":"cybersecurity-app"}
+2025-09-21 12:19:55 [ERROR]: Puppeteer test launch failed: | {"service":"cybersecurity-app"}
+2025-09-21 12:19:55 [WARN]: PDF generation may not work correctly | {"service":"cybersecurity-app"}

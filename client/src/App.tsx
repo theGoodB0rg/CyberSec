@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { Toaster } from 'react-hot-toast'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Toaster, toast } from 'react-hot-toast'
 import { useAppStore } from './store/appStore'
 import { SocketProvider } from './hooks/useSocket'
 
@@ -12,10 +12,23 @@ import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import ReportDetails from './pages/ReportDetails'
 import LoadingScreen from './components/LoadingScreen'
+import Login from './pages/Login'
+import Targets from './pages/Targets'
+import Usage from './pages/Usage'
+
+function RequireAuth({ children }: { children: JSX.Element }) {
+  const { isAuthenticated } = useAppStore()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  return children
+}
 
 function App() {
   const { isConnected, connectionError, initialize } = useAppStore()
   const [isLoading, setIsLoading] = useState(true)
+  const navigate = useNavigate()
+  const logout = useAppStore(s => s.logout)
 
   useEffect(() => {
     // Initialize the application
@@ -31,6 +44,17 @@ function App() {
 
     initApp()
   }, [initialize])
+
+  // Global unauthorized handler: on 401/403, log the user out and send them to login
+  useEffect(() => {
+    const onUnauthorized = () => {
+      logout()
+      toast.error('Your session has expired. Please sign in again.')
+      navigate('/login', { replace: true })
+    }
+    window.addEventListener('app:unauthorized', onUnauthorized)
+    return () => window.removeEventListener('app:unauthorized', onUnauthorized)
+  }, [logout, navigate])
 
   if (isLoading) {
     return <LoadingScreen />
@@ -65,13 +89,16 @@ function App() {
     <SocketProvider>
       <div className="min-h-screen bg-gray-900 text-gray-100">
         <Routes>
-          <Route path="/" element={<Layout />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="terminal" element={<Terminal />} />
             <Route path="reports" element={<Reports />} />
             <Route path="reports/:reportId" element={<ReportDetails />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="targets" element={<Targets />} />
+            <Route path="usage" element={<Usage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>
@@ -112,7 +139,7 @@ function App() {
         )}
         
         {/* Development tools (only in dev mode) */}
-        {process.env.NODE_ENV === 'development' && (
+        {import.meta.env.DEV && (
           <div className="fixed bottom-4 right-4 z-50">
             <details className="bg-gray-800 border border-gray-600 rounded-lg p-2 text-xs">
               <summary className="cursor-pointer text-gray-400">
@@ -120,7 +147,7 @@ function App() {
               </summary>
               <div className="mt-2 space-y-1 text-gray-300">
                 <div>Connected: {isConnected ? '✅' : '❌'}</div>
-                <div>Environment: {process.env.NODE_ENV}</div>
+                <div>Environment: {import.meta.env.MODE}</div>
                 <div>Version: 1.0.0</div>
               </div>
             </details>

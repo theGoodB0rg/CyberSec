@@ -704,3 +704,5 @@ Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,
 Error: Test PDF buffer is not valid. Header: "37,80,68,70", Hex: 37,80,68,70,45,49,46,52,10,37,211,235,233,225,10,49,32,48,32,111
     at ReportGenerator.testPDFGeneration (C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\reports.js:1143:15)
     at async C:\Users\HP\Desktop\Personal Websites\Cybersecurity-2\server\index.js:221:27
+2025-09-10 19:05:07 [ERROR]: Puppeteer test launch failed: | {"service":"cybersecurity-app"}
+2025-09-21 12:19:55 [ERROR]: Puppeteer test launch failed: | {"service":"cybersecurity-app"}

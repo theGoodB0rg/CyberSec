@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { 
   PlayIcon, 
@@ -12,6 +12,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useAppStore } from '../store/appStore'
 import clsx from 'clsx'
+import { apiFetch } from '@/utils/api'
 
 export default function Dashboard() {
   const { 
@@ -22,6 +23,24 @@ export default function Dashboard() {
     initialize,
     isLoading
   } = useAppStore()
+
+  const [usage, setUsage] = useState<null | {
+    period: string;
+    usage: { scans_started: number; scans_completed: number; total_runtime_ms: number };
+    limits: { concurrent: number; monthly: number };
+  }>(null)
+
+  useEffect(() => {
+    const loadUsage = async () => {
+      try {
+        const data = await apiFetch('/api/usage')
+        setUsage(data as any)
+      } catch {
+        // Non-blocking: ignore errors
+      }
+    }
+    loadUsage()
+  }, [])
 
   useEffect(() => {
     // Initialize the store to load data
@@ -39,6 +58,13 @@ export default function Dashboard() {
     { name: 'Vulnerabilities Found', stat: totalVulnerabilities.toString(), icon: ExclamationTriangleIcon, color: 'text-red-400' },
     { name: 'Reports Generated', stat: reports.length.toString(), icon: DocumentTextIcon, color: 'text-purple-400' },
   ]
+
+  const usageProgress = (() => {
+    if (!usage) return 0
+    const used = usage.usage.scans_started || 0
+    const cap = usage.limits.monthly || 1
+    return Math.min(100, Math.round((used / cap) * 100))
+  })()
 
   // Format time ago
   const formatTimeAgo = (dateString: string) => {
@@ -140,13 +166,13 @@ export default function Dashboard() {
               key={item.name}
               className="relative bg-gray-800 pt-5 px-4 pb-12 sm:pt-6 sm:px-6 shadow rounded-lg overflow-hidden border border-gray-700"
             >
-              <dt>
+              <div>
                 <div className="absolute bg-gray-700 rounded-md p-3">
                   <item.icon className={clsx("h-6 w-6", item.color)} aria-hidden="true" />
                 </div>
                 <p className="ml-16 text-sm font-medium text-gray-400 truncate">{item.name}</p>
-              </dt>
-              <dd className="ml-16 pb-6 flex items-baseline sm:pb-7">
+              </div>
+              <div className="ml-16 pb-6 flex items-baseline sm:pb-7">
                 <p className="text-2xl font-semibold text-white">{item.stat}</p>
                 <div className="absolute bottom-0 inset-x-0 bg-gray-700 px-4 py-4 sm:px-6">
                   <div className="text-sm">
@@ -160,9 +186,47 @@ export default function Dashboard() {
                     </Link>
                   </div>
                 </div>
-              </dd>
+              </div>
             </div>
           ))}
+          {/* Usage Widget */}
+          <div className="relative bg-gray-800 pt-5 px-4 pb-12 sm:pt-6 sm:px-6 shadow rounded-lg overflow-hidden border border-gray-700">
+            <div>
+              <div className="absolute bg-gray-700 rounded-md p-3">
+                <ChartBarIcon className="h-6 w-6 text-cyan-400" aria-hidden="true" />
+              </div>
+              <p className="ml-16 text-sm font-medium text-gray-400 truncate">Monthly Usage</p>
+            </div>
+            <div className="ml-16 pb-6 sm:pb-7">
+              <div className="text-sm text-gray-300 mb-2">
+                {usage ? (
+                  <>
+                    <span className="font-semibold text-white">{usage.usage.scans_started}</span> / {usage.limits.monthly} scans
+                    <span className="ml-2 text-gray-500">({usage.period})</span>
+                  </>
+                ) : (
+                  <span className="text-gray-500">Loading…</span>
+                )}
+              </div>
+              <div className="w-full bg-gray-700 rounded h-2 overflow-hidden">
+                <div className="grid grid-cols-10 h-2">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <div key={i} className={clsx('h-2', usageProgress > i * 10 ? 'bg-cyan-500' : 'bg-gray-700')} />
+                  ))}
+                </div>
+              </div>
+              <div className="mt-3 text-xs text-gray-400">
+                Concurrent limit: {usage?.limits.concurrent ?? '—'}
+              </div>
+              <div className="absolute bottom-0 inset-x-0 bg-gray-700 px-4 py-4 sm:px-6">
+                <div className="text-sm">
+                  <Link to="/usage" className="font-medium text-cyan-400 hover:text-cyan-300 transition-colors">
+                    View usage
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

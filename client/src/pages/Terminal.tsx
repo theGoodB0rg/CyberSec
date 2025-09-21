@@ -27,7 +27,7 @@ export default function Terminal() {
   const [isScanning, setIsScanning] = useState(false)
   
   const { on, off, startScan: sendStartScan, terminateScan } = useScanSocket()
-  const { addScan, updateScan, isConnected, runningScans } = useAppStore()
+  const { addScan, updateScan, isConnected } = useAppStore()
 
   // Initialize terminal
   const lastStartedTargetRef = useRef<string>('')

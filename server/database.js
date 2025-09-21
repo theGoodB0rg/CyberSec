@@ -35,6 +35,8 @@ class Database {
         target TEXT NOT NULL,
         options TEXT,
         scan_profile TEXT,
+        user_id TEXT,
+        org_id TEXT,
         status TEXT DEFAULT 'pending',
         start_time TEXT,
         end_time TEXT,
@@ -58,9 +60,46 @@ class Database {
         recommendations TEXT,
         scan_duration INTEGER,
         status TEXT,
+        user_id TEXT,
+        org_id TEXT,
         metadata TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (scan_id) REFERENCES scans (id)
+      )
+    `;
+
+    const createUsersTable = `
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT DEFAULT 'user',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_login_at DATETIME
+      )
+    `;
+
+    const createUsageCountersTable = `
+      CREATE TABLE IF NOT EXISTS usage_counters (
+        user_id TEXT NOT NULL,
+        period TEXT NOT NULL, -- e.g., '2025-09' (YYYY-MM)
+        scans_started INTEGER DEFAULT 0,
+        scans_completed INTEGER DEFAULT 0,
+        total_runtime_ms INTEGER DEFAULT 0,
+        PRIMARY KEY (user_id, period)
+      )
+    `;
+
+    const createVerifiedTargetsTable = `
+      CREATE TABLE IF NOT EXISTS verified_targets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        org_id TEXT,
+        hostname TEXT NOT NULL,
+        method TEXT NOT NULL, -- 'http-file' | 'dns-txt'
+        token TEXT NOT NULL,
+        verified_at TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `;
 
@@ -113,9 +152,12 @@ class Database {
     this.db.serialize(() => {
       this.db.run(createScansTable);
       this.db.run(createReportsTable);
-      this.db.run(createSettingsTable);
+  this.db.run(createSettingsTable);
+  this.db.run(createUsageCountersTable);
+  this.db.run(createVerifiedTargetsTable);
   this.db.run(createReconParams);
       this.db.run(createReconPages);
+    this.db.run(createUsersTable);
 
       // Attempt to add new columns if upgrading existing recon_parameters
       const alterCols = [
@@ -132,6 +174,23 @@ class Database {
           }
         });
       });
+      // Migrate scans/reports to include user and org columns if not present
+      const migrateStatements = [
+        { table: 'scans', stmt: 'ADD COLUMN user_id TEXT' },
+        { table: 'scans', stmt: 'ADD COLUMN org_id TEXT' },
+        { table: 'reports', stmt: 'ADD COLUMN user_id TEXT' },
+        { table: 'reports', stmt: 'ADD COLUMN org_id TEXT' }
+      ];
+      migrateStatements.forEach(({ table, stmt }) => {
+        this.db.run(`ALTER TABLE ${table} ${stmt}`,(err)=>{
+          if (err && !/duplicate column/i.test(err.message)) {
+            Logger.debug(`Alter table ${table} skipped`, { stmt, error: err.message });
+          }
+        });
+      });
+      // Populate legacy rows with placeholder user_id
+      this.db.run(`UPDATE scans SET user_id = COALESCE(user_id, 'system') WHERE user_id IS NULL`, ()=>{});
+      this.db.run(`UPDATE reports SET user_id = COALESCE(user_id, 'system') WHERE user_id IS NULL`, ()=>{});
       
       // Add metadata column if it doesn't exist (migration)
       this.db.run(`ALTER TABLE reports ADD COLUMN metadata TEXT`, (err) => {
@@ -152,11 +211,11 @@ class Database {
   async createScan(scanData) {
     return new Promise((resolve, reject) => {
       const id = uuidv4();
-      const { target, options, scanProfile, status, start_time } = scanData;
+      const { target, options, scanProfile, status, start_time, user_id = 'system', org_id = null } = scanData;
       
       const stmt = this.db.prepare(`
-        INSERT INTO scans (id, target, options, scan_profile, status, start_time)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO scans (id, target, options, scan_profile, user_id, org_id, status, start_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run([
@@ -164,6 +223,8 @@ class Database {
         target,
         JSON.stringify(options),
         scanProfile,
+        user_id,
+        org_id,
         status,
         start_time
       ], function(err) {
@@ -228,6 +289,37 @@ class Database {
           }
         }
       );
+    });
+  }
+
+  async getScansForUser(userId, orgId = null, isAdmin = false, limit = 50, offset = 0) {
+    return new Promise((resolve, reject) => {
+      let query = 'SELECT * FROM scans';
+      const params = [];
+      if (!isAdmin) {
+        if (orgId) {
+          query += ' WHERE org_id = ?';
+          params.push(orgId);
+        } else {
+          query += ' WHERE user_id = ?';
+          params.push(userId);
+        }
+      }
+      query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+
+      this.db.all(query, params, (err, rows) => {
+        if (err) return reject(err);
+        const scans = rows.map(row => ({
+          ...row,
+          options: row.options ? JSON.parse(row.options) : null,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          startTime: row.start_time,
+          endTime: row.end_time
+        }));
+        resolve(scans);
+      });
     });
   }
 
@@ -322,14 +414,16 @@ class Database {
         metadata,
         sqlmapResults,
         structuredFindings,
-        outputFiles
+        outputFiles,
+        user_id = 'system',
+        org_id = null
       } = reportData;
 
       const stmt = this.db.prepare(`
         INSERT INTO reports (
           id, scan_id, title, target, command, vulnerabilities,
-          extracted_data, recommendations, scan_duration, status, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          extracted_data, recommendations, scan_duration, status, user_id, org_id, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run([
@@ -348,6 +442,8 @@ class Database {
         JSON.stringify(recommendations),
         scanDuration,
         status,
+        user_id,
+        org_id,
         JSON.stringify(metadata || {})
       ], function(err) {
         if (err) {
@@ -419,6 +515,81 @@ class Database {
     });
   }
 
+  async getReportsForUser(userId, orgId = null, isAdmin = false, limit = 50, offset = 0) {
+    return new Promise((resolve, reject) => {
+      let query = 'SELECT * FROM reports';
+      const params = [];
+      if (!isAdmin) {
+        if (orgId) {
+          query += ' WHERE org_id = ?';
+          params.push(orgId);
+        } else {
+          query += ' WHERE user_id = ?';
+          params.push(userId);
+        }
+      }
+      query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+
+      this.db.all(query, params, (err, rows) => {
+        if (err) return reject(err);
+        const reports = rows.map(row => ({
+          ...row,
+          vulnerabilities: this.safeJson(row.vulnerabilities, []),
+          extracted_data: this.safeJson(row.extracted_data, {}),
+          recommendations: this.safeJson(row.recommendations, []),
+          metadata: this.safeJson(row.metadata, {}),
+          createdAt: row.created_at,
+          scanDuration: row.scan_duration,
+          extractedData: this.safeJson(row.extracted_data, {})
+        }));
+        resolve(reports);
+      });
+    });
+  }
+
+  // User operations
+  async createUser({ id = uuidv4(), email, password_hash, role = 'user' }) {
+    return new Promise((resolve, reject) => {
+      const stmt = this.db.prepare(`
+        INSERT INTO users (id, email, password_hash, role)
+        VALUES (?, ?, ?, ?)
+      `);
+      stmt.run([id, email, password_hash, role], function(err) {
+        if (err) return reject(err);
+        resolve(id);
+      });
+      stmt.finalize();
+    });
+  }
+
+  async getUserByEmail(email) {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  }
+
+  async getUserById(id) {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT * FROM users WHERE id = ?', [id], (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  }
+
+  async setUserLastLogin(id) {
+    return new Promise((resolve, reject) => {
+      this.db.run('UPDATE users SET last_login_at = ? WHERE id = ?', [new Date().toISOString(), id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
+    });
+  }
+
   async deleteReport(reportId) {
     return new Promise((resolve, reject) => {
       this.db.run(
@@ -432,6 +603,128 @@ class Database {
           }
         }
       );
+    });
+  }
+
+  // Usage / Quota helpers
+  async incrementUsageOnStart(userId, period) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        INSERT INTO usage_counters (user_id, period, scans_started, scans_completed, total_runtime_ms)
+        VALUES (?, ?, 1, 0, 0)
+        ON CONFLICT(user_id, period) DO UPDATE SET scans_started = scans_started + 1
+      `;
+      this.db.run(sql, [userId, period], function(err) {
+        if (err) return reject(err);
+        resolve(true);
+      });
+    });
+  }
+
+  async incrementUsageOnComplete(userId, period, runtimeMs = 0) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        INSERT INTO usage_counters (user_id, period, scans_started, scans_completed, total_runtime_ms)
+        VALUES (?, ?, 0, 1, ?)
+        ON CONFLICT(user_id, period) DO UPDATE SET 
+          scans_completed = scans_completed + 1,
+          total_runtime_ms = total_runtime_ms + excluded.total_runtime_ms
+      `;
+      this.db.run(sql, [userId, period, Math.max(0, runtimeMs || 0)], function(err) {
+        if (err) return reject(err);
+        resolve(true);
+      });
+    });
+  }
+
+  async getUsageForUser(userId, period) {
+    return new Promise((resolve, reject) => {
+      const sql = 'SELECT * FROM usage_counters WHERE user_id = ? AND period = ?';
+      this.db.get(sql, [userId, period], (err, row) => {
+        if (err) return reject(err);
+        resolve(row || { user_id: userId, period, scans_started: 0, scans_completed: 0, total_runtime_ms: 0 });
+      });
+    });
+  }
+
+  // Verified targets helpers
+  async upsertVerifiedTarget({ id = uuidv4(), user_id, org_id = null, hostname, method, token, verified_at = null }) {
+    return new Promise((resolve, reject) => {
+      const stmt = this.db.prepare(`
+        INSERT INTO verified_targets (id, user_id, org_id, hostname, method, token, verified_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET 
+          user_id = excluded.user_id,
+          org_id = excluded.org_id,
+          hostname = excluded.hostname,
+          method = excluded.method,
+          token = excluded.token,
+          verified_at = excluded.verified_at
+      `);
+      stmt.run([id, user_id, org_id, hostname, method, token, verified_at], function(err) {
+        if (err) return reject(err);
+        resolve(id);
+      });
+      stmt.finalize();
+    });
+  }
+
+  async markVerifiedTarget(id, verified_at = new Date().toISOString()) {
+    return new Promise((resolve, reject) => {
+      this.db.run('UPDATE verified_targets SET verified_at = ? WHERE id = ?', [verified_at, id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
+    });
+  }
+
+  async getVerifiedTargetForUser(hostname, userId, orgId = null, isAdmin = false) {
+    return new Promise((resolve, reject) => {
+      let sql = 'SELECT * FROM verified_targets WHERE hostname = ? AND verified_at IS NOT NULL';
+      const params = [hostname];
+      if (!isAdmin) {
+        if (orgId) {
+          sql += ' AND (org_id = ?)';
+          params.push(orgId);
+        } else {
+          sql += ' AND (user_id = ?)';
+          params.push(userId);
+        }
+      }
+      this.db.get(sql, params, (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  }
+
+  async listVerifiedTargets(userId, orgId = null, isAdmin = false) {
+    return new Promise((resolve, reject) => {
+      let sql = 'SELECT * FROM verified_targets';
+      const params = [];
+      if (!isAdmin) {
+        if (orgId) {
+          sql += ' WHERE org_id = ?';
+          params.push(orgId);
+        } else {
+          sql += ' WHERE user_id = ?';
+          params.push(userId);
+        }
+      }
+      sql += ' ORDER BY created_at DESC';
+      this.db.all(sql, params, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+  }
+
+  async deleteVerifiedTarget(id) {
+    return new Promise((resolve, reject) => {
+      this.db.run('DELETE FROM verified_targets WHERE id = ?', [id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
     });
   }
 
