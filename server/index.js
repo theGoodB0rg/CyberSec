@@ -90,6 +90,8 @@ const reconEngine = new ReconEngine();
 
 // Track running scans and their output directories and ownership
 let scanProcesses = new Map();
+// Lightweight per-user start locks to prevent race conditions on rapid clicks
+const userStartLocks = new Map();
 
 // Security middleware
 app.use('/api', SecurityMiddleware.validateInput);
@@ -120,6 +122,23 @@ app.get('/api/scans', async (req, res) => {
   } catch (error) {
     Logger.error('Error fetching scans:', error);
     res.status(500).json({ error: 'Failed to fetch scans' });
+  }
+});
+
+// Get running scans for current user (admin may see all)
+app.get('/api/scans/running', async (req, res) => {
+  try {
+    const scans = await database.getScansForUser(
+      req.user.id,
+      req.user.orgId,
+      req.user.role === 'admin',
+      200,
+      0
+    );
+    res.json(scans.filter(s => s.status === 'running'));
+  } catch (e) {
+    Logger.error('Error fetching running scans', e);
+    res.status(500).json({ error: 'Failed to fetch running scans' });
   }
 });
 
@@ -375,6 +394,11 @@ io.on('connection', (socket) => {
     }
   }
 
+  // Announce successful auth
+  try {
+    socket.emit('auth-ok', { userId: socket.user?.id, role: socket.user?.role, orgId: socket.user?.orgId || null });
+  } catch (_) {}
+
   // Handle SQLMap scan initiation
   socket.on('start-sqlmap-scan', async (data) => {
     try {
@@ -398,11 +422,20 @@ io.on('connection', (socket) => {
       const orgId = socket.user?.orgId || null;
       const isAdmin = socket.user?.role === 'admin';
 
+      // Acquire per-user lock (best-effort). If already locked, reject quickly.
+      if (userStartLocks.get(userId)) {
+        socket.emit('scan-error', { message: 'Another scan is being started. Please wait a moment and try again.' });
+        return;
+      }
+      userStartLocks.set(userId, true);
+      const releaseLock = () => userStartLocks.delete(userId);
+
       // Concurrency limit
       const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
       const runningForUser = Array.from(scanProcesses.values()).filter(p => p.userId === userId).length;
       if (!isAdmin && runningForUser >= MAX_CONCURRENT) {
         socket.emit('scan-error', { message: `Concurrent scan limit reached (${MAX_CONCURRENT}). Please wait for existing scans to finish.` });
+        releaseLock();
         return;
       }
 
@@ -413,8 +446,22 @@ io.on('connection', (socket) => {
         const usage = await database.getUsageForUser(userId, period);
         if ((usage?.scans_started || 0) >= MAX_SCANS_MONTH) {
           socket.emit('scan-error', { message: `Monthly scan quota reached (${MAX_SCANS_MONTH} in ${period}).` });
+          releaseLock();
           return;
         }
+      }
+
+      // Debounce rapid duplicate starts for same user and target
+      try {
+        const dup = await database.hasRecentSimilarScan(userId, target, 10);
+        if (dup) {
+          socket.emit('scan-error', { message: 'A similar scan was just started. Please wait a few seconds before trying again.' });
+          releaseLock();
+          return;
+        }
+      } catch (e) {
+        // Non-fatal; log and continue
+        Logger.warn('Duplicate-start check failed', { error: e.message });
       }
 
       // Require verified target unless explicitly allowed
@@ -425,18 +472,21 @@ io.on('connection', (socket) => {
           const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
           if (!verified) {
             socket.emit('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
+            releaseLock();
             return;
           }
         } catch (e) {
           socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
+          releaseLock();
           return;
         }
       }
 
       // Start SQLMap scan (creates per-user output directory)
-      const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, options, scanProfile, userId);
+  const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, options, scanProfile, userId);
 
       // Create scan session and record output directory
+      const startTimeIso = new Date().toISOString();
       const scanId = await database.createScan({
         target,
         options,
@@ -445,7 +495,7 @@ io.on('connection', (socket) => {
         org_id: orgId,
         output_dir: outputDir,
         status: 'running',
-        start_time: new Date().toISOString()
+        start_time: startTimeIso
       });
 
       // Log audit event: started
@@ -602,11 +652,13 @@ io.on('connection', (socket) => {
       socket.scanProcess = proc;
       socket.scanId = scanId;
 
-      socket.emit('scan-started', { scanId });
+  socket.emit('scan-started', { scanId, target, scanProfile, startTime: startTimeIso });
+  releaseLock();
 
     } catch (error) {
       Logger.error('Error starting scan:', error);
       socket.emit('scan-error', { message: error.message });
+      try { userStartLocks.delete(socket.user?.id || 'system'); } catch (_) {}
     }
   });
 

@@ -28,7 +28,7 @@ interface SocketProviderProps {
 export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const { setConnected, addScan, updateScan, addReport, addTerminalOutput, authToken, isAuthenticated } = useAppStore()
+  const { setConnected, upsertScanFromEvent, loadRunningScans, updateScan, addReport, addTerminalOutput, authToken, isAuthenticated } = useAppStore()
 
   // Derive WS host once
   const WS_HOST = useMemo(() => (
@@ -62,6 +62,14 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       toast.success('Connected to server')
     })
 
+    socketInstance.on('auth-ok', (data) => {
+      console.log('Socket auth ok:', data)
+      // Optional user feedback
+      if (data?.userId) {
+        toast.success('Authenticated')
+      }
+    })
+
     socketInstance.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason)
       setIsConnected(false)
@@ -82,6 +90,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     // Scan event handlers
     socketInstance.on('scan-started', (data) => {
       console.log('Scan started:', data)
+      // Insert/merge into store
+      upsertScanFromEvent({ id: data.scanId, target: data.target, scanProfile: data.scanProfile, startTime: data.startTime, status: 'running' })
+      // Optionally refresh running scans list shortly after start
+      setTimeout(() => { loadRunningScans().catch(()=>{}) }, 500)
       toast.success('Scan started successfully')
     })
 
@@ -153,7 +165,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     }
   // Recreate socket when authToken changes (login/logout) so the server sees
   // updated credentials without a full page refresh.
-  }, [WS_HOST, authToken, isAuthenticated, setConnected, addScan, updateScan, addReport, addTerminalOutput])
+  }, [WS_HOST, authToken, isAuthenticated, setConnected, upsertScanFromEvent, loadRunningScans, updateScan, addReport, addTerminalOutput])
 
   const emit = (event: string, data?: any) => {
     if (socket && isConnected) {

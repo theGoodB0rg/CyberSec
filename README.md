@@ -221,6 +221,16 @@ RATE_LIMIT_MAX=100
 # SQLMap Configuration
 SQLMAP_PATH=/usr/bin/sqlmap
 SQLMAP_OUTPUT_DIR=./server/temp
+
+# Multi-user Controls
+# Max concurrent scans allowed per non-admin user
+MAX_CONCURRENT_SCANS_PER_USER=2
+# Monthly scan quota per non-admin user (YYYY-MM buckets)
+MAX_SCANS_PER_MONTH=100
+# Require target domain verification before scanning (recommended true)
+ALLOW_UNVERIFIED_TARGETS=false
+# JWT secret for auth tokens
+JWT_SECRET=change-me
 ```
 
 ### Application Settings
@@ -248,12 +258,25 @@ GET /api/reports/:id/export/:format
 DELETE /api/reports/:id
 ```
 
+### Usage and Quotas
+```http
+GET /api/usage  # returns current period usage and configured limits for the authenticated user
+```
+
+### Scans
+```http
+GET /api/scans           # list scans for current user (admin may see all)
+GET /api/scans/running   # list only running scans for current user
+```
+
 ### WebSocket Events
 - `start-sqlmap-scan` - Initiate a new scan
 - `terminate-scan` - Stop running scan
 - `execute-command` - Execute terminal command
 - `scan-output` - Receive real-time output
 - `scan-completed` - Scan completion notification
+ - `scan-error` - Error when starting or running a scan (quota, verification, etc.)
+ - `auth-ok` - Emitted on successful socket authentication with { userId, role, orgId }
 
 ## 🛡️ Security Considerations
 

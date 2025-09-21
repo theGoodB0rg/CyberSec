@@ -150,6 +150,8 @@ interface AppActions {
   removeScan: (scanId: string) => void
   setCurrentScan: (scan: Scan | null) => void
   loadScans: () => Promise<void>
+  loadRunningScans: () => Promise<void>
+  upsertScanFromEvent: (scan: Partial<Scan> & { id: string }) => void
   
   // Report management
   addReport: (report: Report) => void
@@ -408,6 +410,43 @@ export const useAppStore = create<AppState & AppActions>()(
           } catch (error) {
             console.error('Failed to load scans:', error)
           }
+        },
+
+        loadRunningScans: async () => {
+          try {
+            const scans = await apiFetch<Scan[]>('/api/scans/running')
+            set((state) => {
+              const byId = new Map(state.scans.map(s => [s.id, s]))
+              for (const s of scans) byId.set(s.id, { ...byId.get(s.id), ...s })
+              state.scans = Array.from(byId.values()).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+            })
+          } catch (e) {
+            console.error('Failed to load running scans:', e)
+          }
+        },
+
+        upsertScanFromEvent: (scan) => {
+          set((state) => {
+            const idx = state.scans.findIndex(s => s.id === scan.id)
+            if (idx === -1) {
+              state.scans.unshift({
+                id: scan.id,
+                target: scan.target || '',
+                options: scan.options || {},
+                scanProfile: (scan as any).scanProfile || 'basic',
+                status: (scan as any).status || 'running',
+                startTime: (scan as any).startTime || new Date().toISOString(),
+                endTime: undefined,
+                exitCode: undefined,
+                error: undefined,
+                output: '',
+                createdAt: (scan as any).createdAt || new Date().toISOString(),
+                updatedAt: (scan as any).updatedAt || new Date().toISOString(),
+              })
+            } else {
+              Object.assign(state.scans[idx], scan)
+            }
+          })
         },
 
         addReport: (report) => {

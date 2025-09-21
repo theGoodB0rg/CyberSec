@@ -176,6 +176,15 @@ class Database {
 
       // Helpful indices
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_scans_output_dir ON scans(output_dir)`);
+      // New indexes to support multi-tenant filtering and lookups
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_scans_user ON scans(user_id, created_at DESC)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_scans_org ON scans(org_id, created_at DESC)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status, created_at DESC)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_scans_target ON scans(target)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_reports_user ON reports(user_id, created_at DESC)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_reports_org ON reports(org_id, created_at DESC)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_scan_events_scan ON scan_events(scan_id, at)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_verified_targets_lookup ON verified_targets(hostname, user_id, org_id, verified_at)`);
 
       // Attempt to add new columns if upgrading existing recon_parameters
       const alterCols = [
@@ -227,6 +236,25 @@ class Database {
   }
 
   // Scan operations
+  async hasRecentSimilarScan(userId, target, windowSeconds = 10) {
+    // Debounce identical targets per user within a short window to prevent accidental double starts
+    return new Promise((resolve, reject) => {
+      const sec = Math.max(1, Math.min(60, Number(windowSeconds) || 10));
+      // Use SQLite datetime arithmetic to compare against current time
+      const sql = `
+        SELECT 1 FROM scans
+        WHERE user_id = ? AND target = ?
+          AND status IN ('running','pending')
+          AND created_at >= datetime('now', '-${sec} seconds')
+        LIMIT 1
+      `;
+      this.db.get(sql, [userId, target], (err, row) => {
+        if (err) return reject(err);
+        resolve(!!row);
+      });
+    });
+  }
+
   async interruptRunningScans() {
     // Fetch scans currently marked as running, then mark them as interrupted.
     return new Promise((resolve, reject) => {
