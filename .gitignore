@@ -18,7 +18,8 @@
 *.pdf
 *.ps1
 *.lnk
-
+# Ignore markdown files except for Project_Proposal.md
+Project_hardening.md
 # Ignore text prompts and notes
 *.txt
 

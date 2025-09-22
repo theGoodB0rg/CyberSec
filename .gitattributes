@@ -1,0 +1,3 @@
+# Exclude internal planning docs from git archive/source downloads
+server/Project_hardening.md export-ignore
+docs/internal/ export-ignore

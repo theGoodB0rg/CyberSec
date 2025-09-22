@@ -1,64 +1,56 @@
-# Cybersecurity Web App - SQLMap Integration
+# CyberSec – Web SQLi Scanner & Reporting
 
-A comprehensive, professional cybersecurity web application featuring an interactive terminal interface and seamless SQLMap integration for SQL injection testing and security assessments.
+A practical, developer-friendly web app for running focused SQL injection assessments with SQLMap, recon-assisted targeting, real‑time output, and client‑ready reports. Now multi‑user with JWT auth, target ownership verification, usage quotas, and structured exports.
 
-## 🚀 Features
+> Masters project context: This project originated as a Masters-level learning tool to teach SQL injection safely to non‑technical users by abstracting SQLMap complexity and providing explainable results. It also evolves into a developer‑friendly, team‑ready tool with integrations and pricing. The README highlights both tracks.
 
-### Core Functionality
-- **Interactive Web Terminal**: Real-time command execution with full terminal experience
-- **SQLMap Integration**: Simplified interface for complex security testing
-- **Intelligent Reporting**: Automated report generation with comprehensive analysis and structured CSV output
-- **Well-Formatted Results**: Professional SQLMap output parsing with downloadable CSV files
-- **Real-time Communication**: WebSocket-based live updates and process control
-- **Mobile Responsive**: Fully responsive design for all device sizes
+## 🚀 What’s Included (Current State)
 
-### Security Features
-- **Input Validation & Sanitization**: Comprehensive security middleware
-- **Rate Limiting**: API and scan rate limiting protection
-- **Secure Command Execution**: Whitelisted commands and sanitized inputs
-- **Attack Detection**: Built-in security scanning and threat detection
-- **Audit Logging**: Comprehensive security event logging
+### Core
+- SQLMap orchestration with prebuilt profiles (basic, deep, enumeration, dump, custom)
+- Real‑time scan output over WebSockets; start/terminate from the UI
+- Structured results parsing (CSV dumps, session DB, traffic logs)
+- Report generation with evidence, risk summary, and multi‑format export (JSON/HTML/PDF)
+- Lightweight recon/parameter discovery to prioritize likely injection points
 
-### User Experience
-- **Modern UI/UX**: Clean, professional cybersecurity-themed interface
-- **Dark Mode**: Optimized for security professionals
-- **Resizable Panels**: Customizable workspace layout
-- **Command History**: Terminal command history with arrow key navigation
-- **Ctrl+C Support**: Process termination and interrupt handling
+### Security & Multi‑Tenancy
+- JWT auth (REST + Socket.io) with per‑user/org scoping
+- Target ownership verification (HTTP file or DNS TXT) enforced by default
+- Rate limiting, input validation/sanitization, and command whitelisting
+- Per‑user concurrency caps and monthly scan quotas
+- Audit/event logs for scan lifecycle and security events
 
-### Technical Capabilities
-- **Multiple Scan Profiles**: Pre-configured SQLMap scanning profiles
-- **Custom Scan Options**: Advanced users can specify custom SQLMap flags
-- **Report Export**: PDF, HTML, Markdown, and JSON export formats
-- **Data Persistence**: SQLite database for scans and reports
-- **Performance Monitoring**: Built-in performance and health monitoring
+### UX
+- Modern React + Tailwind UI (Dashboard, Targets, Reports, Report Details, Terminal, Usage, Settings)
+- Dark theme, responsive layout, scan history and details
 
-## 🛠️ Technology Stack
+### Technical
+- Node/Express + Socket.io backend; SQLite persistence with indices/migrations
+- Winston logging to files (combined, error, security, exceptions, rejections)
+- Puppeteer‑based PDF export with HTML fallback
+- Daily retention cleanup for old scan output dirs
+
+## 🛠️ Tech Stack
+## 🎓 Learning Track vs Pro Track
+
+- Learning Mode (Masters focus)
+   - Guided wizard (no flags), Practice Mode with simulated outputs (no SQLMap required), explainability panels (Why/Signals/Verify/Fix), safe defaults and enforced target verification.
+- Pro/Team Mode (Product focus)
+   - Real scans with SQLMap orchestration, multi-user quotas, PDF/CSV exports, Slack/Jira (planned), scheduler/queue, and team audit.
+
+Both tracks share the same backend, so you can start in Learning Mode for education and later enable Pro features for production use.
+
 
 ### Backend
-- **Node.js** with Express.js for the web server
-- **Socket.io** for real-time communication
-- **SQLite** for data persistence
-- **Winston** for comprehensive logging
-- **Helmet** for security headers
-- **Rate limiting** and input validation
+- Express.js, Socket.io, SQLite, Winston, Helmet, Rate‑limit, sanitize‑html, validator
 
 ### Frontend
-- **React 18** with TypeScript
-- **Vite** for fast development and building
-- **Tailwind CSS** for modern styling
-- **Zustand** for state management
-- **XTerm.js** for terminal interface
-- **React Router** for navigation
+- React 18 + TypeScript, Vite, Tailwind, Zustand, React Router, xterm.js
 
 ### Security
-- **Input sanitization** with sanitize-html
-- **URL validation** with validator.js
-- **Command whitelisting** and validation
-- **CORS configuration** and security headers
-- **Error handling** and graceful degradation
+- Input sanitization, URL validation, CORS/Helmet, rate limiting, error handling
 
-## 📦 Installation
+## 📦 Installation & Dev
 
 ### Prerequisites
 - Node.js (v16 or higher)
@@ -68,13 +60,13 @@ A comprehensive, professional cybersecurity web application featuring an interac
 
 ### Quick Start
 
-1. **Clone the repository**
+1. Clone
    ```bash
    git clone https://github.com/theGoodB0rg/CyberSec.git
-   cd cybersecurity-web-app
+   cd CyberSec
    ```
 
-2. **Install dependencies**
+2. Install
    ```bash
    npm run install-all
    ```
@@ -85,7 +77,7 @@ A comprehensive, professional cybersecurity web application featuring an interac
    # Edit .env with your configuration
    ```
 
-4. **Start the development servers**
+4. Start dev (runs server and client together)
    ```bash
    npm run dev
    ```
@@ -94,46 +86,39 @@ A comprehensive, professional cybersecurity web application featuring an interac
    - Open your browser to `http://localhost:5173`
    - The backend API runs on `http://localhost:3001`
 
-### Production Deployment
+### Production
+1) Build client and prepare server bundle
+```bash
+npm run build
+```
+2) Start
+```bash
+npm start
+```
 
-1. **Build the application**
-   ```bash
-   npm run build
-   ```
-
-2. **Start the production server**
-   ```bash
-   npm start
-   ```
-
-## 🎯 Usage
+## 🎯 Usage (Typical Flow)
 
 ### Basic Workflow
 
-1. **Access the Terminal**
-   - Navigate to the Terminal page
-   - Use the interactive terminal for SQLMap commands
-   - View real-time output and progress
+1) Login (register first if needed). The UI attaches your JWT to API and socket connections.
 
-2. **Start a Security Scan**
-   - Enter target URL
-   - Select scan profile (Basic, Deep, Enumeration, etc.)
-   - Configure additional options if needed
-   - Monitor progress in real-time
+2) Verify target ownership (Targets page) via HTTP file or DNS TXT; non‑verified targets are blocked unless admin allows.
 
-3. **Review Results**
-   - Automatic report generation upon completion
-   - Structured CSV output with downloadable files
-   - Session data preservation for analysis
-   - View vulnerabilities and recommendations
-   - Export reports in multiple formats
+3) Start a scan (Dashboard/Terminal)
+- Choose profile (basic/deep/enumeration/dump/custom)
+- Optional options: cookie, headers, data, method, proxy, timeout/delay
+- See real‑time `scan-output`, completion status, and link to report
+
+4) Review results
+- Report includes parsed findings, CSV dumps, session DB path, traffic log, risk summary
+- Export as JSON/HTML/PDF; CSV files downloadable via signed file route
 
 4. **Manage Reports**
    - Browse historical scan reports
    - Filter and search capabilities
    - Export and share findings
 
-### Scan Profiles
+### Scan Profiles (preconfigured)
 
 #### Basic Scan
 ```bash
@@ -155,26 +140,16 @@ sqlmap -u <target> --batch --random-agent --dbs --tables --columns
 sqlmap -u <target> --batch --random-agent --dump --exclude-sysdbs
 ```
 
-### Terminal Commands
+### Terminal Commands (whitelisted)
+- `sqlmap-help`, `sqlmap-version`, `list-profiles`, `validate-target <url>`
 
-The application supports various terminal commands:
-
-- `sqlmap-help` - Display SQLMap help information
-- `sqlmap-version` - Show SQLMap version
-- `list-profiles` - List available scan profiles
-- `validate-target <url>` - Validate target URL
-- `clear` - Clear terminal output
-- `help` - Show available commands
-
-## 📄 Structured Output & Report Generation
+## 📄 Reports & Structured Output
 
 The application now provides comprehensive structured output from SQLMap scans:
 
-### Output Formats
-- **CSV Files**: Well-formatted data extraction results
-- **Session Files**: SQLite database with scan session data
-- **Traffic Logs**: HTTP request/response logs for analysis
-- **JSON/HTML/PDF Reports**: Structured vulnerability findings
+### Output
+- CSV dumps, session.sqlite, traffic.log
+- JSON/HTML/PDF report exports (PDF via Puppeteer; auto HTML fallback if headless fails)
 
 ### Report Features
 - **Professional Formatting**: Clean, organized vulnerability reports
@@ -186,11 +161,8 @@ The application now provides comprehensive structured output from SQLMap scans:
   - Risk classifications and severity levels
 
 ### File Access
-Reports include direct download links for:
-- Individual CSV dump files
-- Session database files
-- HTTP traffic logs
-- Parsed JSON results
+Secure route to download CSV dumps for your scan only:
+`GET /api/reports/:id/files/:filename` (ownership enforced; path traversal protected)
 
 This ensures you have access to well-formatted, professional results suitable for:
 - Security audit documentation
@@ -202,7 +174,7 @@ This ensures you have access to well-formatted, professional results suitable fo
 
 ### Environment Variables
 
-Create a `.env` file in the root directory:
+Create a `.env` in the repo root (values shown are examples; see server/index.js for defaults):
 
 ```env
 # Server Configuration
@@ -214,13 +186,17 @@ LOG_LEVEL=info
 DB_PATH=./server/data/cybersecurity.db
 
 # Security Configuration
-JWT_SECRET=your-jwt-secret-here
+# JWT secret for auth tokens
+JWT_SECRET=change-me
 RATE_LIMIT_WINDOW=900000
 RATE_LIMIT_MAX=100
 
 # SQLMap Configuration
-SQLMAP_PATH=/usr/bin/sqlmap
-SQLMAP_OUTPUT_DIR=./server/temp
+SQLMAP_PATH=sqlmap
+# Optional: enforce proxy usage for scans
+REQUIRE_PROXY=false
+# Retain scan output dirs for N days (cleanup scheduled daily at 03:30)
+OUTPUT_RETENTION_DAYS=7
 
 # Multi-user Controls
 # Max concurrent scans allowed per non-admin user
@@ -229,8 +205,6 @@ MAX_CONCURRENT_SCANS_PER_USER=2
 MAX_SCANS_PER_MONTH=100
 # Require target domain verification before scanning (recommended true)
 ALLOW_UNVERIFIED_TARGETS=false
-# JWT secret for auth tokens
-JWT_SECRET=change-me
 ```
 
 ### Application Settings
@@ -243,11 +217,32 @@ Settings can be configured through the web interface:
 - **Auto-save**: Automatic saving of scans
 - **Concurrent Scans**: Maximum simultaneous scans
 
-## 📊 API Documentation
+## 📊 API (REST)
 
 ### Health Check
 ```http
 GET /api/health
+```
+
+### Auth
+```http
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/auth/me
+```
+
+### Targets (ownership verification)
+```http
+GET    /api/targets
+POST   /api/targets                 # { hostname, method: http-file|dns-txt } -> token issued
+POST   /api/targets/:id/verify      # performs file/DNS check; sets verified_at
+DELETE /api/targets/:id
+```
+
+### Recon
+```http
+POST /api/recon  # { target }
+GET  /api/recon?target=...
 ```
 
 ### Reports
@@ -255,6 +250,7 @@ GET /api/health
 GET /api/reports
 GET /api/reports/:id
 GET /api/reports/:id/export/:format
+GET /api/reports/:id/files/:filename   # secure CSV download
 DELETE /api/reports/:id
 ```
 
@@ -267,16 +263,17 @@ GET /api/usage  # returns current period usage and configured limits for the aut
 ```http
 GET /api/scans           # list scans for current user (admin may see all)
 GET /api/scans/running   # list only running scans for current user
+GET /api/scans/:id/events # audit/event stream for a scan (ownership enforced)
 ```
 
 ### WebSocket Events
-- `start-sqlmap-scan` - Initiate a new scan
-- `terminate-scan` - Stop running scan
-- `execute-command` - Execute terminal command
-- `scan-output` - Receive real-time output
-- `scan-completed` - Scan completion notification
- - `scan-error` - Error when starting or running a scan (quota, verification, etc.)
- - `auth-ok` - Emitted on successful socket authentication with { userId, role, orgId }
+- `start-sqlmap-scan`  { target, options, scanProfile }
+- `terminate-scan`     { scanId? }
+- `execute-command`    { command, args }
+- `scan-output`        { scanId, type, output }
+- `scan-completed`     { scanId, status, reportId, hasStructuredResults }
+- `scan-error`         { message }
+- `auth-ok`            { userId, role, orgId }
 
 ## 🛡️ Security Considerations
 
@@ -291,31 +288,18 @@ GET /api/scans/running   # list only running scans for current user
 - WebSocket connections are monitored and limited
 
 ### Process Security
-- SQLMap processes run with limited privileges
-- Temporary files are cleaned up automatically
-- Process termination is handled securely
+- Per‑user output directories in OS temp; daily cleanup by retention policy
+- Background scans continue on socket disconnect; server restart marks running as interrupted
 
 ### Data Protection
 - Sensitive data is masked in reports
 - Database queries are parameterized
 - Error messages don't leak system information
 
-## 🧪 Testing
-
-### Run Tests
-```bash
-npm test
-```
-
-### Linting
-```bash
-npm run lint
-```
-
-### Type Checking
-```bash
-npm run type-check
-```
+## 🧪 Dev Tips
+- Lint backend: `npm run lint`
+- Lint client: `npm run client:lint`
+- Build all: `npm run build`
 
 ## 📱 Mobile Support
 
@@ -351,20 +335,10 @@ LOG_LEVEL=debug
 NODE_ENV=development
 ```
 
-## 📈 Performance
-
-### Optimization Features
-- Lazy loading of components
-- Code splitting for better load times
-- Efficient state management
-- Optimized WebSocket communication
-- Database query optimization
-
-### Monitoring
-- Built-in performance monitoring
-- Resource usage tracking
-- Error rate monitoring
-- Response time metrics
+## 📈 Notes & Caveats
+- SQLMap must be installed and reachable (PATH or SQLMAP_PATH). On Windows, `py -m sqlmap` may be detected automatically.
+- PDF export uses Puppeteer; when headless is unavailable, the server falls back to HTML export and sets `X-PDF-Fallback: true`.
+- Scanning non‑verified targets is blocked unless ALLOW_UNVERIFIED_TARGETS=true or you’re admin.
 
 ## 🤝 Contributing
 
@@ -392,14 +366,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Tailwind CSS for the design system
 
 ## 📞 Support
-
-For support and questions:
-- Create an issue on GitHub
-- Check the documentation
-- Review the troubleshooting guide
+- Open an issue on GitHub
+- Check Troubleshooting below
 
 ---
 
-**⚠️ Legal Notice**: This tool is for authorized security testing only. Always ensure you have proper authorization before testing any systems. The developers are not responsible for any misuse of this application.
+**⚠️ Legal Notice**: Use only on assets you own or are authorized to test. Target ownership verification is enforced by default.
 
 **🔒 Security Disclosure**: If you discover a security vulnerability, please report it responsibly to the maintainers.
