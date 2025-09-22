@@ -77,6 +77,7 @@ export default function ReportDetails() {
   const [verifyMeta, setVerifyMeta] = useState<Record<string, { at: string }>>({});
   const [verifyAllRunning, setVerifyAllRunning] = useState(false);
   const [verifyAllProgress, setVerifyAllProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const [verifyOnlyChanged, setVerifyOnlyChanged] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -193,28 +194,51 @@ export default function ReportDetails() {
     }
   }
 
+  const shouldReverify = (findingId: string) => {
+    const res = verifyResult[findingId];
+    if (!res) return true; // never verified
+    if (res.wafDetected) return true; // inconclusive due to WAF
+    const label = res.label || '';
+    if (label === 'Inconclusive' || label === 'Suspected') return true; // lower confidence
+    return false;
+  }
+
   const onVerifyAll = async () => {
     if (!report?.id) return;
-    const ids = (report.vulnerabilities?.findings || []).map(f => f.id).filter(Boolean);
+    let ids = (report.vulnerabilities?.findings || []).map(f => f.id).filter(Boolean);
+    if (verifyOnlyChanged) {
+      ids = ids.filter(shouldReverify);
+    }
     if (ids.length === 0) return;
     setVerifyAllRunning(true);
     setVerifyAllProgress({ done: 0, total: ids.length });
     let success = 0;
     let failed = 0;
-    for (const id of ids) {
-      setVerifying(prev => ({ ...prev, [id]: true }));
-      try {
-        const res = await apiVerifyFinding(report.id, id);
-        setVerifyResult(prev => ({ ...prev, [id]: res }));
-        setVerifyMeta(prev => ({ ...prev, [id]: { at: new Date().toISOString() } }));
-        if (res.ok) success++; else failed++;
-      } catch (_) {
-        failed++;
-      } finally {
-        setVerifying(prev => ({ ...prev, [id]: false }));
-        setVerifyAllProgress(prev => ({ ...prev, done: prev.done + 1, total: prev.total }));
+    const concurrency = 3;
+    const startDelayMs = 150;
+    let index = 0;
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const worker = async () => {
+      while (true) {
+        const i = index++;
+        if (i >= ids.length) break;
+        const id = ids[i];
+        await delay(startDelayMs);
+        setVerifying(prev => ({ ...prev, [id]: true }));
+        try {
+          const res = await apiVerifyFinding(report.id!, id);
+          setVerifyResult(prev => ({ ...prev, [id]: res }));
+          setVerifyMeta(prev => ({ ...prev, [id]: { at: new Date().toISOString() } }));
+          if (res.ok) success++; else failed++;
+        } catch (_) {
+          failed++;
+        } finally {
+          setVerifying(prev => ({ ...prev, [id]: false }));
+          setVerifyAllProgress(prev => ({ ...prev, done: prev.done + 1, total: prev.total }));
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, () => worker()));
     setVerifyAllRunning(false);
     if (failed === 0) {
       toast.success(`Verified all ${success} findings.`);
@@ -344,6 +368,15 @@ export default function ReportDetails() {
               {verifyAllRunning && (
                 <span className="text-sm text-gray-300">Verifying {verifyAllProgress.done}/{verifyAllProgress.total}…</span>
               )}
+              <label className="flex items-center gap-2 text-xs text-gray-300">
+                <input
+                  type="checkbox"
+                  className="form-checkbox rounded border-gray-600 bg-gray-800"
+                  checked={verifyOnlyChanged}
+                  onChange={(e) => setVerifyOnlyChanged(e.target.checked)}
+                />
+                Re-verify changed since last run
+              </label>
               <button
                 className="btn-secondary text-sm px-3 py-1 disabled:opacity-60"
                 onClick={onVerifyAll}
@@ -398,6 +431,20 @@ export default function ReportDetails() {
                     <span className={`text-sm font-bold uppercase px-3 py-1 rounded-full ${getSeverityClass(vuln.severity)}`}>
                       {vuln.severity}
                     </span>
+                    {/* Compact persisted label badge */}
+                    {verifyResult[vuln.id]?.label && (
+                      <span
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                          verifyResult[vuln.id]?.label === 'Confirmed' ? 'bg-green-900 text-green-200 border border-green-700' :
+                          verifyResult[vuln.id]?.label === 'Likely' ? 'bg-yellow-900 text-yellow-200 border border-yellow-700' :
+                          verifyResult[vuln.id]?.label === 'Inconclusive' ? 'bg-orange-900 text-orange-200 border border-orange-700' :
+                          'bg-gray-700 text-gray-200 border border-gray-600'
+                        }`}
+                        title={`Verification: ${verifyResult[vuln.id]?.label}`}
+                      >
+                        {verifyResult[vuln.id]?.label}
+                      </span>
+                    )}
                     {verifyMeta[vuln.id]?.at && (
                       <span className="text-xs text-gray-300 bg-gray-700 px-2 py-0.5 rounded" title={new Date(verifyMeta[vuln.id].at).toLocaleString()}>
                         Last verified: {new Date(verifyMeta[vuln.id].at).toLocaleDateString()} {new Date(verifyMeta[vuln.id].at).toLocaleTimeString()}
