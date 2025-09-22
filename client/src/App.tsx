@@ -15,6 +15,7 @@ import LoadingScreen from './components/LoadingScreen'
 import Login from './pages/Login'
 import Targets from './pages/Targets'
 import Usage from './pages/Usage'
+import Admin from './pages/Admin'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { isAuthenticated } = useAppStore()
@@ -99,6 +100,7 @@ function App() {
             <Route path="settings" element={<Settings />} />
             <Route path="targets" element={<Targets />} />
             <Route path="usage" element={<Usage />} />
+            <Route path="admin" element={<Admin />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>

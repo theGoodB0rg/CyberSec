@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import {
   HomeIcon,
@@ -16,6 +16,7 @@ import {
 import { useAppStore } from '../store/appStore'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/utils/api'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
@@ -31,6 +32,17 @@ export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { isConnected, runningScans, currentUser, logout } = useAppStore()
   const location = useLocation()
+
+  // Minimal telemetry: send a visit event on route change (privacy-respecting)
+  useEffect(() => {
+    const controller = new AbortController()
+    apiFetch('/api/telemetry/visit', {
+      method: 'POST',
+      body: JSON.stringify({ path: location.pathname }),
+      signal: controller.signal as any
+    }).catch(() => {})
+    return () => controller.abort()
+  }, [location.pathname])
 
   const toggleSidebar = () => setSidebarExpanded(!sidebarExpanded)
   const toggleMobileMenu = () => setMobileMenuOpen(!mobileMenuOpen)
@@ -113,6 +125,20 @@ export default function Layout() {
                     </NavLink>
                   )
                 })}
+                {currentUser?.role === 'admin' && (
+                  <NavLink
+                    key="Admin"
+                    to="/admin"
+                    onClick={toggleMobileMenu}
+                    className={clsx(
+                      location.pathname === '/admin' ? 'bg-gray-900 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white',
+                      'group flex items-center px-2 py-2 text-base font-medium rounded-md'
+                    )}
+                  >
+                    <ShieldCheckIcon className="mr-4 flex-shrink-0 h-6 w-6 text-gray-400 group-hover:text-gray-300" />
+                    Admin
+                  </NavLink>
+                )}
               </nav>
             </div>
 
@@ -173,6 +199,29 @@ export default function Layout() {
                     </NavLink>
                   )
                 })}
+                {currentUser?.role === 'admin' && (
+                  <NavLink
+                    key="Admin"
+                    to="/admin"
+                    className={clsx(
+                      location.pathname === '/admin'
+                        ? 'bg-gray-900 text-white'
+                        : 'text-gray-300 hover:bg-gray-700 hover:text-white',
+                      'group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors'
+                    )}
+                    title={!sidebarExpanded ? 'Admin' : undefined}
+                  >
+                    <ShieldCheckIcon
+                      className={clsx(
+                        location.pathname === '/admin' ? 'text-gray-300' : 'text-gray-400 group-hover:text-gray-300',
+                        'flex-shrink-0 h-6 w-6',
+                        sidebarExpanded ? 'mr-3' : 'mx-auto'
+                      )}
+                      aria-hidden="true"
+                    />
+                    {sidebarExpanded && 'Admin'}
+                  </NavLink>
+                )}
               </nav>
 
               {/* Sidebar toggle button */}

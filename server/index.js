@@ -70,6 +70,14 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// More strict rate limit just for telemetry ingestion to avoid spam
+const telemetryLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 30, // allow up to 30 telemetry events per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // CORS configuration (allow any localhost port while developing)
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? false : /http:\/\/localhost:\d+/,
@@ -115,6 +123,19 @@ app.get('/api/health', (req, res) => {
 
 // Authenticated routes
 app.use('/api', AuthMiddleware.requireAuth);
+
+// Lightweight telemetry ingestion (privacy-respecting): page visits etc.
+app.post('/api/telemetry/visit', telemetryLimiter, async (req, res) => {
+  try {
+    const { path: pagePath } = req.body || {};
+    // Only store path and coarse timestamp; no IP/user-agent; associate with user_id
+    await database.logTelemetry({ user_id: req.user.id, event_type: 'visit', metadata: { path: String(pagePath || '') } });
+    res.json({ ok: true });
+  } catch (e) {
+    Logger.warn('Telemetry visit failed', e);
+    res.status(500).json({ error: 'telemetry-failed' });
+  }
+});
 
 // Scheduler APIs
 app.post('/api/scans/schedule', async (req, res) => {
@@ -804,6 +825,78 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
   }
 });
 
+// Mark/unmark a finding as false positive (admin or owner of report)
+app.post('/api/reports/:id/findings/:findingId/false-positive', async (req, res) => {
+  try {
+    const { id, findingId } = req.params;
+    const { value } = req.body || {}; // boolean
+    const report = await database.getReport(id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    if (req.user.role !== 'admin' && report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await database.updateReportMetadata(id, (m) => {
+      const fp = m.falsePositives || {};
+      if (value) fp[findingId] = { at: new Date().toISOString(), by: req.user.id };
+      else delete fp[findingId];
+      return { ...m, falsePositives: fp };
+    });
+    // Telemetry
+    try { await database.logTelemetry({ user_id: req.user.id, event_type: 'false-positive', metadata: { reportId: id, findingId, value: !!value } }); } catch(_) {}
+    res.json({ ok: true });
+  } catch (e) {
+    Logger.error('False-positive toggle failed', e);
+    res.status(500).json({ error: 'Failed to update flag' });
+  }
+});
+
+// Admin-only metrics endpoints
+app.get('/api/admin/metrics', async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    const now = new Date();
+    const cutoff7 = new Date(now.getTime() - 7*24*60*60*1000).toISOString();
+    const cutoff30 = new Date(now.getTime() - 30*24*60*60*1000).toISOString();
+    const [userCount, adminCount, scans7, scans30, ttfb7, verify7, fp7, visitsSeries, topPages] = await Promise.all([
+      database.getUserCount(),
+      database.getAdminCount(),
+      database.getScansStatsSince(cutoff7),
+      database.getScansStatsSince(cutoff30),
+      database.getAverageTimeToFirstReportSince(cutoff7),
+      database.countVerificationEventsSince(cutoff7),
+      database.countFalsePositivesSince(cutoff7),
+      database.getVisitsSeries(14),
+      database.getTopPages(14, 10)
+    ]);
+    res.json({
+      users: { total: userCount, admins: adminCount },
+      scans: { last7d: scans7, last30d: scans30 },
+      timeToFirstReportMsAvg7d: ttfb7,
+      verifications7d: verify7,
+      falsePositives7d: fp7,
+      visits: { series: visitsSeries, topPages }
+    });
+  } catch (e) {
+    Logger.error('Admin metrics failed', e);
+    res.status(500).json({ error: 'Failed to fetch metrics' });
+  }
+});
+
+app.get('/api/admin/visits', async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    const days = Math.max(1, Math.min(60, parseInt(String(req.query.days || '14'), 10) || 14));
+    const [series, pages] = await Promise.all([
+      database.getVisitsSeries(days),
+      database.getTopPages(days, 20)
+    ]);
+    res.json({ series, topPages: pages });
+  } catch (e) {
+    Logger.error('Admin visits failed', e);
+    res.status(500).json({ error: 'Failed to fetch visits' });
+  }
+});
+
 // Test PDF generation endpoint
 app.get('/api/test-pdf', async (req, res) => {
   try {
@@ -1266,6 +1359,22 @@ app.get('/api/scans/:id/events', async (req, res) => {
 server.listen(PORT, async () => {
   Logger.info(`Server running on port ${PORT}`);
   Logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  // Ensure a default admin exists (env-provided or dev fallback)
+  try {
+    const adminCount = await database.getAdminCount();
+    if (adminCount === 0) {
+      const email = process.env.ADMIN_EMAIL || 'admin@local.test';
+      const password = process.env.ADMIN_PASSWORD || 'admin1234';
+      const bcrypt = require('bcrypt');
+      const hash = await bcrypt.hash(password, 12);
+      await database.createUser({ email, password_hash: hash, role: 'admin' });
+      Logger.warn('No admin found. Seeded default admin credentials.');
+      Logger.warn(`Admin Email: ${email}`);
+      Logger.warn(`Admin Password: ${password}`);
+    }
+  } catch (e) {
+    Logger.warn('Admin seeding failed', { error: e.message });
+  }
   // Startup recovery: mark previously running scans as interrupted and log audit
   try {
     const interrupted = await database.interruptRunningScans();

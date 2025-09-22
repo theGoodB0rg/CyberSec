@@ -128,6 +128,16 @@ class Database {
       )
     `;
 
+    const createTelemetryTable = `
+      CREATE TABLE IF NOT EXISTS telemetry_events (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        event_type TEXT NOT NULL, -- visit | false-positive | signup | custom
+        at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        metadata TEXT
+      )
+    `;
+
     const createJobsTable = `
       CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
@@ -194,6 +204,7 @@ class Database {
       this.db.run(createReconPages);
     this.db.run(createUsersTable);
       this.db.run(createScanEventsTable);
+  this.db.run(createTelemetryTable);
   this.db.run(createJobsTable);
 
       // Helpful indices
@@ -209,6 +220,8 @@ class Database {
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_verified_targets_lookup ON verified_targets(hostname, user_id, org_id, verified_at)`);
   this.db.run(`CREATE INDEX IF NOT EXISTS idx_jobs_status_runat ON jobs(status, run_at)`);
   this.db.run(`CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id, status, run_at)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_telemetry_type_time ON telemetry_events(event_type, at)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_telemetry_user_time ON telemetry_events(user_id, at)`);
 
       // Attempt to add new columns if upgrading existing recon_parameters
       const alterCols = [
@@ -314,6 +327,26 @@ class Database {
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run([id, scan_id, user_id, org_id, event_type, at, JSON.stringify(redacted)], function(err) {
+          if (err) return reject(err);
+          resolve(id);
+        });
+        stmt.finalize();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  // Telemetry: privacy-respecting minimal events
+  async logTelemetry({ id = uuidv4(), user_id = null, event_type, at = new Date().toISOString(), metadata = {} }) {
+    return new Promise((resolve, reject) => {
+      try {
+        const redacted = this.redactSensitive(metadata || {});
+        const stmt = this.db.prepare(`
+          INSERT INTO telemetry_events (id, user_id, event_type, at, metadata)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        stmt.run([id, user_id, event_type, at, JSON.stringify(redacted)], function(err) {
           if (err) return reject(err);
           resolve(id);
         });
@@ -895,6 +928,24 @@ class Database {
     });
   }
 
+  async getUserCount() {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT COUNT(*) as c FROM users', [], (err, row) => {
+        if (err) return reject(err);
+        resolve((row && row.c) || 0);
+      });
+    });
+  }
+
+  async getAdminCount() {
+    return new Promise((resolve, reject) => {
+      this.db.get("SELECT COUNT(*) as c FROM users WHERE role = 'admin'", [], (err, row) => {
+        if (err) return reject(err);
+        resolve((row && row.c) || 0);
+      });
+    });
+  }
+
   async getUserByEmail(email) {
     return new Promise((resolve, reject) => {
       this.db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
@@ -1051,6 +1102,87 @@ class Database {
           duplicate_window_retries: row.duplicate_window_retries || 0
         };
         resolve(safe);
+      });
+    });
+  }
+
+  // Admin metrics helpers
+  async getScansStatsSince(cutoffIso) {
+    return new Promise((resolve, reject) => {
+      const out = {};
+      this.db.get(`SELECT COUNT(*) as started FROM scans WHERE created_at >= ?`, [cutoffIso], (e1, r1) => {
+        if (e1) return reject(e1);
+        out.started = r1?.started || 0;
+        this.db.get(`SELECT COUNT(*) as completed FROM scans WHERE end_time >= ? AND status = 'completed'`, [cutoffIso], (e2, r2) => {
+          if (e2) return reject(e2);
+          out.completed = r2?.completed || 0;
+          resolve(out);
+        });
+      });
+    });
+  }
+
+  async getAverageTimeToFirstReportSince(cutoffIso) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        SELECT AVG(strftime('%s', r.created_at) - strftime('%s', s.start_time)) AS avg_secs
+        FROM reports r
+        JOIN scans s ON s.id = r.scan_id
+        WHERE r.created_at >= ? AND s.start_time IS NOT NULL
+      `;
+      this.db.get(sql, [cutoffIso], (err, row) => {
+        if (err) return reject(err);
+        const avgSecs = row && row.avg_secs != null ? Number(row.avg_secs) : null;
+        resolve(avgSecs != null ? Math.max(0, Math.round(avgSecs * 1000)) : null); // ms
+      });
+    });
+  }
+
+  async countVerificationEventsSince(cutoffIso) {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT COUNT(*) as c FROM scan_events WHERE event_type = 'verification' AND at >= ?`;
+      this.db.get(sql, [cutoffIso], (err, row) => err ? reject(err) : resolve(row?.c || 0));
+    });
+  }
+
+  async countFalsePositivesSince(cutoffIso) {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT COUNT(*) as c FROM telemetry_events WHERE event_type = 'false-positive' AND at >= ?`;
+      this.db.get(sql, [cutoffIso], (err, row) => err ? reject(err) : resolve(row?.c || 0));
+    });
+  }
+
+  async getVisitsSeries(days = 7) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        SELECT substr(at,1,10) as day, COUNT(*) as visits
+        FROM telemetry_events
+        WHERE event_type = 'visit' AND at >= datetime('now', ?)
+        GROUP BY day
+        ORDER BY day ASC
+      `;
+      const window = `-${Math.max(1, days)} days`;
+      this.db.all(sql, [window], (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+  }
+
+  async getTopPages(days = 7, limit = 10) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        SELECT json_extract(metadata,'$.path') as path, COUNT(*) as c
+        FROM telemetry_events
+        WHERE event_type = 'visit' AND at >= datetime('now', ?)
+        GROUP BY path
+        ORDER BY c DESC
+        LIMIT ?
+      `;
+      const window = `-${Math.max(1, days)} days`;
+      this.db.all(sql, [window, Math.max(1, limit)], (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
       });
     });
   }

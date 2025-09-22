@@ -2,9 +2,9 @@ import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw, Image as ImageIcon, ExternalLink } from 'lucide-react';
+import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw, Image as ImageIcon, ExternalLink, Flag } from 'lucide-react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import { getScanEvents, type ScanEvent, verifyFinding as apiVerifyFinding, type VerifyFindingResult } from '../utils/api';
+import { apiFetch, getScanEvents, type ScanEvent, verifyFinding as apiVerifyFinding, type VerifyFindingResult } from '../utils/api';
 import { useAppStore } from '../store/appStore';
 import { useScanSocket } from '../hooks/useSocket';
 import { wafPreset } from '../utils/sqlmapFlags';
@@ -87,6 +87,7 @@ export default function ReportDetails() {
   const [verifyAllRunning, setVerifyAllRunning] = useState(false);
   const [verifyAllProgress, setVerifyAllProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [verifyOnlyChanged, setVerifyOnlyChanged] = useState<boolean>(false);
+  const [showFalsePositivesOnly, setShowFalsePositivesOnly] = useState<boolean>(false);
   const [proofModal, setProofModal] = useState<{ open: boolean; src: string; title?: string }>({ open: false, src: '' });
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -188,6 +189,28 @@ export default function ReportDetails() {
     if (typeof score !== 'number') return '—';
     return `${Math.round(Math.min(1, Math.max(0, score)) * 100)}%`;
   };
+
+  const isFalsePositive = (findingId: string) => {
+    const fp = (report as any)?.metadata?.falsePositives || {};
+    return !!fp[findingId];
+  };
+
+  const toggleFalsePositive = async (findingId: string) => {
+    if (!report?.id) return;
+    const next = !isFalsePositive(findingId);
+    try {
+      await apiFetch(`/api/reports/${report.id}/findings/${findingId}/false-positive`, {
+        method: 'POST',
+        body: JSON.stringify({ value: next })
+      });
+      // Refresh report to get updated metadata
+      const nr = await apiFetch(`/api/reports/${reportId}`);
+      setReport(nr);
+      toast.success(next ? 'Marked as false positive' : 'False positive removed');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update');
+    }
+  }
   
   const onVerify = async (findingId: string) => {
     if (!report?.id) return;
@@ -444,7 +467,7 @@ export default function ReportDetails() {
         </div>
         
         {/* Vulnerability Summary */}
-        {report.vulnerabilities?.total > 0 && (
+          {report.vulnerabilities?.total > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="bg-red-900/20 border border-red-800 p-4 rounded-lg text-center">
               <div className="text-2xl font-bold text-red-400">{report.vulnerabilities.critical || 0}</div>
@@ -466,8 +489,25 @@ export default function ReportDetails() {
         )}
 
         <div className="space-y-6">
+          {/* FP-only filter */}
+          <div className="flex items-center justify-between mb-2">
+            <div />
+            <label className="flex items-center gap-2 text-xs text-gray-300">
+              <input
+                type="checkbox"
+                className="form-checkbox rounded border-gray-600 bg-gray-800"
+                checked={showFalsePositivesOnly}
+                onChange={(e) => setShowFalsePositivesOnly(e.target.checked)}
+              />
+              Show false positives only
+            </label>
+          </div>
+
           {report.vulnerabilities?.findings?.length > 0 ? (
-            report.vulnerabilities.findings.map((vuln) => (
+            (showFalsePositivesOnly
+              ? report.vulnerabilities.findings.filter((f) => isFalsePositive(f.id))
+              : report.vulnerabilities.findings
+            ).map((vuln) => (
               <div key={vuln.id} className={`bg-gray-750 p-6 rounded-lg border-l-4 ${getSeverityClass(vuln.severity)} shadow-lg`}>
                 <div className="flex justify-between items-start mb-4">
                   <div>
@@ -511,6 +551,15 @@ export default function ReportDetails() {
                       title="Re-run minimal PoCs to verify"
                     >
                       {verifying[vuln.id] ? 'Verifying…' : 'Verify'}
+                    </button>
+                    <button
+                      className={`ml-2 px-2 py-1 rounded text-xs border ${isFalsePositive(vuln.id) ? 'bg-red-900/40 border-red-700 text-red-200' : 'bg-gray-700 border-gray-600 text-gray-200'}`}
+                      onClick={() => toggleFalsePositive(vuln.id)}
+                      title={isFalsePositive(vuln.id) ? 'Unmark False Positive' : 'Mark False Positive'}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        <Flag size={12} /> {isFalsePositive(vuln.id) ? 'False Positive' : 'Mark FP'}
+                      </span>
                     </button>
                   </div>
                 </div>
