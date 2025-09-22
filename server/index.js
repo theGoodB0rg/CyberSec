@@ -1451,7 +1451,7 @@ server.listen(PORT, async () => {
   try {
     const enableQueue = String(process.env.ENABLE_JOB_QUEUE || 'true').toLowerCase();
     if (['true','1','yes','on'].includes(enableQueue)) {
-      const queue = new QueueRunner({ database, io, scanProcessesRef: scanProcesses });
+  const queue = new QueueRunner({ database, io, scanProcessesRef: scanProcesses, sqlmap: sqlmapIntegration, reportGenerator });
       queue.start();
       Logger.info('Job queue enabled');
     } else {

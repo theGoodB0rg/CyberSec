@@ -5,11 +5,13 @@ const ReportGenerator = require('./reports');
 const { sanitizeOptionsForStorage, prepareAuthContext } = require('./helpers/scanHelpers');
 
 class QueueRunner {
-  constructor({ database, io, scanProcessesRef }) {
+  constructor({ database, io, scanProcessesRef, sqlmap, reportGenerator }) {
     this.db = database;
     this.io = io;
-    this.sqlmap = new SQLMapIntegration();
-    this.reportGenerator = new ReportGenerator(database);
+    // Reuse provided SQLMapIntegration if available to avoid duplicate initialization/validation
+    this.sqlmap = sqlmap || new SQLMapIntegration();
+    // Reuse provided ReportGenerator to avoid duplicate Puppeteer validation
+    this.reportGenerator = reportGenerator || new ReportGenerator(database);
     // Reference to the in-memory map in index.js for visibility/termination
     this.scanProcesses = scanProcessesRef;
     this.timer = null;
