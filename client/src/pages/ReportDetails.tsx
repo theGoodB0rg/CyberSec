@@ -64,6 +64,7 @@ const ErrorDisplay = ({ message }: { message: string }) => (
     <p className="text-red-500">{message}</p>
   </div>
 );
+ 
 
 export default function ReportDetails() {
   const applyWafSuggestions = useAppStore(s => s.applyWafSuggestions);
@@ -325,6 +326,20 @@ export default function ReportDetails() {
             {report.createdAt && !isNaN(new Date(report.createdAt).getTime())
               ? new Date(report.createdAt).toLocaleDateString()
               : 'Unknown'}
+          </p>
+        </div>
+        <div className="bg-gray-800 p-6 rounded-lg">
+          <h3 className="text-gray-400 text-sm font-bold uppercase">Auth Mode</h3>
+          <p className="text-2xl font-semibold">
+            {(() => {
+              const meta = (report as any)?.metadata || {};
+              const mode = meta?.auth?.mode || meta?.auth?.type || 'none';
+              const label = String(mode).toLowerCase();
+              if (label === 'login') return 'Login Session';
+              if (label === 'cookie') return 'Cookie/Header';
+              if (label === 'none') return 'None';
+              return mode;
+            })()}
           </p>
         </div>
       </div>

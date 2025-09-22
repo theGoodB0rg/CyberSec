@@ -28,6 +28,19 @@ export default function Terminal() {
   const setTerminalProfile = useAppStore(s => s.setTerminalProfile)
   const setTerminalCustomFlags = useAppStore(s => s.setTerminalCustomFlags)
   const [isScanning, setIsScanning] = useState(false)
+  // Auth fields (Phase 1)
+  const [authType, setAuthType] = useState<'none'|'cookie'|'login'>('none')
+  const [authCookie, setAuthCookie] = useState('')
+  const [authHeaderName, setAuthHeaderName] = useState('')
+  const [authHeaderValue, setAuthHeaderValue] = useState('')
+  const [loginUrl, setLoginUrl] = useState('')
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginUsernameField, setLoginUsernameField] = useState('username')
+  const [loginPasswordField, setLoginPasswordField] = useState('password')
+  const [csrfRegex, setCsrfRegex] = useState('')
+  const [csrfFieldName, setCsrfFieldName] = useState('')
+  const [csrfHeaderName, setCsrfHeaderName] = useState('')
   
   const { on, off, startScan: sendStartScan, terminateScan } = useScanSocket()
   const { addScan, updateScan, isConnected, upsertScanFromEvent } = useAppStore()
@@ -205,12 +218,38 @@ export default function Terminal() {
       return
     }
 
-    const scanOptions = {
+    const scanOptions: any = {
       target: targetUrl.trim(),
       profile: selectedProfile,
       ...(selectedProfile === 'custom' && customFlags.trim() && {
         customFlags: customFlags.trim()
       })
+    }
+
+    // Attach auth block
+    if (authType === 'cookie') {
+      const headers: Record<string,string> = {}
+      if (authHeaderName && authHeaderValue) headers[authHeaderName] = authHeaderValue
+      scanOptions.auth = { type: 'cookie', cookie: authCookie || undefined, headers }
+      // Also pass direct fields for convenience
+      if (authCookie) scanOptions.cookie = authCookie
+      if (authHeaderName && authHeaderValue) scanOptions.headers = headers
+    } else if (authType === 'login') {
+      scanOptions.auth = {
+        type: 'login',
+        loginUrl,
+        method: 'POST',
+        username: loginUsername,
+        password: loginPassword,
+        usernameField: loginUsernameField || 'username',
+        passwordField: loginPasswordField || 'password',
+        csrf: {
+          regex: csrfRegex || undefined,
+          fieldName: csrfFieldName || undefined,
+          headerName: csrfHeaderName || undefined,
+          tokenUrl: loginUrl || undefined
+        }
+      }
     }
 
     try {
@@ -264,11 +303,6 @@ export default function Terminal() {
         <p className="mt-1 text-gray-400">
           Interactive terminal for SQL injection testing
         </p>
-      </div>
-
-      {/* Scan Configuration */}
-      <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
           {/* Target URL */}
           <div className="lg:col-span-2">
             <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -337,6 +371,87 @@ export default function Terminal() {
           </div>
         </div>
 
+        {/* Auth Section */}
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <div>
+            <label htmlFor="authMode" className="block text-sm font-medium text-gray-300 mb-2">Auth Mode</label>
+            <select
+              id="authMode"
+              value={authType}
+              onChange={(e) => setAuthType(e.target.value as any)}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isScanning}
+            >
+              <option value="none">None</option>
+              <option value="cookie">Cookie/Header</option>
+              <option value="login">Login Flow</option>
+            </select>
+          </div>
+          {authType === 'cookie' && (
+            <>
+              <div className="lg:col-span-1">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Cookie</label>
+                <input type="text" value={authCookie} onChange={(e)=>setAuthCookie(e.target.value)} placeholder="sessionid=abc; other=..."
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Header Name</label>
+                <input type="text" value={authHeaderName} onChange={(e)=>setAuthHeaderName(e.target.value)} placeholder="X-Auth-Token"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Header Value</label>
+                <input type="text" value={authHeaderValue} onChange={(e)=>setAuthHeaderValue(e.target.value)} placeholder="..."
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+            </>
+          )}
+          {authType === 'login' && (
+            <>
+              <div className="lg:col-span-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Login URL</label>
+                <input type="url" value={loginUrl} onChange={(e)=>setLoginUrl(e.target.value)} placeholder="https://example.com/login"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label htmlFor="loginUsername" className="block text-sm font-medium text-gray-300 mb-2">Username</label>
+                <input id="loginUsername" type="text" value={loginUsername} onChange={(e)=>setLoginUsername(e.target.value)} placeholder="username"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label htmlFor="loginPassword" className="block text-sm font-medium text-gray-300 mb-2">Password</label>
+                <input id="loginPassword" type="password" value={loginPassword} onChange={(e)=>setLoginPassword(e.target.value)} placeholder="password"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Username Field</label>
+                <input type="text" value={loginUsernameField} onChange={(e)=>setLoginUsernameField(e.target.value)} placeholder="username"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Password Field</label>
+                <input type="text" value={loginPasswordField} onChange={(e)=>setLoginPasswordField(e.target.value)} placeholder="password"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">CSRF Regex (group 1)</label>
+                <input type="text" value={csrfRegex} onChange={(e)=>setCsrfRegex(e.target.value)} placeholder='name="_token" value="([^"]+)"'
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">CSRF Field Name</label>
+                <input type="text" value={csrfFieldName} onChange={(e)=>setCsrfFieldName(e.target.value)} placeholder="_token"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">CSRF Header Name (optional)</label>
+                <input type="text" value={csrfHeaderName} onChange={(e)=>setCsrfHeaderName(e.target.value)} placeholder="X-CSRF-Token"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+            </>
+          )}
+        </div>
+
         {/* Custom Flags (only for custom profile) */}
         {selectedProfile === 'custom' && (
           <div className="mt-4">
@@ -383,7 +498,6 @@ export default function Terminal() {
             {SCAN_PROFILES.find(p => p.value === selectedProfile)?.description}
           </p>
         </div>
-      </div>
 
       {/* Terminal */}
       <div className="flex-1 bg-gray-900 p-4">

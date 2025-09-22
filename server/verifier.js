@@ -145,7 +145,13 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     if (requestContext.cookie) headers['Cookie'] = requestContext.cookie;
     const baseData = requestContext.data || null;
 
+    // Determine which strategies to run
+    const runBoolean = strategy === 'auto' || strategy === 'boolean';
+    const runTime = strategy === 'auto' || strategy === 'time';
+    const runError = strategy === 'auto' || strategy === 'error';
+
     // Boolean-based test
+    if (runBoolean) {
     const truePayloads = [
       '1 AND 1=1',
       "' OR '1'='1"
@@ -182,8 +188,10 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       confirmations.push('boolean');
       confidenceScore += 0.45; // significant weight
     }
+    }
 
     // Time-based test (light)
+    if (runTime) {
     const sleepVariants = ['SLEEP(3)', 'SLEEP%283%29'];
     const sleep = sleepVariants[Math.floor(Math.random()*sleepVariants.length)];
     const vTime = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: `1 AND ${sleep}`, method, headers, data: baseData, cookie: requestContext.cookie });
@@ -206,8 +214,10 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       confirmations.push('time');
       confidenceScore += 0.35;
     }
+    }
 
     // Error-based test
+    if (runError) {
     const vErr = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: "'", method, headers, data: baseData, cookie: requestContext.cookie });
     const errRes = await httpRequest(vErr);
     const body = (errRes.body || '').toString();
@@ -223,6 +233,7 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       signalsTested.push('error');
       confirmations.push('error');
       confidenceScore += 0.35;
+    }
     }
 
     // Cap score to 1.0

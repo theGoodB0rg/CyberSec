@@ -376,6 +376,58 @@ class SQLMapIntegration {
       ...customFlags
     ];
 
+    // Map selected HTTP/auth options into sqlmap arguments (Phase 1 Auth support)
+    try {
+      if (options) {
+        // Cookie header
+        if (options.cookie && typeof options.cookie === 'string') {
+          const cookieVal = options.cookie.replace(/"/g, '\\"');
+          args.push('--cookie', `"${cookieVal}"`);
+        }
+
+        // User-Agent override
+        if (options.userAgent && typeof options.userAgent === 'string') {
+          const ua = options.userAgent.replace(/"/g, '\\"');
+          args.push('--user-agent', `"${ua}"`);
+        }
+
+        // Additional headers
+        if (options.headers && typeof options.headers === 'object') {
+          for (const [hk, hv] of Object.entries(options.headers)) {
+            if (!hk) continue;
+            const headerLine = `${hk}: ${String(hv ?? '').replace(/\n/g, ' ').replace(/"/g, '\\"')}`;
+            args.push('--header', `"${headerLine}"`);
+          }
+        }
+
+        // POST data / request body
+        if (options.data && typeof options.data === 'string') {
+          const dataStr = options.data.replace(/"/g, '\\"');
+          args.push('--data', `"${dataStr}"`);
+        }
+
+        // HTTP method
+        if (options.method && typeof options.method === 'string' && options.method.toUpperCase() !== 'GET') {
+          args.push('--method', options.method.toUpperCase());
+        }
+
+        // Timeouts / delays
+        if (options.timeout && Number.isFinite(Number(options.timeout))) {
+          args.push('--timeout', String(options.timeout));
+        }
+        if (options.delay && Number.isFinite(Number(options.delay))) {
+          args.push('--delay', String(options.delay));
+        }
+
+        // Proxy
+        if (options.proxy && typeof options.proxy === 'string') {
+          args.push('--proxy', options.proxy);
+        }
+      }
+    } catch (e) {
+      Logger.warn('Failed to map options into sqlmap args', { error: e.message });
+    }
+
     Logger.info(`Executing SQLMap with command: ${this.sqlmapPath} ${args.join(' ')}`);
     
     // Handle different command formats
