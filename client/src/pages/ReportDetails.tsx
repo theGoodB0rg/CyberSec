@@ -74,6 +74,9 @@ export default function ReportDetails() {
   const [eventsLastRefreshed, setEventsLastRefreshed] = useState<number | null>(null);
   const [verifying, setVerifying] = useState<Record<string, boolean>>({});
   const [verifyResult, setVerifyResult] = useState<Record<string, VerifyFindingResult>>({});
+  const [verifyMeta, setVerifyMeta] = useState<Record<string, { at: string }>>({});
+  const [verifyAllRunning, setVerifyAllRunning] = useState(false);
+  const [verifyAllProgress, setVerifyAllProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -85,6 +88,29 @@ export default function ReportDetails() {
         }
         const data = await response.json();
         setReport(data);
+        // Load persisted verification summaries from report.metadata.verifications
+        try {
+          const persisted = (data as any)?.metadata?.verifications || {};
+          if (persisted && typeof persisted === 'object') {
+            const results: Record<string, VerifyFindingResult> = {};
+            const meta: Record<string, { at: string }> = {};
+            for (const [fid, v] of Object.entries<any>(persisted)) {
+              results[fid] = {
+                ok: true,
+                label: v.label,
+                score: v.score,
+                confirmations: v.confirmations,
+                signals: v.signals,
+                wafDetected: !!v.wafDetected,
+                suggestions: Array.isArray(v.suggestions) ? v.suggestions : undefined,
+                why: 'Persisted verification summary'
+              };
+              if (v.at) meta[fid] = { at: v.at };
+            }
+            if (Object.keys(results).length > 0) setVerifyResult(results);
+            if (Object.keys(meta).length > 0) setVerifyMeta(meta);
+          }
+        } catch (_) {}
       } catch (err: any) {
         setError(err.message);
         toast.error(err.message);
@@ -154,6 +180,7 @@ export default function ReportDetails() {
     try {
       const res = await apiVerifyFinding(report.id, findingId);
       setVerifyResult(prev => ({ ...prev, [findingId]: res }));
+      setVerifyMeta(prev => ({ ...prev, [findingId]: { at: new Date().toISOString() } }));
       if (res.ok) {
         toast.success(`Verification: ${res.label} (${formatConfidence(res.score)})`);
       } else {
@@ -163,6 +190,38 @@ export default function ReportDetails() {
       toast.error(e.message || 'Verification error');
     } finally {
       setVerifying(prev => ({ ...prev, [findingId]: false }));
+    }
+  }
+
+  const onVerifyAll = async () => {
+    if (!report?.id) return;
+    const ids = (report.vulnerabilities?.findings || []).map(f => f.id).filter(Boolean);
+    if (ids.length === 0) return;
+    setVerifyAllRunning(true);
+    setVerifyAllProgress({ done: 0, total: ids.length });
+    let success = 0;
+    let failed = 0;
+    for (const id of ids) {
+      setVerifying(prev => ({ ...prev, [id]: true }));
+      try {
+        const res = await apiVerifyFinding(report.id, id);
+        setVerifyResult(prev => ({ ...prev, [id]: res }));
+        setVerifyMeta(prev => ({ ...prev, [id]: { at: new Date().toISOString() } }));
+        if (res.ok) success++; else failed++;
+      } catch (_) {
+        failed++;
+      } finally {
+        setVerifying(prev => ({ ...prev, [id]: false }));
+        setVerifyAllProgress(prev => ({ ...prev, done: prev.done + 1, total: prev.total }));
+      }
+    }
+    setVerifyAllRunning(false);
+    if (failed === 0) {
+      toast.success(`Verified all ${success} findings.`);
+    } else if (success === 0) {
+      toast.error(`All ${failed} verifications failed.`);
+    } else {
+      toast(`Verified ${success}, failed ${failed}.`, { icon: '⚠️' });
     }
   }
   
@@ -275,10 +334,27 @@ export default function ReportDetails() {
 
       {activeTab === 'vulns' && (
       <div className="bg-gray-800 p-6 rounded-lg mb-8">
-        <h2 className="text-2xl font-bold mb-6 flex items-center">
-          <ExclamationTriangleIcon className="h-7 w-7 mr-3 text-red-400" />
-          Vulnerabilities ({report.vulnerabilities?.total ?? 0})
-        </h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold flex items-center">
+            <ExclamationTriangleIcon className="h-7 w-7 mr-3 text-red-400" />
+            Vulnerabilities ({report.vulnerabilities?.total ?? 0})
+          </h2>
+          {report.vulnerabilities?.total > 0 && (
+            <div className="flex items-center gap-3">
+              {verifyAllRunning && (
+                <span className="text-sm text-gray-300">Verifying {verifyAllProgress.done}/{verifyAllProgress.total}…</span>
+              )}
+              <button
+                className="btn-secondary text-sm px-3 py-1 disabled:opacity-60"
+                onClick={onVerifyAll}
+                disabled={verifyAllRunning || (report.vulnerabilities?.findings || []).length === 0}
+                title="Run verification for all findings"
+              >
+                {verifyAllRunning ? 'Verifying All…' : 'Verify All'}
+              </button>
+            </div>
+          )}
+        </div>
         
         {/* Vulnerability Summary */}
         {report.vulnerabilities?.total > 0 && (
@@ -322,6 +398,11 @@ export default function ReportDetails() {
                     <span className={`text-sm font-bold uppercase px-3 py-1 rounded-full ${getSeverityClass(vuln.severity)}`}>
                       {vuln.severity}
                     </span>
+                    {verifyMeta[vuln.id]?.at && (
+                      <span className="text-xs text-gray-300 bg-gray-700 px-2 py-0.5 rounded" title={new Date(verifyMeta[vuln.id].at).toLocaleString()}>
+                        Last verified: {new Date(verifyMeta[vuln.id].at).toLocaleDateString()} {new Date(verifyMeta[vuln.id].at).toLocaleTimeString()}
+                      </span>
+                    )}
                     <button
                       className="ml-2 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm disabled:opacity-60"
                       onClick={() => onVerify(vuln.id)}
