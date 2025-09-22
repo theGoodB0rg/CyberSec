@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw } from 'lucide-react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { getScanEvents, type ScanEvent, verifyFinding as apiVerifyFinding, type VerifyFindingResult } from '../utils/api';
+import { useAppStore } from '../store/appStore';
+import { useScanSocket } from '../hooks/useSocket';
+import { wafPreset } from '../utils/sqlmapFlags';
 
 // You might need to create this type based on your actual report structure
 type Report = {
@@ -63,6 +66,10 @@ const ErrorDisplay = ({ message }: { message: string }) => (
 );
 
 export default function ReportDetails() {
+  const applyWafSuggestions = useAppStore(s => s.applyWafSuggestions);
+  const runningScans = useAppStore(s => s.runningScans);
+  const { startScan, terminateScan } = useScanSocket();
+  const navigate = useNavigate();
   const { reportId } = useParams<{ reportId: string }>();
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
@@ -524,6 +531,63 @@ export default function ReportDetails() {
                               {verifyResult[vuln.id].wafDetected && (
                                 <div className="mt-2 p-2 rounded bg-yellow-900/30 border border-yellow-800">
                                   <div className="text-yellow-300 font-medium">WAF indicators detected. Result may be inconclusive.</div>
+                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded hover:bg-gray-600"
+                                      onClick={() => { applyWafSuggestions(wafPreset('standard')); toast.success('WAF-friendly flags loaded in Terminal (Custom profile).'); }}
+                                      title="Load recommended WAF-friendly flags into Terminal"
+                                    >
+                                      Apply WAF suggestions
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs bg-green-700 border border-green-600 rounded hover:bg-green-600"
+                                      onClick={() => {
+                                        if (!report?.target) { toast.error('Report target unavailable'); return; }
+                                        const flags = wafPreset('standard');
+                                        applyWafSuggestions(flags);
+                                        const doStart = () => {
+                                          try {
+                                            startScan(report.target, { target: report.target, profile: 'custom', customFlags: flags }, 'custom');
+                                            toast.success('Starting new scan with WAF-friendly settings…');
+                                            navigate('/terminal');
+                                          } catch (e: any) {
+                                            toast.error(e?.message || 'Failed to start scan');
+                                          }
+                                        };
+                                        const running = Array.isArray(runningScans) ? runningScans.length : 0;
+                                        if (running > 0) {
+                                          const confirmStop = window.confirm('A scan appears to be running. Terminate the current scan and start a new one with WAF-friendly settings?');
+                                          if (confirmStop) {
+                                            terminateScan();
+                                            toast('Terminating current scan…', { icon: '🛑' });
+                                            setTimeout(doStart, 800);
+                                          } else {
+                                            doStart(); // May be rejected by server if limits reached
+                                          }
+                                        } else {
+                                          doStart();
+                                        }
+                                      }}
+                                      title="Apply flags and start a new scan on this report's target"
+                                    >
+                                      Apply & Start New Scan
+                                    </button>
+                                    <Link to="/terminal" className="text-xs text-blue-300 hover:text-blue-200" title="Open Terminal to start a new scan">Open Terminal</Link>
+                                  </div>
+                                  {verifyResult[vuln.id].wafIndicators && (
+                                    <div className="text-xs text-yellow-200 mt-1">
+                                      Indicators: {[
+                                        verifyResult[vuln.id].wafIndicators?.header ? 'header' : null,
+                                        verifyResult[vuln.id].wafIndicators?.body ? 'body' : null,
+                                        verifyResult[vuln.id].wafIndicators?.status ? 'status' : null
+                                      ].filter(Boolean).join(', ') || 'generic'}
+                                      {Array.isArray(verifyResult[vuln.id].wafIndicators?.sources) && (verifyResult[vuln.id].wafIndicators?.sources?.length || 0) > 0 && (
+                                        <> · Sources: {verifyResult[vuln.id].wafIndicators?.sources?.join(', ')}</>
+                                      )}
+                                    </div>
+                                  )}
                                   {Array.isArray(verifyResult[vuln.id].suggestions) && verifyResult[vuln.id].suggestions!.length > 0 && (
                                     <ul className="list-disc list-inside text-xs text-yellow-200 mt-1 space-y-0.5">
                                       {verifyResult[vuln.id].suggestions!.map((s, i) => (

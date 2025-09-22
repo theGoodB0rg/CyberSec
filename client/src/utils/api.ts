@@ -67,6 +67,7 @@ export type VerifyFindingResult = {
   poc?: Array<{ name: string, curl: string }>
   why?: string
   wafDetected?: boolean
+  wafIndicators?: { header?: boolean, body?: boolean, status?: boolean, sources?: string[] }
   suggestions?: string[]
 }
 

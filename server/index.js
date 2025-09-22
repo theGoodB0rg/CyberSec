@@ -608,7 +608,7 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
           user_id: req.user.id,
           org_id: req.user.orgId || null,
           event_type: 'waf-detected',
-          metadata: { reportId, findingId, suggestions: result.suggestions || [] }
+          metadata: { reportId, findingId, suggestions: result.suggestions || [], indicators: result.wafIndicators || null }
         });
       }
     } catch (_) {}
@@ -624,7 +624,8 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
           confirmations: result.confirmations,
           signals: result.signalsTested,
           wafDetected: !!result.wafDetected,
-          suggestions: result.suggestions || []
+          suggestions: result.suggestions || [],
+          indicators: result.wafIndicators || null
         };
         return { ...m, verifications };
       });
@@ -632,7 +633,7 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
       Logger.warn('Failed to persist verification metadata', { error: e.message, reportId, findingId });
     }
 
-    return res.json({ ok: result.ok, label: result.label, score: result.confidenceScore, confirmations: result.confirmations, signals: result.signalsTested, diff: result.diffView, poc: result.poc, why: result.why, wafDetected: !!result.wafDetected, suggestions: result.suggestions || [] });
+  return res.json({ ok: result.ok, label: result.label, score: result.confidenceScore, confirmations: result.confirmations, signals: result.signalsTested, diff: result.diffView, poc: result.poc, why: result.why, wafDetected: !!result.wafDetected, suggestions: result.suggestions || [], wafIndicators: result.wafIndicators || undefined });
   } catch (e) {
     Logger.error('Finding verification failed', e);
     res.status(500).json({ error: 'Verification failed', details: e.message });

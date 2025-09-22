@@ -125,6 +125,10 @@ interface AppState {
   // UI state
   sidebarCollapsed: boolean
   activeTerminalSession: string | null
+  // Terminal preferences
+  terminalSelectedProfile: string
+  terminalCustomFlags: string
+  lastCustomFlagsByUser: Record<string, string>
   
   // Computed properties
   runningScans: Scan[]
@@ -174,6 +178,10 @@ interface AppActions {
   toggleSidebar: () => void
   setSidebarCollapsed: (collapsed: boolean) => void
   setActiveTerminalSession: (sessionId: string | null) => void
+  // Terminal preferences
+  setTerminalProfile: (profile: string) => void
+  setTerminalCustomFlags: (flags: string) => void
+  applyWafSuggestions: (flags?: string) => void
   
   // Loading state
   setLoading: (loading: boolean) => void
@@ -250,6 +258,9 @@ export const useAppStore = create<AppState & AppActions>()(
         terminalOutput: '',
         sidebarCollapsed: false,
         activeTerminalSession: null,
+  terminalSelectedProfile: 'basic',
+  terminalCustomFlags: '',
+  lastCustomFlagsByUser: {},
 
         // Computed properties
         get runningScans() {
@@ -549,6 +560,35 @@ export const useAppStore = create<AppState & AppActions>()(
           })
         },
 
+        // Terminal preferences
+        setTerminalProfile: (profile) => {
+          set((state) => {
+            state.terminalSelectedProfile = profile
+          })
+        },
+        setTerminalCustomFlags: (flags) => {
+          set((state) => {
+            state.terminalCustomFlags = flags
+            const userId = state.currentUser?.id
+            if (userId) {
+              state.lastCustomFlagsByUser[userId] = flags
+            }
+          })
+        },
+        applyWafSuggestions: (flags) => {
+          const suggested = flags && flags.trim().length > 0
+            ? flags.trim()
+            : '--tamper=space2comment,charencode,randomcase --threads=1 --delay=3'
+          set((state) => {
+            state.terminalSelectedProfile = 'custom'
+            state.terminalCustomFlags = suggested
+            const userId = state.currentUser?.id
+            if (userId) {
+              state.lastCustomFlagsByUser[userId] = suggested
+            }
+          })
+        },
+
         setLoading: (loading) => {
           set((state) => {
             state.isLoading = loading
@@ -563,6 +603,9 @@ export const useAppStore = create<AppState & AppActions>()(
           sidebarCollapsed: state.sidebarCollapsed,
           authToken: state.authToken,
           currentUser: state.currentUser,
+          terminalSelectedProfile: state.terminalSelectedProfile,
+          terminalCustomFlags: state.terminalCustomFlags,
+          lastCustomFlagsByUser: state.lastCustomFlagsByUser,
         }),
       }
     ),

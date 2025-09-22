@@ -134,6 +134,9 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
   const attempts = [];
   let confidenceScore = 0.0;
   let wafDetected = false;
+  // Aggregate simple WAF indicators across attempts for auditing/UI hints
+  const wafFlags = { header: false, body: false, status: false };
+  const wafSources = new Set();
 
   try {
     const method = (requestContext.method || 'GET').toUpperCase();
@@ -166,9 +169,13 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     const lenDelta = Math.abs(n1.length - n2.length);
 
     attempts.push({ kind: 'boolean', true: { url: vTrue.url, status: r1.status, timeMs: r1.timeMs }, false: { url: vFalse.url, status: r2.status, timeMs: r2.timeMs }, diff });
-    const bWaf1 = detectWafIndicators(r1);
-    const bWaf2 = detectWafIndicators(r2);
-    wafDetected = wafDetected || bWaf1.any || bWaf2.any;
+  const bWaf1 = detectWafIndicators(r1);
+  const bWaf2 = detectWafIndicators(r2);
+  wafDetected = wafDetected || bWaf1.any || bWaf2.any;
+  if (bWaf1.any || bWaf2.any) wafSources.add('boolean');
+  wafFlags.header = wafFlags.header || !!bWaf1.headerHit || !!bWaf2.headerHit;
+  wafFlags.body = wafFlags.body || !!bWaf1.bodyHit || !!bWaf2.bodyHit;
+  wafFlags.status = wafFlags.status || !!bWaf1.statusHit || !!bWaf2.statusHit;
 
     if (!diff.identical || lenDelta > 50 || r1.status !== r2.status) {
       signalsTested.push('boolean');
@@ -187,9 +194,13 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     const delayed = await httpRequest(vTime);
 
     attempts.push({ kind: 'time', baseline: { url: vBase.url, timeMs: base.timeMs }, delayed: { url: vTime.url, timeMs: delayed.timeMs } });
-    const tWaf1 = detectWafIndicators(base);
-    const tWaf2 = detectWafIndicators(delayed);
-    wafDetected = wafDetected || tWaf1.any || tWaf2.any;
+  const tWaf1 = detectWafIndicators(base);
+  const tWaf2 = detectWafIndicators(delayed);
+  wafDetected = wafDetected || tWaf1.any || tWaf2.any;
+  if (tWaf1.any || tWaf2.any) wafSources.add('time');
+  wafFlags.header = wafFlags.header || !!tWaf1.headerHit || !!tWaf2.headerHit;
+  wafFlags.body = wafFlags.body || !!tWaf1.bodyHit || !!tWaf2.bodyHit;
+  wafFlags.status = wafFlags.status || !!tWaf1.statusHit || !!tWaf2.statusHit;
     if (delayed.timeMs - base.timeMs > 1800) {
       signalsTested.push('time');
       confirmations.push('time');
@@ -202,8 +213,12 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     const body = (errRes.body || '').toString();
     const errorPatterns = /(sql syntax|mysql|postgres|oracle|sqlite|mssql|odbc|warning|unclosed quotation|unterminated string)/i;
     attempts.push({ kind: 'error', url: vErr.url, status: errRes.status });
-    const eWaf = detectWafIndicators(errRes);
-    wafDetected = wafDetected || eWaf.any;
+  const eWaf = detectWafIndicators(errRes);
+  wafDetected = wafDetected || eWaf.any;
+  if (eWaf.any) wafSources.add('error');
+  wafFlags.header = wafFlags.header || !!eWaf.headerHit;
+  wafFlags.body = wafFlags.body || !!eWaf.bodyHit;
+  wafFlags.status = wafFlags.status || !!eWaf.statusHit;
     if (errorPatterns.test(body)) {
       signalsTested.push('error');
       confirmations.push('error');
@@ -256,6 +271,7 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       diffView,
       poc,
       wafDetected,
+      wafIndicators: wafDetected ? { ...wafFlags, sources: Array.from(wafSources) } : undefined,
       suggestions: wafDetected ? wafSuggestions() : [],
       why
     };

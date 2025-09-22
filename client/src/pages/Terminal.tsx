@@ -4,6 +4,7 @@ import { FitAddon } from 'xterm-addon-fit'
 import { PlayIcon, StopIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import { useScanSocket } from '../hooks/useSocket'
 import { useAppStore } from '../store/appStore'
+import { validateFlagsString, wafPreset } from '../utils/sqlmapFlags'
 import toast from 'react-hot-toast'
 import 'xterm/css/xterm.css'
 
@@ -22,8 +23,10 @@ export default function Terminal() {
   const fitAddonRef = useRef<FitAddon | null>(null)
   
   const [targetUrl, setTargetUrl] = useState('')
-  const [selectedProfile, setSelectedProfile] = useState('basic')
-  const [customFlags, setCustomFlags] = useState('')
+  const selectedProfile = useAppStore(s => s.terminalSelectedProfile)
+  const customFlags = useAppStore(s => s.terminalCustomFlags)
+  const setTerminalProfile = useAppStore(s => s.setTerminalProfile)
+  const setTerminalCustomFlags = useAppStore(s => s.setTerminalCustomFlags)
   const [isScanning, setIsScanning] = useState(false)
   
   const { on, off, startScan: sendStartScan, terminateScan } = useScanSocket()
@@ -290,7 +293,7 @@ export default function Terminal() {
               id="scanProfile"
               aria-label="Scan Profile"
               value={selectedProfile}
-              onChange={(e) => setSelectedProfile(e.target.value)}
+              onChange={(e) => setTerminalProfile(e.target.value)}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isScanning}
             >
@@ -343,7 +346,7 @@ export default function Terminal() {
             <input
               type="text"
               value={customFlags}
-              onChange={(e) => setCustomFlags(e.target.value)}
+              onChange={(e) => setTerminalCustomFlags(e.target.value)}
               placeholder="--level=3 --risk=2 --tamper=space2comment"
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isScanning}
@@ -351,6 +354,23 @@ export default function Terminal() {
             <p className="mt-1 text-xs text-gray-400">
               Enter additional SQLMap flags for advanced customization
             </p>
+            <div className="flex gap-2 items-center">
+              <details className="relative">
+                <summary className="px-2 py-2 bg-gray-700 border border-gray-600 rounded-md text-white cursor-pointer select-none text-xs">WAF presets</summary>
+                <div className="absolute right-0 mt-1 w-56 bg-gray-800 border border-gray-700 rounded shadow-lg z-10">
+                  <button type="button" className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-700" onClick={() => { setTerminalProfile('custom'); setTerminalCustomFlags(wafPreset('light')) }}>Light</button>
+                  <button type="button" className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-700" onClick={() => { setTerminalProfile('custom'); setTerminalCustomFlags(wafPreset('standard')) }}>Standard</button>
+                  <button type="button" className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-700" onClick={() => { setTerminalProfile('custom'); setTerminalCustomFlags(wafPreset('strict')) }}>Strict</button>
+                </div>
+              </details>
+            </div>
+            {(() => {
+              const v = validateFlagsString(customFlags)
+              if (!v.ok) {
+                return <p className="mt-1 text-xs text-yellow-400">Warning: disallowed flags detected: {v.disallowed.join(', ')}</p>
+              }
+              return null
+            })()}
           </div>
         )}
 
