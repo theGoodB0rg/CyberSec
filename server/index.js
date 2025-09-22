@@ -96,6 +96,8 @@ const userStartLocks = new Map();
 // Security middleware
 app.use('/api', SecurityMiddleware.validateInput);
 app.use('/api', SecurityMiddleware.sanitizeInput);
+// Request-level threat scanner (blocks obvious injection/command abuse)
+app.use('/api', SecurityMiddleware.securityScanner);
 
 // Public auth routes
 app.use('/api/auth', createAuthRouter(database));
@@ -122,6 +124,199 @@ app.get('/api/scans', async (req, res) => {
   } catch (error) {
     Logger.error('Error fetching scans:', error);
     res.status(500).json({ error: 'Failed to fetch scans' });
+  }
+});
+
+// Get a specific scan (ownership enforced)
+app.get('/api/scans/:id', async (req, res) => {
+  try {
+    const scan = await database.getScan(req.params.id);
+    if (!scan) return res.status(404).json({ error: 'Scan not found' });
+    if (req.user.role !== 'admin') {
+      const owns = (scan.user_id === req.user.id) || (req.user.orgId && scan.org_id === req.user.orgId);
+      if (!owns) return res.status(403).json({ error: 'Forbidden' });
+    }
+    return res.json(scan);
+  } catch (e) {
+    Logger.error('Error fetching scan by id', e);
+    return res.status(500).json({ error: 'Failed to fetch scan' });
+  }
+});
+
+// HTTP initiation endpoint for scans (mirrors WS behavior)
+app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res) => {
+  try {
+    const { target, options = {}, scanProfile = 'basic' } = req.body || {};
+
+    // Validate input
+    if (!target || !SecurityMiddleware.isValidURL(target)) {
+      return res.status(400).json({ error: 'Valid target URL required' });
+    }
+
+    // Enforce proxy requirement if configured
+    const proxyCheck = SecurityMiddleware.requireProxyIfEnabled(options || {});
+    if (!proxyCheck.ok) {
+      return res.status(400).json({ error: proxyCheck.error });
+    }
+
+    const userId = req.user.id;
+    const orgId = req.user.orgId || null;
+    const isAdmin = req.user.role === 'admin';
+
+    // Per-user start lock to avoid races
+    if (userStartLocks.get(userId)) {
+      return res.status(429).json({ error: 'Another scan is being started. Please wait a moment and try again.' });
+    }
+    userStartLocks.set(userId, true);
+    const releaseLock = () => userStartLocks.delete(userId);
+
+    try {
+      // Concurrency limit
+      const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
+      const runningForUser = Array.from(scanProcesses.values()).filter(p => p.userId === userId).length;
+      if (!isAdmin && runningForUser >= MAX_CONCURRENT) {
+        return res.status(429).json({ error: `Concurrent scan limit reached (${MAX_CONCURRENT}). Please wait for existing scans to finish.` });
+      }
+
+      // Monthly quota
+      const period = new Date().toISOString().slice(0,7);
+      const MAX_SCANS_MONTH = parseInt(process.env.MAX_SCANS_PER_MONTH || '100', 10);
+      if (!isAdmin) {
+        const usage = await database.getUsageForUser(userId, period);
+        if ((usage?.scans_started || 0) >= MAX_SCANS_MONTH) {
+          return res.status(429).json({ error: `Monthly scan quota reached (${MAX_SCANS_MONTH} in ${period}).` });
+        }
+      }
+
+      // Debounce duplicates for the same user/target
+      try {
+        const windowSec = parseInt(process.env.DUPLICATE_SCAN_WINDOW_SECONDS || '10', 10);
+        const dup = await database.hasRecentSimilarScan(userId, target, windowSec);
+        if (dup) {
+          return res.status(409).json({ error: 'A similar scan was just started. Please wait a few seconds before trying again.' });
+        }
+      } catch (e) {
+        Logger.warn('Duplicate-start check failed (HTTP)', { error: e.message });
+      }
+
+      // Require verified target unless explicitly allowed
+      const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
+      if (!allowUnverified && !isAdmin) {
+        try {
+          const hostname = new URL(target).hostname;
+          const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
+          if (!verified) {
+            Logger.suspiciousActivity('unverified-target', { userId, orgId, hostname, target });
+            return res.status(403).json({ error: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
+          }
+        } catch (e) {
+          return res.status(400).json({ error: 'Unable to parse target hostname for verification.' });
+        }
+      }
+
+      // Start scan
+      const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, options, scanProfile, userId);
+
+      // Record scan
+      const startTimeIso = new Date().toISOString();
+      const scanId = await database.createScan({
+        target,
+        options,
+        scanProfile,
+        user_id: userId,
+        org_id: orgId,
+        output_dir: outputDir,
+        status: 'running',
+        start_time: startTimeIso
+      });
+
+      // Audit start
+      database.logScanEvent({
+        scan_id: scanId,
+        user_id: userId,
+        org_id: orgId,
+        event_type: 'started',
+        metadata: { target, scanProfile, options }
+      }).catch(()=>{});
+
+      // Increment usage started counter
+      database.incrementUsageOnStart(userId, period).catch(()=>{});
+
+      // Track process
+      scanProcesses.set(scanId, {
+        process: proc,
+        outputDir,
+        target,
+        scanProfile,
+        startTime: new Date(),
+        userId,
+        orgId
+      });
+
+      // Stream output to user room if socket connection exists
+      proc.stdout.on('data', (data) => {
+        const output = data.toString();
+        database.appendScanOutput(scanId, output, 'stdout');
+        database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: 'output', metadata: { type: 'stdout', chunk: output.slice(0,1000) } }).catch(()=>{});
+        try { io.to(`user:${userId}`).emit('scan-output', { scanId, output, type: 'stdout' }); } catch (_) {}
+      });
+
+      proc.stderr.on('data', (data) => {
+        const output = data.toString();
+        database.appendScanOutput(scanId, output, 'stderr');
+        database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: 'output', metadata: { type: 'stderr', chunk: output.slice(0,1000) } }).catch(()=>{});
+        try { io.to(`user:${userId}`).emit('scan-output', { scanId, output, type: 'stderr' }); } catch (_) {}
+      });
+
+      proc.on('close', async (code) => {
+        const endTime = new Date().toISOString();
+        try {
+          await database.updateScan(scanId, { status: code === 0 ? 'completed' : 'failed', end_time: endTime, exit_code: code });
+          const scanData = await database.getScan(scanId);
+          let sqlmapResults = null;
+          if (code === 0) {
+            try {
+              const outDir = scanProcesses.get(scanId)?.outputDir;
+              if (outDir && fs.existsSync(outDir)) {
+                sqlmapResults = await sqlmapIntegration.parseResults(outDir, scanId);
+              }
+            } catch (e) {
+              Logger.error('Error parsing SQLMap results (HTTP):', e);
+            }
+          }
+          const reportData = await reportGenerator.generateReport(scanId, scanData, sqlmapResults);
+          const reportId = await database.createReport({ ...reportData, user_id: userId, org_id: orgId });
+          database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: code === 0 ? 'completed' : 'failed', metadata: { exit_code: code, reportId, hasStructuredResults: !!sqlmapResults } }).catch(()=>{});
+          // Usage completion
+          try {
+            const runtime = (new Date(scanData.end_time).getTime() - new Date(scanData.start_time).getTime()) || 0;
+            await database.incrementUsageOnComplete(userId, period, Math.max(0, runtime));
+          } catch (e) {}
+          // Notify via socket if connected
+          try { io.to(`user:${userId}`).emit('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults }); } catch (_) {}
+        } catch (e) {
+          Logger.error('HTTP scan close handler error:', e);
+        } finally {
+          scanProcesses.delete(scanId);
+        }
+      });
+
+      proc.on('error', (error) => {
+        Logger.error('SQLMap process error (HTTP):', error);
+        database.updateScan(scanId, { status: 'failed', error: error.message }).catch(()=>{});
+        database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: 'process-error', metadata: { message: error.message } }).catch(()=>{});
+        scanProcesses.delete(scanId);
+        try { io.to(`user:${userId}`).emit('scan-error', { scanId, message: error.message }); } catch (_) {}
+      });
+
+      // Respond immediately with scan info
+      return res.status(202).json({ scanId, status: 'running', startTime: startTimeIso, target, scanProfile });
+    } finally {
+      releaseLock();
+    }
+  } catch (error) {
+    Logger.error('Error starting HTTP scan:', error);
+    return res.status(500).json({ error: 'Failed to start scan', details: error.message });
   }
 });
 
@@ -296,6 +491,14 @@ app.get('/api/reports/:id/files/:filename', async (req, res) => {
     const recordedDir = scan?.output_dir ? path.normalize(scan.output_dir) : '';
     const rel = recordedDir ? path.relative(recordedDir, normalizedPath) : '..';
     if (!recordedDir || rel.startsWith('..') || path.isAbsolute(rel)) {
+      // Log and deny path traversal or out-of-scope access
+      Logger.unauthorizedAccess('report-file-access', {
+        userId: req.user?.id,
+        reportId: id,
+        filename,
+        requestedPath: normalizedPath,
+        allowedBase: recordedDir || null
+      });
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -399,6 +602,21 @@ io.on('connection', (socket) => {
     socket.emit('auth-ok', { userId: socket.user?.id, role: socket.user?.role, orgId: socket.user?.orgId || null });
   } catch (_) {}
 
+  // On connect, inform the client about any scans still running for this user
+  try {
+    const userId = socket.user?.id;
+    if (userId) {
+      const running = Array.from(scanProcesses.entries())
+        .filter(([scanId, p]) => p.userId === userId)
+        .map(([scanId, p]) => ({ scanId, target: p.target, scanProfile: p.scanProfile, startTime: p.startTime }));
+      if (running.length) {
+        socket.emit('scan-still-running', running);
+      }
+    }
+  } catch (e) {
+    Logger.warn('Failed to emit running scans on connect', { error: e.message });
+  }
+
   // Handle SQLMap scan initiation
   socket.on('start-sqlmap-scan', async (data) => {
     try {
@@ -453,7 +671,8 @@ io.on('connection', (socket) => {
 
       // Debounce rapid duplicate starts for same user and target
       try {
-        const dup = await database.hasRecentSimilarScan(userId, target, 10);
+        const windowSec = parseInt(process.env.DUPLICATE_SCAN_WINDOW_SECONDS || '10', 10);
+        const dup = await database.hasRecentSimilarScan(userId, target, windowSec);
         if (dup) {
           socket.emit('scan-error', { message: 'A similar scan was just started. Please wait a few seconds before trying again.' });
           releaseLock();
@@ -471,6 +690,8 @@ io.on('connection', (socket) => {
           const hostname = new URL(target).hostname;
           const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
           if (!verified) {
+            // Log security event for visibility/audit
+            Logger.suspiciousActivity('unverified-target', { userId, orgId, hostname, target });
             socket.emit('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
             releaseLock();
             return;
@@ -674,6 +895,8 @@ io.on('connection', (socket) => {
     const sameUser = procInfo.userId === (socket.user?.id || '');
     const sameOrg = socket.user?.orgId && procInfo.orgId && socket.user.orgId === procInfo.orgId;
     if (!(isAdmin || sameUser || sameOrg)) {
+      // Explicit security log for unauthorized termination attempt
+      Logger.unauthorizedAccess('scan-terminate', { scanId: reqScanId, owner: procInfo.userId, by: socket.user?.id, byOrg: socket.user?.orgId || null });
       socket.emit('scan-error', { message: 'You do not have permission to terminate this scan.' });
       return;
     }
@@ -763,12 +986,18 @@ app.get('/api/scans/:id/events', async (req, res) => {
       const owns = (scan.user_id === req.user.id) || (req.user.orgId && scan.org_id === req.user.orgId);
       if (!owns) return res.status(403).json({ error: 'Forbidden' });
     }
+    // Pagination with caps
+    const maxLimit = 1000;
+    const defaultLimit = 200;
+    const limit = Math.max(1, Math.min(maxLimit, parseInt(req.query.limit || defaultLimit, 10) || defaultLimit));
+    const offset = Math.max(0, parseInt(req.query.offset || 0, 10) || 0);
     const events = await database.getScanEventsForUser(
       req.params.id,
       req.user.id,
       req.user.orgId,
       req.user.role === 'admin',
-      500, 0
+      limit,
+      offset
     );
     res.json(events);
   } catch (e) {
@@ -829,5 +1058,27 @@ server.listen(PORT, async () => {
     }
   } catch (e) {
     Logger.warn('Failed to schedule retention cleanup', { error: e.message });
+  }
+
+  // Schedule pruning of old scan_events (default retention 90 days)
+  try {
+    const cron = require('node-cron');
+    const eventsRetentionDays = parseInt(process.env.EVENTS_RETENTION_DAYS || '90', 10);
+    if (eventsRetentionDays > 0) {
+      cron.schedule('15 4 * * *', async () => {
+        try {
+          const cutoff = new Date(Date.now() - eventsRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+          const deleted = await database.pruneScanEventsBefore(cutoff);
+          if (deleted) {
+            Logger.info(`Pruned ${deleted} scan_events older than ${eventsRetentionDays} days`);
+          }
+        } catch (e) {
+          Logger.warn('Scan events prune task failed', { error: e.message });
+        }
+      });
+      Logger.info(`Scan events prune scheduled daily at 04:15, retention=${eventsRetentionDays} days`);
+    }
+  } catch (e) {
+    Logger.warn('Failed to schedule scan events prune', { error: e.message });
   }
 }); 

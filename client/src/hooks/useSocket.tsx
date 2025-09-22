@@ -132,18 +132,50 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     })
 
     socketInstance.on('scan-error', (data) => {
-      const { scanId, message } = data
+      const { scanId } = data || {}
+      const msg: string = (data?.message || data?.error || 'Unknown error').toString()
       console.error('Scan error:', data)
-      
+
       if (scanId) {
-        updateScan(scanId, { 
+        updateScan(scanId, {
           status: 'failed',
-          error: message,
-          endTime: new Date().toISOString()
+          error: msg,
+          endTime: new Date().toISOString(),
         })
       }
-      
-      toast.error(`Scan error: ${message}`)
+
+      // Friendly messages for common race/limit scenarios
+      const lower = msg.toLowerCase()
+      if (lower.includes('similar scan was just started')) {
+        toast('Already running: we prevented a duplicate. Your existing scan is still in progress.', { icon: 'ℹ️' })
+      } else if (lower.includes('another scan is being started')) {
+        toast('Please wait a moment, a previous start request is still processing.', { icon: '⏳' })
+      } else if (lower.includes('concurrent scan limit reached')) {
+        toast.error(msg)
+      } else {
+        toast.error(`Scan error: ${msg}`)
+      }
+    })
+
+    // Rehydrate running scans on reconnect
+    socketInstance.on('scan-still-running', (running: Array<{ scanId: string; target: string; scanProfile?: string; startTime?: string }>) => {
+      try {
+        if (Array.isArray(running) && running.length > 0) {
+          running.forEach((r) => {
+            upsertScanFromEvent({
+              id: r.scanId,
+              target: r.target,
+              scanProfile: r.scanProfile || 'basic',
+              startTime: r.startTime || new Date().toISOString(),
+              status: 'running',
+            } as any)
+          })
+          const count = running.length
+          toast(`Restored ${count} running scan${count > 1 ? 's' : ''} after reconnect`, { icon: '🔄' })
+        }
+      } catch (e) {
+        console.warn('Failed to rehydrate running scans:', e)
+      }
     })
 
     // Command execution handlers

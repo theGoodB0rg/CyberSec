@@ -272,11 +272,12 @@ class Database {
   async logScanEvent({ id = uuidv4(), scan_id, user_id = 'system', org_id = null, event_type, at = new Date().toISOString(), metadata = {} }) {
     return new Promise((resolve, reject) => {
       try {
+        const redacted = this.redactSensitive(metadata || {});
         const stmt = this.db.prepare(`
           INSERT INTO scan_events (id, scan_id, user_id, org_id, event_type, at, metadata)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
-        stmt.run([id, scan_id, user_id, org_id, event_type, at, JSON.stringify(metadata || {})], function(err) {
+        stmt.run([id, scan_id, user_id, org_id, event_type, at, JSON.stringify(redacted)], function(err) {
           if (err) return reject(err);
           resolve(id);
         });
@@ -284,6 +285,73 @@ class Database {
       } catch (e) {
         reject(e);
       }
+    });
+  }
+
+  // Best-effort redaction of sensitive metadata before persisting events
+  redactSensitive(value, seen = new WeakSet()) {
+    const SENSITIVE_KEYS = [
+      'cookie','cookies','authorization','auth','token','access_token','refresh_token','id_token',
+      'secret','password','passwd','api_key','apikey','x-api-key','session','set-cookie','proxy-authorization'
+    ];
+    const MASK = '***redacted***';
+
+    const maskString = (str) => {
+      if (typeof str !== 'string') return str;
+      // Mask common bearer tokens or long secrets while preserving small prefix
+      if (/bearer\s+/i.test(str)) return str.replace(/(bearer\s+)([^\s]+)/i, (_, p1) => p1 + MASK);
+      if (str.length > 32) return str.slice(0, 6) + '...' + MASK;
+      return MASK;
+    };
+
+    const redactObject = (obj) => {
+      if (obj === null) return null;
+      if (typeof obj !== 'object') {
+        return typeof obj === 'string' ? maskString(obj) : obj;
+      }
+      if (seen.has(obj)) return '[circular]';
+      seen.add(obj);
+
+      if (Array.isArray(obj)) {
+        return obj.map((item) => this.redactSensitive(item, seen));
+      }
+
+      const out = {};
+      for (const [k, v] of Object.entries(obj)) {
+        const keyLower = String(k).toLowerCase();
+        if (SENSITIVE_KEYS.includes(keyLower)) {
+          out[k] = maskString(typeof v === 'string' ? v : JSON.stringify(v));
+          continue;
+        }
+        // Headers object: redact sensitive header names
+        if (keyLower === 'headers' && v && typeof v === 'object') {
+          const hdrs = {};
+          for (const [hk, hv] of Object.entries(v)) {
+            const hkLower = String(hk).toLowerCase();
+            if (SENSITIVE_KEYS.includes(hkLower)) {
+              hdrs[hk] = maskString(typeof hv === 'string' ? hv : JSON.stringify(hv));
+            } else {
+              hdrs[hk] = this.redactSensitive(hv, seen);
+            }
+          }
+          out[k] = hdrs;
+          continue;
+        }
+        out[k] = this.redactSensitive(v, seen);
+      }
+      return out;
+    };
+
+    return redactObject(value);
+  }
+
+  async pruneScanEventsBefore(cutoffIso) {
+    return new Promise((resolve, reject) => {
+      const sql = 'DELETE FROM scan_events WHERE at < ?';
+      this.db.run(sql, [cutoffIso], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes || 0);
+      });
     });
   }
 

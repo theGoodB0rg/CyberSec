@@ -41,6 +41,24 @@ module.exports = {
   },
 
   /**
+   * Requires the current user to be an admin
+   */
+  requireAdmin(req, res, next) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      return next();
+    } catch (e) {
+      Logger.warn('Admin check failed', { error: e.message });
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  },
+
+  /**
    * Optionally attaches req.user if a valid Authorization header is present.
    */
   optionalAuth(req, _res, next) {

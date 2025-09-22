@@ -27,7 +27,7 @@ export default function Terminal() {
   const [isScanning, setIsScanning] = useState(false)
   
   const { on, off, startScan: sendStartScan, terminateScan } = useScanSocket()
-  const { addScan, updateScan, isConnected } = useAppStore()
+  const { addScan, updateScan, isConnected, upsertScanFromEvent } = useAppStore()
 
   // Initialize terminal
   const lastStartedTargetRef = useRef<string>('')
@@ -115,17 +115,30 @@ export default function Terminal() {
       toast.success('Scan completed successfully!')
     }
 
-    const handleScanError = (data: { scanId: string; error: string }) => {
+    const handleScanError = (data: { scanId?: string; message?: string; error?: string }) => {
       setIsScanning(false)
-      
+
+      const msg = (data?.message || data?.error || 'Unknown error').toString()
       if (xtermRef.current) {
         xtermRef.current.writeln('')
-        xtermRef.current.writeln(`\\x1b[1;31m✗ Scan failed: ${data.error}\\x1b[0m`)
+        xtermRef.current.writeln(`\\x1b[1;31m✗ Scan failed: ${msg}\\x1b[0m`)
         xtermRef.current.writeln('')
       }
 
-      updateScan(data.scanId, { status: 'failed', error: data.error })
-      toast.error(`Scan failed: ${data.error}`)
+      if (data?.scanId) {
+        updateScan(data.scanId, { status: 'failed', error: msg })
+      }
+
+      const lower = msg.toLowerCase()
+      if (lower.includes('similar scan was just started')) {
+        toast('Duplicate prevented: an identical scan is already running.', { icon: 'ℹ️' })
+      } else if (lower.includes('another scan is being started')) {
+        toast('Please wait a moment, your previous start request is still processing.', { icon: '⏳' })
+      } else if (lower.includes('concurrent scan limit reached')) {
+        toast.error(msg)
+      } else {
+        toast.error(`Scan failed: ${msg}`)
+      }
     }
 
     on('scan-output', handleScanOutput)
@@ -142,14 +155,41 @@ export default function Terminal() {
       toast('Scan terminated', { icon: '🛑' })
     })
 
+    // Rehydrate any active scans if the server reports them on reconnect
+    on('scan-still-running', (running: Array<{ scanId: string; target: string; scanProfile?: string; startTime?: string }>) => {
+      try {
+        if (Array.isArray(running) && running.length > 0) {
+          running.forEach((r) => {
+            upsertScanFromEvent({
+              id: r.scanId,
+              target: r.target,
+              scanProfile: r.scanProfile || 'basic',
+              startTime: r.startTime || new Date().toISOString(),
+              status: 'running',
+            } as any)
+          })
+          const count = running.length
+          if (xtermRef.current) {
+            xtermRef.current.writeln('')
+            xtermRef.current.writeln(`\\x1b[1;36m↻ Restored ${count} running scan${count > 1 ? 's' : ''} after reconnect\\x1b[0m`)
+            xtermRef.current.writeln('')
+          }
+          toast(`Restored ${count} running scan${count > 1 ? 's' : ''}`, { icon: '🔄' })
+        }
+      } catch (e) {
+        console.warn('Failed to handle scan-still-running:', e)
+      }
+    })
+
     return () => {
     off('scan-output', handleScanOutput)
     off('scan-started', handleScanStarted)
     off('scan-completed', handleScanComplete)
     off('scan-error', handleScanError)
     off('scan-terminated')
+    off('scan-still-running')
     }
-  }, [on, off, updateScan, addScan])
+  }, [on, off, updateScan, addScan, upsertScanFromEvent])
 
   const startScan = async () => {
     if (!targetUrl.trim()) {
