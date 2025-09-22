@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw } from 'lucide-react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import { getScanEvents, type ScanEvent } from '../utils/api';
+import { getScanEvents, type ScanEvent, verifyFinding as apiVerifyFinding, type VerifyFindingResult } from '../utils/api';
 
 // You might need to create this type based on your actual report structure
 type Report = {
@@ -72,6 +72,8 @@ export default function ReportDetails() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [eventsLastRefreshed, setEventsLastRefreshed] = useState<number | null>(null);
+  const [verifying, setVerifying] = useState<Record<string, boolean>>({});
+  const [verifyResult, setVerifyResult] = useState<Record<string, VerifyFindingResult>>({});
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -140,6 +142,29 @@ export default function ReportDetails() {
         return 'bg-gray-700 text-gray-200 border-gray-600';
     }
   };
+  
+  const formatConfidence = (score?: number) => {
+    if (typeof score !== 'number') return '—';
+    return `${Math.round(Math.min(1, Math.max(0, score)) * 100)}%`;
+  };
+  
+  const onVerify = async (findingId: string) => {
+    if (!report?.id) return;
+    setVerifying(prev => ({ ...prev, [findingId]: true }));
+    try {
+      const res = await apiVerifyFinding(report.id, findingId);
+      setVerifyResult(prev => ({ ...prev, [findingId]: res }));
+      if (res.ok) {
+        toast.success(`Verification: ${res.label} (${formatConfidence(res.score)})`);
+      } else {
+        toast.error('Verification failed');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Verification error');
+    } finally {
+      setVerifying(prev => ({ ...prev, [findingId]: false }));
+    }
+  }
   
   const handleDownload = (format: 'pdf' | 'json' | 'html') => {
     window.open(`/api/reports/${reportId}/export/${format}`, '_blank');
@@ -282,10 +307,30 @@ export default function ReportDetails() {
             report.vulnerabilities.findings.map((vuln) => (
               <div key={vuln.id} className={`bg-gray-750 p-6 rounded-lg border-l-4 ${getSeverityClass(vuln.severity)} shadow-lg`}>
                 <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-xl font-semibold text-white">{vuln.type}</h3>
-                  <span className={`text-sm font-bold uppercase px-3 py-1 rounded-full ${getSeverityClass(vuln.severity)}`}>
-                    {vuln.severity}
-                  </span>
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">{vuln.type}</h3>
+                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-300">
+                      { (vuln as any).confidenceLabel && (
+                        <span className="px-2 py-0.5 rounded bg-gray-700">Confidence: {(vuln as any).confidenceLabel} ({formatConfidence((vuln as any).confidenceScore)})</span>
+                      )}
+                      { Array.isArray((vuln as any).signals) && (vuln as any).signals.length > 0 && (
+                        <span className="px-2 py-0.5 rounded bg-gray-700">Signals: {(vuln as any).signals.join(', ')}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-bold uppercase px-3 py-1 rounded-full ${getSeverityClass(vuln.severity)}`}>
+                      {vuln.severity}
+                    </span>
+                    <button
+                      className="ml-2 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm disabled:opacity-60"
+                      onClick={() => onVerify(vuln.id)}
+                      disabled={!!verifying[vuln.id]}
+                      title="Re-run minimal PoCs to verify"
+                    >
+                      {verifying[vuln.id] ? 'Verifying…' : 'Verify'}
+                    </button>
+                  </div>
                 </div>
                 
                 <div className="space-y-3">
@@ -334,6 +379,51 @@ export default function ReportDetails() {
                           </div>
                         )}
                       </div>
+                    </div>
+                  )}
+
+                      {verifyResult[vuln.id] && (
+                    <div className="mt-4 p-3 rounded bg-gray-800 border border-gray-700">
+                      <h4 className="text-sm font-semibold text-gray-200 mb-2">Verification Result</h4>
+                      {verifyResult[vuln.id].ok ? (
+                        <div className="text-sm text-gray-200 space-y-1">
+                          <div>Label: <span className="font-medium">{verifyResult[vuln.id].label}</span></div>
+                          <div>Score: <span className="font-medium">{formatConfidence(verifyResult[vuln.id].score)}</span></div>
+                          {verifyResult[vuln.id].why && (
+                            <div className="text-gray-300">Why: {verifyResult[vuln.id].why}</div>
+                          )}
+                              {/* WAF-aware inconclusive mode */}
+                              {verifyResult[vuln.id].wafDetected && (
+                                <div className="mt-2 p-2 rounded bg-yellow-900/30 border border-yellow-800">
+                                  <div className="text-yellow-300 font-medium">WAF indicators detected. Result may be inconclusive.</div>
+                                  {Array.isArray(verifyResult[vuln.id].suggestions) && verifyResult[vuln.id].suggestions!.length > 0 && (
+                                    <ul className="list-disc list-inside text-xs text-yellow-200 mt-1 space-y-0.5">
+                                      {verifyResult[vuln.id].suggestions!.map((s, i) => (
+                                        <li key={i}>{s}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              )}
+                          {verifyResult[vuln.id]?.confirmations && verifyResult[vuln.id]?.confirmations!.length > 0 && (
+                            <div>Signals confirmed: {verifyResult[vuln.id]?.confirmations!.join(', ')}</div>
+                          )}
+                          {verifyResult[vuln.id]?.poc && verifyResult[vuln.id]?.poc!.length > 0 && (
+                            <div className="mt-2">
+                              <div className="text-xs text-gray-400 mb-1">Proof-of-Concept (cURL):</div>
+                              <div className="bg-gray-900 p-2 rounded max-h-40 overflow-y-auto text-xs font-mono whitespace-pre-wrap select-all">
+                                {(verifyResult[vuln.id]?.poc ?? []).map((p, i) => (
+                                  <div key={i} className="mb-1">
+                                    # {p.name}\n{p.curl}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-red-300">Verification failed.</div>
+                      )}
                     </div>
                   )}
                 </div>

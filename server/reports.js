@@ -197,6 +197,10 @@ class ReportGenerator {
             description: finding.description || vulnInfo.description,
             impact: vulnInfo.impact,
             remediation: vulnInfo.remediation,
+            confidenceLabel: 'Likely',
+            confidenceScore: 0.6,
+            signals: ['tool-identified'],
+            why: 'Detected by SQLMap structured output.',
             evidence: [{
               line: 1,
               content: finding.description
@@ -308,6 +312,10 @@ class ReportGenerator {
                 description: `${vulnInfo.description}: ${match.trim()}`,
                 impact: vulnInfo.impact,
                 remediation: vulnInfo.remediation,
+                confidenceLabel: 'Suspected',
+                confidenceScore: 0.4,
+                signals: ['heuristic-output'],
+                why: 'Heuristic patterns in scan output indicate possible injection.',
                 evidence: this.extractEvidence(output, 'SQL Injection'),
                 discoveredAt: new Date().toISOString()
               });
@@ -339,6 +347,10 @@ class ReportGenerator {
               description: vulnInfo.description,
               impact: vulnInfo.impact,
               remediation: vulnInfo.remediation,
+              confidenceLabel: 'Suspected',
+              confidenceScore: 0.35,
+              signals: ['pattern-match'],
+              why: 'Output matched known vulnerability patterns.',
               evidence: this.extractEvidence(output, vulnType),
               discoveredAt: new Date().toISOString()
             });
@@ -403,6 +415,10 @@ class ReportGenerator {
             description: 'SQLMap detected potential SQL injection indicators',
             impact: 'Possible SQL injection vulnerability requiring manual verification',
             remediation: ['Manual verification required', 'Implement input validation', 'Use parameterized queries'],
+            confidenceLabel: 'Suspected',
+            confidenceScore: 0.3,
+            signals: ['weak-indicators'],
+            why: 'Weak indicators suggest potential injection; manual verification recommended.',
             evidence: this.extractEvidence(output, 'potential'),
             discoveredAt: new Date().toISOString()
           });
@@ -418,6 +434,10 @@ class ReportGenerator {
             description: 'SQLMap scan completed successfully and gathered information about the target',
             impact: 'Information about the database system was disclosed',
             remediation: ['Review exposed information', 'Implement proper error handling', 'Minimize information disclosure'],
+            confidenceLabel: 'Confirmed',
+            confidenceScore: 0.95,
+            signals: ['tool-output'],
+            why: 'Informational findings from tool output.',
             evidence: this.extractEvidence(output, 'success'),
             discoveredAt: new Date().toISOString()
           });

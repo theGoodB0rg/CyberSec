@@ -785,6 +785,22 @@ class Database {
     });
   }
 
+  async updateReportMetadata(reportId, updater) {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT metadata FROM reports WHERE id = ?', [reportId], (err, row) => {
+        if (err) return reject(err);
+        const current = row && row.metadata ? this.safeJson(row.metadata, {}) : {};
+        let next;
+        try { next = typeof updater === 'function' ? updater({ ...current }) : current; } catch (e) { return reject(e); }
+        const payload = JSON.stringify(next || {});
+        this.db.run('UPDATE reports SET metadata = ? WHERE id = ?', [payload, reportId], function(uErr) {
+          if (uErr) return reject(uErr);
+          resolve(true);
+        });
+      });
+    });
+  }
+
   // Output retention helpers
   async getScansWithOutputBefore(cutoffIso) {
     return new Promise((resolve, reject) => {

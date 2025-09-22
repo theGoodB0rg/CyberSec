@@ -17,6 +17,7 @@ const createAuthRouter = require('./routes/auth');
 const Logger = require('./utils/logger');
 const ReconEngine = require('./recon');
 const createTargetsRouter = require('./routes/targets');
+const { verifyFinding } = require('./verifier');
 
 // Initialize Express app
 const app = express();
@@ -551,6 +552,90 @@ app.delete('/api/reports/:id', async (req, res) => {
   } catch (error) {
     Logger.error('Error deleting report:', error);
     res.status(500).json({ error: 'Failed to delete report' });
+  }
+});
+
+// Verify a specific finding: re-run minimal PoCs and return confidence/diff
+app.post('/api/findings/:findingId/verify', async (req, res) => {
+  try {
+    const { findingId } = req.params;
+    const { reportId } = req.body || {};
+    if (!reportId || !findingId) return res.status(400).json({ error: 'reportId and findingId required' });
+
+    const report = await database.getReport(reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    if (req.user.role !== 'admin' && report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const scan = await database.getScan(report.scan_id);
+    if (!scan) return res.status(404).json({ error: 'Scan not found' });
+
+    const findings = (report.vulnerabilities && report.vulnerabilities.findings) || (report.extractedData && report.extractedData.structuredFindings) || [];
+    const flatFindings = Array.isArray(findings?.findings) ? findings.findings : findings;
+    const finding = (flatFindings || []).find(f => f.id === findingId) || null;
+    if (!finding) return res.status(404).json({ error: 'Finding not found in report' });
+    if (!scan?.target) return res.status(400).json({ error: 'Scan target missing' });
+
+    // Only support simple GET parameter verification for now
+    const param = finding.parameter || null;
+    if (!param) return res.status(400).json({ error: 'Finding has no parameter to verify' });
+
+    // Build request context from original scan options (method, headers, cookie, data, userAgent)
+    const opts = scan.options || {};
+    const requestContext = {
+      method: opts.method || 'GET',
+      headers: opts.headers || {},
+      cookie: opts.cookie || undefined,
+      data: opts.data || undefined,
+      userAgent: opts.userAgent || undefined
+    };
+
+    const result = await verifyFinding({ targetUrl: scan.target, parameter: param, requestContext });
+
+    // Log event
+    try {
+      await database.logScanEvent({
+        scan_id: String(report.scan_id),
+        user_id: req.user.id,
+        org_id: req.user.orgId || null,
+        event_type: 'verification',
+        metadata: { reportId, findingId, label: result.label, score: result.confidenceScore, ok: result.ok }
+      });
+      if (result.wafDetected) {
+        await database.logScanEvent({
+          scan_id: String(report.scan_id),
+          user_id: req.user.id,
+          org_id: req.user.orgId || null,
+          event_type: 'waf-detected',
+          metadata: { reportId, findingId, suggestions: result.suggestions || [] }
+        });
+      }
+    } catch (_) {}
+
+    // Persist a lightweight summary under metadata.verifications[findingId]
+    try {
+      await database.updateReportMetadata(reportId, (m) => {
+        const verifications = m.verifications || {};
+        verifications[findingId] = {
+          at: new Date().toISOString(),
+          label: result.label,
+          score: result.confidenceScore,
+          confirmations: result.confirmations,
+          signals: result.signalsTested,
+          wafDetected: !!result.wafDetected,
+          suggestions: result.suggestions || []
+        };
+        return { ...m, verifications };
+      });
+    } catch (e) {
+      Logger.warn('Failed to persist verification metadata', { error: e.message, reportId, findingId });
+    }
+
+    return res.json({ ok: result.ok, label: result.label, score: result.confidenceScore, confirmations: result.confirmations, signals: result.signalsTested, diff: result.diffView, poc: result.poc, why: result.why, wafDetected: !!result.wafDetected, suggestions: result.suggestions || [] });
+  } catch (e) {
+    Logger.error('Finding verification failed', e);
+    res.status(500).json({ error: 'Verification failed', details: e.message });
   }
 });
 

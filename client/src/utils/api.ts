@@ -56,3 +56,23 @@ export type ScanEvent = {
 export async function getScanEvents(scanId: string): Promise<ScanEvent[]> {
   return apiFetch<ScanEvent[]>(`/api/scans/${encodeURIComponent(scanId)}/events`)
 }
+
+export type VerifyFindingResult = {
+  ok: boolean
+  label?: 'Confirmed' | 'Likely' | 'Suspected' | 'Inconclusive'
+  score?: number
+  confirmations?: string[]
+  signals?: string[]
+  diff?: any
+  poc?: Array<{ name: string, curl: string }>
+  why?: string
+  wafDetected?: boolean
+  suggestions?: string[]
+}
+
+export async function verifyFinding(reportId: string, findingId: string): Promise<VerifyFindingResult> {
+  return apiFetch<VerifyFindingResult>(`/api/findings/${encodeURIComponent(findingId)}/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ reportId })
+  })
+}
