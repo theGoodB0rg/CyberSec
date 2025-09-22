@@ -126,6 +126,25 @@ class Database {
       )
     `;
 
+    const createJobsTable = `
+      CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        org_id TEXT,
+        status TEXT NOT NULL, -- scheduled | running | retrying | completed | failed | canceled
+        run_at DATETIME NOT NULL,
+        retries INTEGER DEFAULT 0,
+        max_retries INTEGER DEFAULT 3,
+        last_error TEXT,
+        scan_id TEXT, -- populated once started
+        target TEXT NOT NULL,
+        options TEXT,
+        scan_profile TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
     const createReconParams = `
       CREATE TABLE IF NOT EXISTS recon_parameters (
         id TEXT PRIMARY KEY,
@@ -173,6 +192,7 @@ class Database {
       this.db.run(createReconPages);
     this.db.run(createUsersTable);
       this.db.run(createScanEventsTable);
+  this.db.run(createJobsTable);
 
       // Helpful indices
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_scans_output_dir ON scans(output_dir)`);
@@ -185,6 +205,8 @@ class Database {
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_reports_org ON reports(org_id, created_at DESC)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_scan_events_scan ON scan_events(scan_id, at)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_verified_targets_lookup ON verified_targets(hostname, user_id, org_id, verified_at)`);
+  this.db.run(`CREATE INDEX IF NOT EXISTS idx_jobs_status_runat ON jobs(status, run_at)`);
+  this.db.run(`CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id, status, run_at)`);
 
       // Attempt to add new columns if upgrading existing recon_parameters
       const alterCols = [
@@ -498,6 +520,123 @@ class Database {
           endTime: row.end_time
         }));
         resolve(scans);
+      });
+    });
+  }
+
+  // Jobs API
+  async createJob({ id = uuidv4(), user_id, org_id = null, run_at, target, options = {}, scan_profile = 'basic', max_retries = 3 }) {
+    return new Promise((resolve, reject) => {
+      const stmt = this.db.prepare(`
+        INSERT INTO jobs (id, user_id, org_id, status, run_at, retries, max_retries, last_error, scan_id, target, options, scan_profile)
+        VALUES (?, ?, ?, 'scheduled', ?, 0, ?, NULL, NULL, ?, ?, ?)
+      `);
+      stmt.run([id, user_id, org_id, run_at, max_retries, target, JSON.stringify(options || {}), scan_profile], function(err) {
+        if (err) return reject(err);
+        resolve(id);
+      });
+      stmt.finalize();
+    });
+  }
+
+  async getDueJobs(limit = 20) {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT * FROM jobs WHERE status IN ('scheduled','retrying') AND run_at <= datetime('now') ORDER BY run_at ASC LIMIT ?`;
+      this.db.all(sql, [limit], (err, rows) => {
+        if (err) return reject(err);
+        const parsed = (rows || []).map(r => ({ ...r, options: this.safeJson(r.options, {}) }));
+        resolve(parsed);
+      });
+    });
+  }
+
+  async claimJob(id) {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      const sql = `UPDATE jobs SET status = 'running', updated_at = ? WHERE id = ? AND status IN ('scheduled','retrying')`;
+      this.db.run(sql, [now, id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
+    });
+  }
+
+  async markJobRunning(id, scanId) {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      this.db.run(`UPDATE jobs SET status = 'running', scan_id = ?, updated_at = ? WHERE id = ?`, [scanId, now, id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
+    });
+  }
+
+  async markJobCompleted(id) {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      this.db.run(`UPDATE jobs SET status = 'completed', updated_at = ? WHERE id = ?`, [now, id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
+    });
+  }
+
+  async markJobFailed(id, errorMessage) {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      this.db.run(`UPDATE jobs SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`, [errorMessage || 'unknown', now, id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
+    });
+  }
+
+  async scheduleJobRetry(id, retries, backoffSeconds) {
+    return new Promise((resolve, reject) => {
+      const now = new Date();
+      const runAt = new Date(now.getTime() + Math.max(1, backoffSeconds) * 1000).toISOString();
+      this.db.run(`UPDATE jobs SET status = 'retrying', retries = ?, run_at = ?, updated_at = ? WHERE id = ?`, [retries, runAt, new Date().toISOString(), id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
+    });
+  }
+
+  async getJobsForUser(userId, orgId = null, isAdmin = false, limit = 50, offset = 0) {
+    return new Promise((resolve, reject) => {
+      let sql = 'SELECT * FROM jobs';
+      const params = [];
+      if (!isAdmin) {
+        if (orgId) { sql += ' WHERE org_id = ?'; params.push(orgId); }
+        else { sql += ' WHERE user_id = ?'; params.push(userId); }
+      }
+      sql += ' ORDER BY run_at ASC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      this.db.all(sql, params, (err, rows) => {
+        if (err) return reject(err);
+        const parsed = (rows || []).map(r => ({ ...r, options: this.safeJson(r.options, {}) }));
+        resolve(parsed);
+      });
+    });
+  }
+
+  async getJob(id) {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT * FROM jobs WHERE id = ?', [id], (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? { ...row, options: this.safeJson(row.options, {}) } : null);
+      });
+    });
+  }
+
+  async cancelJob(id) {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      // Only cancel if not yet running
+      const sql = `UPDATE jobs SET status = 'canceled', updated_at = ? WHERE id = ? AND status IN ('scheduled','retrying')`;
+      this.db.run(sql, [now, id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
       });
     });
   }

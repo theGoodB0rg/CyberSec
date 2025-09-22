@@ -7,6 +7,7 @@ import { useAppStore } from '../store/appStore'
 import { validateFlagsString, wafPreset } from '../utils/sqlmapFlags'
 import toast from 'react-hot-toast'
 import 'xterm/css/xterm.css'
+import { apiFetch } from '../utils/api'
 
 const SCAN_PROFILES = [
   { value: 'basic', label: 'Basic Scan', description: 'Quick vulnerability detection' },
@@ -41,6 +42,10 @@ export default function Terminal() {
   const [csrfRegex, setCsrfRegex] = useState('')
   const [csrfFieldName, setCsrfFieldName] = useState('')
   const [csrfHeaderName, setCsrfHeaderName] = useState('')
+  // Scheduling UI
+  const [scheduleAt, setScheduleAt] = useState<string>('')
+  const [jobs, setJobs] = useState<any[]>([])
+  const [loadingJobs, setLoadingJobs] = useState(false)
   
   const { on, off, startScan: sendStartScan, terminateScan } = useScanSocket()
   const { addScan, updateScan, isConnected, upsertScanFromEvent } = useAppStore()
@@ -273,6 +278,50 @@ export default function Terminal() {
     }
   }
 
+  const scheduleScan = async () => {
+    if (!targetUrl.trim()) { toast.error('Please enter a target URL'); return }
+    try {
+      const payload: any = { target: targetUrl.trim(), scanProfile: selectedProfile }
+      // Reuse auth block from startScan
+      if (authType === 'cookie') {
+        const headers: Record<string,string> = {}
+        if (authHeaderName && authHeaderValue) headers[authHeaderName] = authHeaderValue
+        payload.options = { auth: { type: 'cookie', cookie: authCookie || undefined, headers }, cookie: authCookie || undefined, headers: headers }
+      } else if (authType === 'login') {
+        payload.options = { auth: { type: 'login', loginUrl, method: 'POST', username: loginUsername, password: loginPassword, usernameField: loginUsernameField || 'username', passwordField: loginPasswordField || 'password', csrf: { regex: csrfRegex || undefined, fieldName: csrfFieldName || undefined, headerName: csrfHeaderName || undefined, tokenUrl: loginUrl || undefined } } }
+      }
+      if (scheduleAt) payload.runAt = new Date(scheduleAt).toISOString()
+      const res = await apiFetch<{ jobId: string, status: string, runAt: string }>(`/api/scans/schedule`, { method: 'POST', body: JSON.stringify(payload) })
+      toast.success(`Scheduled (job ${res.jobId}) for ${new Date(res.runAt).toLocaleString()}`)
+      setScheduleAt('')
+      await refreshJobs()
+    } catch (e:any) {
+      toast.error(e.message || 'Failed to schedule scan')
+    }
+  }
+
+  const refreshJobs = async () => {
+    try {
+      setLoadingJobs(true)
+      const data = await apiFetch<any[]>(`/api/queue`)
+      setJobs(data)
+    } catch (e:any) {
+      toast.error(e.message || 'Failed to load queue')
+    } finally {
+      setLoadingJobs(false)
+    }
+  }
+
+  const cancelJob = async (id: string) => {
+    try {
+      await apiFetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      toast('Job canceled', { icon: '🗑️' })
+      await refreshJobs()
+    } catch (e:any) {
+      toast.error(e.message || 'Failed to cancel job')
+    }
+  }
+
   const stopScan = () => {
     if (isScanning) {
       terminateScan()
@@ -368,6 +417,20 @@ export default function Terminal() {
               <ArrowPathIcon className="h-4 w-4 mr-2" />
               Clear
             </button>
+            {/* Schedule */}
+            <div className="flex items-center space-x-2 ml-4">
+              <label htmlFor="scheduleAt" className="sr-only">Schedule At</label>
+              <input
+                id="scheduleAt"
+                type="datetime-local"
+                value={scheduleAt}
+                onChange={(e)=>setScheduleAt(e.target.value)}
+                className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label="Schedule At"
+              />
+              <button onClick={scheduleScan} className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Schedule</button>
+              <button onClick={refreshJobs} className="px-3 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600">Queue</button>
+            </div>
           </div>
         </div>
 
@@ -452,6 +515,51 @@ export default function Terminal() {
           )}
         </div>
 
+        {/* Queue Panel */}
+        <div className="mt-4 px-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-white font-semibold">Queue</h2>
+            <button onClick={refreshJobs} className="text-sm px-2 py-1 bg-gray-700 text-white rounded">Refresh</button>
+          </div>
+          {loadingJobs ? (
+            <p className="text-gray-400 mt-2">Loading…</p>
+          ) : (
+            <div className="mt-2 overflow-x-auto">
+              <table className="min-w-full text-sm text-gray-300">
+                <thead>
+                  <tr className="text-left">
+                    <th className="py-2 pr-4">Job</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Run At</th>
+                    <th className="py-2 pr-4">Retries</th>
+                    <th className="py-2 pr-4">Target</th>
+                    <th className="py-2 pr-4">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.map(j => (
+                    <tr key={j.id} className="border-t border-gray-700">
+                      <td className="py-2 pr-4 font-mono text-xs">{j.id}</td>
+                      <td className="py-2 pr-4">{j.status}</td>
+                      <td className="py-2 pr-4">{new Date(j.run_at).toLocaleString()}</td>
+                      <td className="py-2 pr-4">{j.retries}/{j.max_retries}</td>
+                      <td className="py-2 pr-4 break-all">{j.target}</td>
+                      <td className="py-2 pr-4">
+                        {(j.status === 'scheduled' || j.status === 'retrying') && (
+                          <button onClick={()=>cancelJob(j.id)} className="px-2 py-1 bg-red-700 text-white rounded">Cancel</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {jobs.length === 0 && (
+                    <tr><td colSpan={6} className="py-3 text-gray-500">No queued jobs</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {/* Custom Flags (only for custom profile) */}
         {selectedProfile === 'custom' && (
           <div className="mt-4">
@@ -479,13 +587,11 @@ export default function Terminal() {
                 </div>
               </details>
             </div>
-            {(() => {
-              const v = validateFlagsString(customFlags)
-              if (!v.ok) {
-                return <p className="mt-1 text-xs text-yellow-400">Warning: disallowed flags detected: {v.disallowed.join(', ')}</p>
-              }
-              return null
-            })()}
+            {!validateFlagsString(customFlags).ok && (
+              <p className="mt-1 text-xs text-yellow-400">
+                Warning: disallowed flags detected: {validateFlagsString(customFlags).disallowed.join(', ')}
+              </p>
+            )}
           </div>
         )}
 

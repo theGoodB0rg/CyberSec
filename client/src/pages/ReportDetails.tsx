@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import type React from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw } from 'lucide-react';
+import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw, Image as ImageIcon, ExternalLink } from 'lucide-react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { getScanEvents, type ScanEvent, verifyFinding as apiVerifyFinding, type VerifyFindingResult } from '../utils/api';
 import { useAppStore } from '../store/appStore';
@@ -86,6 +87,11 @@ export default function ReportDetails() {
   const [verifyAllRunning, setVerifyAllRunning] = useState(false);
   const [verifyAllProgress, setVerifyAllProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [verifyOnlyChanged, setVerifyOnlyChanged] = useState<boolean>(false);
+  const [proofModal, setProofModal] = useState<{ open: boolean; src: string; title?: string }>({ open: false, src: '' });
+  const [zoom, setZoom] = useState<number>(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [panning, setPanning] = useState<boolean>(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -256,6 +262,32 @@ export default function ReportDetails() {
       toast(`Verified ${success}, failed ${failed}.`, { icon: '⚠️' });
     }
   }
+
+  // Modal controls
+  const openProofModal = (src: string, title?: string) => {
+    setProofModal({ open: true, src, title });
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+  const closeProofModal = () => setProofModal({ open: false, src: '' });
+  const onWheelZoom: React.WheelEventHandler<HTMLDivElement> = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.1 : -0.1;
+    setZoom((z) => Math.max(0.2, Math.min(4, z + delta)));
+  };
+  const startPanDrag: React.MouseEventHandler<HTMLDivElement> = (e) => {
+    setPanning(true);
+    setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+  const onPanMove: React.MouseEventHandler<HTMLDivElement> = (e) => {
+    if (!panning || !panStart) return;
+    setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
+  };
+  const endPanDrag = () => {
+    setPanning(false);
+    setPanStart(null);
+  };
+  const resetZoomPan = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
   
   const handleDownload = (format: 'pdf' | 'json' | 'html') => {
     window.open(`/api/reports/${reportId}/export/${format}`, '_blank');
@@ -542,6 +574,81 @@ export default function ReportDetails() {
                           {verifyResult[vuln.id].why && (
                             <div className="text-gray-300">Why: {verifyResult[vuln.id].why}</div>
                           )}
+                          {/* DOM-based validation proof (if available) */}
+                          {verifyResult[vuln.id]?.dom?.checked && (
+                            <div className="mt-2 p-2 rounded bg-gray-900 border border-gray-700">
+                              <div className="flex items-center gap-2 text-xs text-gray-300">
+                                <ImageIcon size={14} className="text-blue-300" />
+                                <span>DOM validation:</span>
+                                <span className={verifyResult[vuln.id].dom?.reflected ? 'text-green-300' : 'text-red-300'}>
+                                  {verifyResult[vuln.id].dom?.reflected ? 'Reflected' : 'Not reflected'}
+                                </span>
+                                {verifyResult[vuln.id].dom?.url && (
+                                  <span className="text-gray-400 truncate">• {verifyResult[vuln.id].dom?.url}</span>
+                                )}
+                              </div>
+                              {Array.isArray(verifyResult[vuln.id].dom?.matches) && verifyResult[vuln.id].dom!.matches.length > 0 && (
+                                <div className="mt-2 text-xs text-gray-400">
+                                  <div className="mb-1">Matches:</div>
+                                  <ul className="list-disc pl-5 space-y-1">
+                                    {verifyResult[vuln.id].dom!.matches.slice(0, 3).map((m, i) => {
+                                      const selText = `${m.selector}${m.mode === 'attribute' && m.attribute ? ` [@${m.attribute}]` : ''}`;
+                                      return (
+                                        <li key={i} className="flex items-center gap-2">
+                                          <code className="bg-gray-800 px-1 py-0.5 rounded">{selText}</code>
+                                          <button
+                                            type="button"
+                                            className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 border border-gray-600"
+                                            onClick={async () => { try { await navigator.clipboard.writeText(selText); toast.success('Selector copied'); } catch { toast.error('Copy failed'); } }}
+                                            title="Copy selector"
+                                          >Copy</button>
+                                        </li>
+                                      );
+                                    })}
+                                    {verifyResult[vuln.id].dom!.matches.length > 3 && (
+                                      <li className="text-gray-500">…and {verifyResult[vuln.id].dom!.matches.length - 3} more</li>
+                                    )}
+                                  </ul>
+                                </div>
+                              )}
+                              {verifyResult[vuln.id].dom?.proof?.filename && (
+                                <div className="mt-2">
+                                  <div className="flex items-center gap-3 mb-2">
+                                    <a
+                                      className="text-xs text-blue-300 hover:text-blue-200 flex items-center gap-1"
+                                      href={`/api/reports/${encodeURIComponent(report.id)}/proof/${encodeURIComponent(verifyResult[vuln.id].dom!.proof!.filename)}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title="Open proof image in a new tab"
+                                    >
+                                      Open in new tab <ExternalLink size={12} />
+                                    </a>
+                                    <button
+                                      type="button"
+                                      className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 border border-gray-600"
+                                      onClick={() => openProofModal(`/api/reports/${encodeURIComponent(report.id)}/proof/${encodeURIComponent(verifyResult[vuln.id].dom!.proof!.filename)}`, `Proof for ${vuln.type}`)}
+                                      title="View full proof"
+                                    >
+                                      View full proof
+                                    </button>
+                                  </div>
+                                  <img
+                                    src={`/api/reports/${encodeURIComponent(report.id)}/proof/${encodeURIComponent(verifyResult[vuln.id].dom!.proof!.filename)}`}
+                                    alt="DOM Proof"
+                                    className="max-h-64 rounded border border-gray-700"
+                                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {(!verifyResult[vuln.id]?.dom || verifyResult[vuln.id]?.dom?.checked === false) && (
+                            <div className="mt-2 p-2 rounded bg-gray-900 border border-gray-800 text-xs text-gray-400">
+                              {verifyResult[vuln.id]?.wafDetected
+                                ? 'DOM validation skipped due to WAF indicators.'
+                                : 'DOM validation not attempted (method may not be GET or unsupported).'}
+                            </div>
+                          )}
                               {/* WAF-aware inconclusive mode */}
                               {verifyResult[vuln.id].wafDetected && (
                                 <div className="mt-2 p-2 rounded bg-yellow-900/30 border border-yellow-800">
@@ -809,6 +916,72 @@ export default function ReportDetails() {
           </ul>
         </div>
       )}
+
+      {proofModal.open && (
+        <ProofModal
+          open={proofModal.open}
+          src={proofModal.src}
+          title={proofModal.title}
+          onClose={closeProofModal}
+          zoom={zoom}
+          onWheelZoom={onWheelZoom}
+          pan={pan}
+          onMouseDown={startPanDrag}
+          onMouseMove={onPanMove}
+          onMouseUp={endPanDrag}
+          onReset={resetZoomPan}
+        />
+      )}
+    </div>
+  );
+}
+
+// Modal overlay for proof image with zoom/pan
+export function ProofModal({ open, src, title, onClose, zoom, onWheelZoom, pan, onMouseDown, onMouseMove, onMouseUp, onReset }: {
+  open: boolean,
+  src: string,
+  title?: string,
+  onClose: () => void,
+  zoom: number,
+  onWheelZoom: React.WheelEventHandler<HTMLDivElement>,
+  pan: { x: number, y: number },
+  onMouseDown: React.MouseEventHandler<HTMLDivElement>,
+  onMouseMove: React.MouseEventHandler<HTMLDivElement>,
+  onMouseUp: React.MouseEventHandler<HTMLDivElement>,
+  onReset: () => void
+}) {
+  if (!open) return null;
+  const refObj = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (refObj.current) {
+      refObj.current.style.transform = `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
+      refObj.current.style.willChange = 'transform';
+    }
+  }, [pan.x, pan.y, zoom]);
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex flex-col">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-900">
+        <div className="text-sm text-gray-300 truncate">{title || 'Proof image'}</div>
+        <div className="flex items-center gap-2 text-xs">
+          <button className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600" onClick={onReset} title="Reset zoom/pan">Reset</button>
+          <button className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600" onClick={() => onClose()} title="Close">Close</button>
+        </div>
+      </div>
+      <div
+        className="flex-1 overflow-hidden relative cursor-grab active:cursor-grabbing"
+        onWheel={onWheelZoom}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+      >
+  <div className="absolute top-1/2 left-1/2" ref={refObj}>
+          <img src={src} alt={title || 'Proof image'} className="max-w-none select-none" draggable={false} />
+        </div>
+      </div>
+      <div className="px-4 py-2 border-t border-gray-700 bg-gray-900 text-xs text-gray-400">
+        Zoom: {Math.round(zoom * 100)}%
+      </div>
     </div>
   );
 }

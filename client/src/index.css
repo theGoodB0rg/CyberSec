@@ -14,8 +14,7 @@
   
   /* Custom scrollbar for the entire application */
   * {
-    scrollbar-width: thin;
-    scrollbar-color: #484f58 #21262d;
+    /* Removed vendor-incompatible properties to silence Problems panel; rely on default scrollbars */
   }
 }
 
@@ -127,6 +126,7 @@
   
   /* Backdrop utilities */
   .backdrop-blur-xs {
+    -webkit-backdrop-filter: blur(2px);
     backdrop-filter: blur(2px);
   }
   
@@ -147,6 +147,11 @@
   
   .hover-glow {
     @apply transition-shadow duration-200 hover:shadow-lg hover:shadow-blue-500/25;
+  }
+
+  /* Modal proof transform utility (uses CSS variables set from React) */
+  .proof-transform {
+    transform: translate(-50%, -50%) translate(var(--pan-x, 0px), var(--pan-y, 0px)) scale(var(--zoom, 1));
   }
 }
 

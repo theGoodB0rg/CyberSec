@@ -2,6 +2,13 @@ const axios = require('axios');
 const sanitizeHtml = require('sanitize-html');
 const { URL } = require('url');
 const Logger = require('./utils/logger');
+let puppeteer = null;
+try {
+  // Lazy import to allow environments without Chromium to still run non-DOM checks
+  puppeteer = require('puppeteer');
+} catch (_) {
+  puppeteer = null;
+}
 
 // Simple HTML normalizer to reduce cosmetic diffs
 function normalizeHtml(html) {
@@ -30,6 +37,131 @@ function buildUrlWithParam(baseUrl, param, value) {
     u.searchParams.append(param, value);
   }
   return u.toString();
+}
+
+async function domReflectionCheck({ url, parameter, requestContext = {} }) {
+  // Only support GET flow for DOM validation for now
+  if (!puppeteer) {
+    return { ok: false, reason: 'puppeteer-unavailable' };
+  }
+  try {
+    const canary = `cybersec_canary_${Math.random().toString(36).slice(2, 10)}`;
+    const target = buildUrlWithParam(url, parameter, canary);
+    const launchArgs = ['--no-sandbox', '--disable-setuid-sandbox'];
+  const browser = await puppeteer.launch({ headless: true, args: launchArgs });
+    const page = await browser.newPage();
+    try {
+      // Apply context
+      if (requestContext.userAgent) {
+        await page.setUserAgent(String(requestContext.userAgent));
+      }
+      const extraHeaders = { ...(requestContext.headers || {}) };
+      // Avoid passing sensitive headers
+      for (const k of Object.keys(extraHeaders)) {
+        if (['authorization', 'cookie'].includes(k.toLowerCase())) delete extraHeaders[k];
+      }
+      if (Object.keys(extraHeaders).length) await page.setExtraHTTPHeaders(extraHeaders);
+      if (requestContext.cookie) {
+        // Best-effort cookie parsing into name/value pairs
+        const raw = String(requestContext.cookie);
+        const parts = raw.split(';');
+        const cookies = parts.map(p => p.trim()).filter(Boolean).map(pair => {
+          const i = pair.indexOf('=');
+          if (i === -1) return null;
+          const name = pair.slice(0, i).trim();
+          const value = pair.slice(i + 1).trim();
+          return { name, value, url };
+        }).filter(Boolean);
+        if (cookies.length) await page.setCookie(...cookies);
+      }
+
+      const resp = await page.goto(target, { waitUntil: 'networkidle2', timeout: 20000 });
+      const status = resp ? resp.status() : 0;
+
+      // Evaluate DOM for canary reflection using a stringified function to avoid server-side ESLint parsing
+      const DOM_EVAL_FN_SRC = [
+        '(function(needle){',
+        '  const matches = [];',
+        '  const isTextHit = () => document.body && document.body.innerText && document.body.innerText.includes(needle);',
+        '  let textHit = isTextHit();',
+        '  if (textHit) {',
+        "    const all = Array.from(document.querySelectorAll('*:not(script):not(style)'));",
+        '    for (const el of all) {',
+        '      try {',
+        "        if ((el.innerText || el.textContent || '').includes(needle)) {",
+        '          const path = [];',
+        '          let cur = el;',
+        '          while (cur && cur.nodeType === 1 && path.length < 6) {',
+        '            const tag = cur.tagName.toLowerCase();',
+        "            const id = cur.id ? '#' + cur.id : '';",
+        "            const cls = (cur.className && typeof cur.className === 'string') ? '.' + cur.className.split(/\\s+/).filter(Boolean).slice(0,2).join('.') : '';",
+        '            path.unshift(tag + id + cls);',
+        '            cur = cur.parentElement;',
+        '          }',
+        "          matches.push({ selector: path.join(' > '), mode: 'text' });",
+        '          if (matches.length >= 3) break;',
+        '        }',
+        '      } catch (_e) {}',
+        '    }',
+        '  }',
+        "  const all = Array.from(document.querySelectorAll('*'));",
+        '  for (const el of all) {',
+        '    try {',
+        '      for (const attr of Array.from(el.attributes || [])) {',
+        "        if (String(attr.value || '').includes(needle)) {",
+        '          const path = [];',
+        '          let cur = el;',
+        '          while (cur && cur.nodeType === 1 && path.length < 6) {',
+        '            const tag = cur.tagName.toLowerCase();',
+        "            const id = cur.id ? '#' + cur.id : '';",
+        "            const cls = (cur.className && typeof cur.className === 'string') ? '.' + cur.className.split(/\\s+/).filter(Boolean).slice(0,2).join('.') : '';",
+        '            path.unshift(tag + id + cls);',
+        '            cur = cur.parentElement;',
+        '          }',
+        "          matches.push({ selector: path.join(' > '), mode: 'attribute', attribute: attr.name });",
+        '          if (matches.length >= 3) break;',
+        '        }',
+        '      }',
+        '      if (matches.length >= 3) break;',
+        '    } catch (_e) {}',
+        '  }',
+        '  return { reflected: textHit || matches.length > 0, matches };',
+        '})'
+      ].join('\n');
+      const result = await page.evaluate((fnSrc, needle) => { const f = eval(fnSrc); return f(needle); }, DOM_EVAL_FN_SRC, canary);
+
+      // Screenshot evidence
+      let screenshotBuffer = null;
+      if (result.reflected) {
+        try {
+          if (result.matches && result.matches.length) {
+            const first = result.matches[0];
+            const el = await page.$(first.selector);
+            if (el) {
+              try {
+                await page.evaluate((elem) => {
+                  try { elem.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' }); } catch (_) { /* noop */ }
+                }, el);
+              } catch (_) {}
+              screenshotBuffer = await el.screenshot({ type: 'png' });
+            }
+          }
+          if (!screenshotBuffer) {
+            screenshotBuffer = await page.screenshot({ fullPage: true, type: 'png' });
+          }
+        } catch (_) {
+          // ignore screenshot errors
+        }
+      }
+
+      return { ok: true, status, url: target, canary, reflected: !!result.reflected, matches: result.matches || [], screenshotBuffer };
+    } finally {
+      await page.close().catch(()=>{});
+      await browser.close().catch(()=>{});
+    }
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
 }
 
 async function httpRequest({ url, method = 'GET', headers = {}, data = null }) {
@@ -134,6 +266,7 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
   const attempts = [];
   let confidenceScore = 0.0;
   let wafDetected = false;
+  let dom = { checked: false };
   // Aggregate simple WAF indicators across attempts for auditing/UI hints
   const wafFlags = { header: false, body: false, status: false };
   const wafSources = new Set();
@@ -249,9 +382,46 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       label = 'Inconclusive';
     }
 
+    // DOM-based validation: only attempt if no WAF and method is GET-like (we mutate URL param)
+    if (!wafDetected && String(requestContext.method || 'GET').toUpperCase() === 'GET') {
+      try {
+        const domRes = await domReflectionCheck({ url: targetUrl, parameter, requestContext });
+        dom = { checked: true, ok: domRes.ok, reflected: !!domRes.reflected, matches: domRes.matches || [] };
+        if (domRes.ok && domRes.reflected) {
+          // If HTTP signals exist, DOM alignment allows upgrade within bounds
+          if (confirmations.length >= 2) {
+            confidenceScore = Math.min(1.0, Math.max(confidenceScore, 0.9));
+            label = confidenceScore >= 0.85 ? 'Confirmed' : label;
+          } else if (confirmations.length >= 1) {
+            confidenceScore = Math.min(1.0, confidenceScore + 0.1);
+            if (confidenceScore >= 0.85 && confirmations.length >= 2) {
+              label = 'Confirmed';
+            } else if (confidenceScore >= 0.5) {
+              label = 'Likely';
+            }
+          }
+        } else if (domRes.ok && !domRes.reflected) {
+          // DOM failed to reflect; avoid overconfidence
+          if (label === 'Confirmed') {
+            label = 'Likely';
+            confidenceScore = Math.min(confidenceScore, 0.8);
+            dom.domMismatch = true;
+          }
+        }
+        // Attach transient screenshot buffer for caller to persist
+        if (domRes.screenshotBuffer) {
+          dom.screenshotBuffer = domRes.screenshotBuffer;
+        }
+        if (domRes.url) dom.url = domRes.url;
+      } catch (e) {
+        // Non-fatal: proceed without DOM check
+        Logger.warn('DOM validation failed', { error: e.message });
+      }
+    }
+
     const why = wafDetected
       ? 'WAF indicators detected; results inconclusive. Consider suggested tamper and slower settings.'
-      : `Signals confirmed: ${confirmations.join(', ') || 'none'}. Score ${Math.round(confidenceScore*100)}%.`;
+      : `Signals: ${confirmations.join(', ') || 'none'}; DOM: ${dom.checked ? (dom.reflected ? 'reflected' : 'not-reflected') : 'skipped'}. Score ${Math.round(confidenceScore*100)}%.`;
 
     // Diff view payload
     const diffView = {
@@ -284,7 +454,8 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       wafDetected,
       wafIndicators: wafDetected ? { ...wafFlags, sources: Array.from(wafSources) } : undefined,
       suggestions: wafDetected ? wafSuggestions() : [],
-      why
+      why,
+      dom
     };
   } catch (e) {
     Logger.warn('verifyFinding failed', { error: e.message });

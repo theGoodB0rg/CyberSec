@@ -205,6 +205,14 @@ MAX_CONCURRENT_SCANS_PER_USER=2
 MAX_SCANS_PER_MONTH=100
 # Require target domain verification before scanning (recommended true)
 ALLOW_UNVERIFIED_TARGETS=false
+
+# Scheduler / Queue
+ENABLE_JOB_QUEUE=true
+JOB_POLL_INTERVAL_MS=3000
+JOB_FETCH_BATCH=10
+JOB_BACKOFF_BASE_SECONDS=10
+JOB_BACKOFF_FACTOR=2.0
+JOB_BACKOFF_MAX_SECONDS=600
 ```
 
 ### Application Settings

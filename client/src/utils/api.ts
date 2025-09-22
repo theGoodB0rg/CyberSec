@@ -69,6 +69,13 @@ export type VerifyFindingResult = {
   wafDetected?: boolean
   wafIndicators?: { header?: boolean, body?: boolean, status?: boolean, sources?: string[] }
   suggestions?: string[]
+  dom?: {
+    checked: boolean
+    reflected: boolean
+    matches: Array<{ selector: string, mode: 'text' | 'attribute', attribute?: string }>
+    url?: string
+    proof?: { filename: string, path: string }
+  }
 }
 
 export async function verifyFinding(reportId: string, findingId: string): Promise<VerifyFindingResult> {
