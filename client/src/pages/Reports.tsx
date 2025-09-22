@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiFetch } from '@/utils/api'
 import { Link } from 'react-router-dom'
 import { 
   DocumentTextIcon,
@@ -58,12 +59,7 @@ export default function Reports() {
       setLoading(true)
       setError(null)
       
-      const response = await fetch('/api/reports')
-      if (!response.ok) {
-        throw new Error('Failed to fetch reports')
-      }
-      
-      const data = await response.json()
+      const data = await apiFetch<ReportItem[]>('/api/reports')
       setReports(data)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load reports'
@@ -76,11 +72,12 @@ export default function Reports() {
 
   const downloadReport = async (reportId: string, format: string = 'json') => {
     try {
-      const response = await fetch(`/api/reports/${reportId}/export/${format}`)
-      if (!response.ok) {
-        throw new Error('Failed to download report')
-      }
-      
+      // For downloads, we still need to attach Authorization; use a manual fetch with header
+      const token = localStorage.getItem('authToken')
+      const response = await fetch(`/api/reports/${reportId}/export/${format}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+      if (!response.ok) throw new Error('Failed to download report')
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')

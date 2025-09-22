@@ -13,7 +13,7 @@ class SecurityMiddleware {
     if (!proxy) {
       return { enforced: true, ok: false, error: 'Proxy required: Set a proxy when REQUIRE_PROXY is enabled.' };
     }
-    if (!this.isValidProxyURL(proxy)) {
+    if (!SecurityMiddleware.isValidProxyURL(proxy)) {
       return { enforced: true, ok: false, error: 'Invalid proxy URL. Must be http(s):// or socks5:// host:port' };
     }
     return { enforced: true, ok: true };
@@ -37,8 +37,8 @@ class SecurityMiddleware {
   static validateInput(req, res, next) {
     try {
       // Skip validation for certain routes
-      const skipRoutes = ['/api/health'];
-      if (skipRoutes.some(route => req.path.startsWith(route))) {
+      const isHealth = req.path === '/health' || (req.originalUrl && req.originalUrl.startsWith('/api/health'));
+      if (isHealth) {
         return next();
       }
 
@@ -384,16 +384,15 @@ class SecurityMiddleware {
   static detectCommandInjection(input) {
     if (typeof input !== 'string') return false;
 
+    // Focus on high-signal separators and subshells; avoid matching JSON braces/parentheses
     const commandPatterns = [
-      /[;&|`$(){}]/,
-      /\.\.\//,
-      /\/etc\//,
-      /\/proc\//,
-      /\/sys\//,
-      /cmd\.exe/i,
-      /powershell/i,
-      /bash/i,
-      /sh\s/i
+      /(;|&&|\|\|)/,                 // common command separators
+      /`/,                            // backticks for subshell
+      /\$\(/,                         // $(subshell)
+      /\$\{[^}]*\}/,                 // ${var}
+      /\.\.\//,                       // path traversal
+      /(\/etc\/|\/proc\/|\/sys\/)/,   // sensitive paths
+      /\b(cmd\.exe|powershell|bash|sh)\b/i // known shells
     ];
 
     return commandPatterns.some(pattern => pattern.test(input));
@@ -401,29 +400,52 @@ class SecurityMiddleware {
 
   static securityScanner(req, res, next) {
     try {
-      const requestData = JSON.stringify({
-        body: req.body,
-        query: req.query,
-        params: req.params
-      });
+      // Skip lightweight endpoints that should never be blocked
+      const isHealth = req.path === '/health' || (req.originalUrl && req.originalUrl.startsWith('/api/health'));
+      const isAuthEndpoint = req.path && (/^\/auth\//.test(req.path));
+      if (isHealth || isAuthEndpoint) {
+        return next();
+      }
+
+      // Helper to safely collect only string values from user-provided input
+      const EXCLUDED_KEYS = new Set(['password', 'newPassword', 'currentPassword', 'confirmPassword', 'token']);
+      const collectStrings = (val, depth = 0, keyHint = '') => {
+        if (depth > 5) return [];
+        if (typeof val === 'string') {
+          if (keyHint && EXCLUDED_KEYS.has(String(keyHint))) return [];
+          return [val];
+        }
+        if (Array.isArray(val)) return val.flatMap(v => collectStrings(v, depth + 1, keyHint));
+        if (val && typeof val === 'object') {
+          return Object.entries(val).flatMap(([k, v]) => collectStrings(v, depth + 1, k));
+        }
+        return [];
+      };
+
+      // Only scan concatenated string fields (avoid JSON structural characters like {})
+      const requestData = [
+        ...collectStrings(req.body || {}),
+        ...collectStrings(req.query || {}),
+        ...collectStrings(req.params || {})
+      ].join('\n');
 
       // Scan for various attack patterns
       const threats = [];
 
-      if (this.detectSQLInjection(requestData)) {
+      if (SecurityMiddleware.detectSQLInjection(requestData)) {
         threats.push('SQL Injection');
       }
 
-      if (this.detectXSS(requestData)) {
+      if (SecurityMiddleware.detectXSS(requestData)) {
         threats.push('XSS');
       }
 
-      if (this.detectCommandInjection(requestData)) {
+      if (SecurityMiddleware.detectCommandInjection(requestData)) {
         threats.push('Command Injection');
       }
 
       if (threats.length > 0) {
-        this.logSecurityEvent('Potential Attack Detected', {
+        SecurityMiddleware.logSecurityEvent('Potential Attack Detected', {
           threats,
           ip: req.ip,
           userAgent: req.get('User-Agent'),
@@ -431,10 +453,14 @@ class SecurityMiddleware {
           method: req.method
         });
 
-        return res.status(403).json({
-          error: 'Request blocked due to security concerns',
-          threats
-        });
+        // Only block on clear threats with non-GET methods; for GET, log and allow in dev
+        const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+        if (isProd || req.method !== 'GET') {
+          return res.status(403).json({
+            error: 'Request blocked due to security concerns',
+            threats
+          });
+        }
       }
 
       next();

@@ -17,6 +17,7 @@ type Report = {
   status: string;
   scanDuration: number;
   createdAt: string;
+  command?: string;
   vulnerabilities: {
     total: number;
     critical: number;
@@ -38,19 +39,18 @@ type Report = {
       }>;
     }>;
   };
-  recommendations: {
-    highPriority: string[];
-    general: string[];
+  recommendations?: {
+    highPriority?: string[];
+    general?: string[];
   } | Array<{
     category: string;
-    priority: string;
+    priority?: string;
     title: string;
     description: string;
-    implementation: string[];
-    effort: string;
-    impact: string;
+    implementation?: string[];
+    effort?: string;
+    impact?: string;
   }>;
-  command: string;
 };
 
 
@@ -98,11 +98,7 @@ export default function ReportDetails() {
     const fetchReport = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/reports/${reportId}`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch report data.');
-        }
-        const data = await response.json();
+        const data = await apiFetch(`/api/reports/${reportId}`);
         setReport(data);
         // Load persisted verification summaries from report.metadata.verifications
         try {
@@ -287,8 +283,15 @@ export default function ReportDetails() {
   }
 
   // Modal controls
-  const openProofModal = (src: string, title?: string) => {
-    setProofModal({ open: true, src, title });
+  const openProofModal = async (src: string, title?: string) => {
+    try {
+      const blob = await fetchBlobWithAuth(src);
+      const url = URL.createObjectURL(blob);
+      setProofModal({ open: true, src: url, title });
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load proof');
+      return;
+    }
     setZoom(1);
     setPan({ x: 0, y: 0 });
   };
@@ -312,9 +315,29 @@ export default function ReportDetails() {
   };
   const resetZoomPan = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
   
-  const handleDownload = (format: 'pdf' | 'json' | 'html') => {
-    window.open(`/api/reports/${reportId}/export/${format}`, '_blank');
-    toast.success(`Downloading report as ${format.toUpperCase()}`);
+  // Helper to fetch a protected URL with Authorization and return a blob
+  const fetchBlobWithAuth = async (path: string): Promise<Blob> => {
+    const token = localStorage.getItem('authToken') || '';
+    const res = await fetch(path, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    return await res.blob();
+  };
+
+  const handleDownload = async (format: 'pdf' | 'json' | 'html') => {
+    try {
+      const blob = await fetchBlobWithAuth(`/api/reports/${reportId}/export/${format}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-${reportId}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Report downloaded as ${format.toUpperCase()}`);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to download');
+    }
   };
 
   if (loading) {
@@ -663,15 +686,23 @@ export default function ReportDetails() {
                               {verifyResult[vuln.id].dom?.proof?.filename && (
                                 <div className="mt-2">
                                   <div className="flex items-center gap-3 mb-2">
-                                    <a
+                                    <button
+                                      type="button"
                                       className="text-xs text-blue-300 hover:text-blue-200 flex items-center gap-1"
-                                      href={`/api/reports/${encodeURIComponent(report.id)}/proof/${encodeURIComponent(verifyResult[vuln.id].dom!.proof!.filename)}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
                                       title="Open proof image in a new tab"
+                                      onClick={async () => {
+                                        try {
+                                          const blob = await fetchBlobWithAuth(`/api/reports/${encodeURIComponent(report.id)}/proof/${encodeURIComponent(verifyResult[vuln.id].dom!.proof!.filename)}`);
+                                          const url = URL.createObjectURL(blob);
+                                          window.open(url, '_blank');
+                                          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                                        } catch (e: any) {
+                                          toast.error(e.message || 'Failed to open proof');
+                                        }
+                                      }}
                                     >
                                       Open in new tab <ExternalLink size={12} />
-                                    </a>
+                                    </button>
                                     <button
                                       type="button"
                                       className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 border border-gray-600"
@@ -682,7 +713,7 @@ export default function ReportDetails() {
                                     </button>
                                   </div>
                                   <img
-                                    src={`/api/reports/${encodeURIComponent(report.id)}/proof/${encodeURIComponent(verifyResult[vuln.id].dom!.proof!.filename)}`}
+                                    src={proofModal.src}
                                     alt="DOM Proof"
                                     className="max-h-64 rounded border border-gray-700"
                                     onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
@@ -849,23 +880,23 @@ export default function ReportDetails() {
           ) : (
             // Legacy format: object with highPriority and general arrays
             <>
-              {report.recommendations?.highPriority?.length > 0 && (
+              {(() => { const hp = (report.recommendations as any)?.highPriority as string[] || []; return hp.length > 0 })() && (
                 <>
                   <h3 className="text-lg font-semibold">High Priority</h3>
                   <ul>
-                    {report.recommendations.highPriority.map((rec, index) => <li key={index}>{rec}</li>)}
+                    {(((report.recommendations as any)?.highPriority as string[]) || []).map((rec, index) => <li key={index}>{rec}</li>)}
                   </ul>
                 </>
               )}
-              {report.recommendations?.general?.length > 0 && (
+              {(() => { const g = (report.recommendations as any)?.general as string[] || []; return g.length > 0 })() && (
                 <>
                   <h3 className="text-lg font-semibold">General</h3>
                   <ul>
-                    {report.recommendations.general.map((rec, index) => <li key={index}>{rec}</li>)}
+                    {(((report.recommendations as any)?.general as string[]) || []).map((rec, index) => <li key={index}>{rec}</li>)}
                   </ul>
                 </>
               )}
-              {(!report.recommendations?.highPriority?.length && !report.recommendations?.general?.length) && (
+              {(() => { const hp = (report.recommendations as any)?.highPriority as string[] || []; const g = (report.recommendations as any)?.general as string[] || []; return hp.length === 0 && g.length === 0 })() && (
                 <p>No specific recommendations.</p>
               )}
             </>
@@ -896,14 +927,27 @@ export default function ReportDetails() {
                 {dumps.map((f) => (
                   <li key={f.name} className="py-2 flex items-center justify-between">
                     <span className="text-gray-200 break-all">{f.name}</span>
-                    <a
+                    <button
+                      type="button"
                       className="text-blue-400 hover:text-blue-300 text-sm"
-                      href={`/api/reports/${report.id}/files/${encodeURIComponent(f.name)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      onClick={async () => {
+                        try {
+                          const blob = await fetchBlobWithAuth(`/api/reports/${report.id}/files/${encodeURIComponent(f.name)}`);
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = f.name;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                        } catch (e: any) {
+                          toast.error(e.message || 'Failed to download file');
+                        }
+                      }}
                     >
                       Download
-                    </a>
+                    </button>
                   </li>
                 ))}
               </ul>

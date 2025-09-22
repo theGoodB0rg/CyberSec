@@ -1,0 +1,15 @@
+{
+  "watch": [
+    "server/**/*.js",
+    "server/**/*.json"
+  ],
+  "ignore": [
+    "client/**",
+    "server/logs/**",
+    "server/temp/**",
+    "server/data/**",
+    "**/*.db"
+  ],
+  "ext": "js,json",
+  "exec": "node server/index.js"
+}
