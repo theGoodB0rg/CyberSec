@@ -194,6 +194,11 @@ app.delete('/api/jobs/:id', async (req, res) => {
     if (!canceled) return res.status(409).json({ error: 'Job cannot be canceled (already running or finished)' });
     // Optional: log an audit event if scan_id exists later
     try { await database.logScanEvent({ scan_id: job.scan_id || 'n/a', user_id: req.user.id, org_id: req.user.orgId || null, event_type: 'job-canceled', metadata: { jobId: job.id } }); } catch(_) {}
+    // Telemetry: increment cancel counter for current period
+    try {
+      const period = new Date().toISOString().slice(0,7);
+      await database.incrementCancelCount(req.user.id, period);
+    } catch (_) {}
     res.json({ ok: true, status: 'canceled' });
   } catch (e) {
     Logger.error('Cancel job error', e);
@@ -282,6 +287,8 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
         const windowSec = parseInt(process.env.DUPLICATE_SCAN_WINDOW_SECONDS || '10', 10);
         const dup = await database.hasRecentSimilarScan(userId, target, windowSec);
         if (dup) {
+          // Telemetry: track duplicate-window detection on HTTP path
+          try { await database.incrementDuplicateWindowRetries(userId, period); } catch (_) {}
           return res.status(409).json({ error: 'A similar scan was just started. Please wait a few seconds before trying again.' });
         }
       } catch (e) {
@@ -918,6 +925,8 @@ io.on('connection', (socket) => {
         const windowSec = parseInt(process.env.DUPLICATE_SCAN_WINDOW_SECONDS || '10', 10);
         const dup = await database.hasRecentSimilarScan(userId, target, windowSec);
         if (dup) {
+          // Telemetry: track duplicate-window detection on WS path
+          try { await database.incrementDuplicateWindowRetries(userId, period); } catch (_) {}
           socket.emit('scan-error', { message: 'A similar scan was just started. Please wait a few seconds before trying again.' });
           releaseLock();
           return;

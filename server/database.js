@@ -87,6 +87,8 @@ class Database {
         scans_started INTEGER DEFAULT 0,
         scans_completed INTEGER DEFAULT 0,
         total_runtime_ms INTEGER DEFAULT 0,
+        cancel_count INTEGER DEFAULT 0,
+        duplicate_window_retries INTEGER DEFAULT 0,
         PRIMARY KEY (user_id, period)
       )
     `;
@@ -220,6 +222,18 @@ class Database {
         this.db.run(`ALTER TABLE recon_parameters ${stmt}`, (err) => {
           if (err && !/duplicate column/i.test(err.message)) {
             Logger.debug('Alter table recon_parameters skipped', { stmt, error: err.message });
+          }
+        });
+      });
+      // Ensure new usage counters exist when upgrading existing installations
+      const usageAlters = [
+        'ADD COLUMN cancel_count INTEGER DEFAULT 0',
+        'ADD COLUMN duplicate_window_retries INTEGER DEFAULT 0'
+      ];
+      usageAlters.forEach(stmt => {
+        this.db.run(`ALTER TABLE usage_counters ${stmt}`, (err) => {
+          if (err && !/duplicate column/i.test(err.message)) {
+            Logger.debug('Alter table usage_counters skipped', { stmt, error: err.message });
           }
         });
       });
@@ -991,12 +1005,52 @@ class Database {
     });
   }
 
+  async incrementCancelCount(userId, period) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        INSERT INTO usage_counters (user_id, period, scans_started, scans_completed, total_runtime_ms, cancel_count, duplicate_window_retries)
+        VALUES (?, ?, 0, 0, 0, 1, 0)
+        ON CONFLICT(user_id, period) DO UPDATE SET cancel_count = cancel_count + 1
+      `;
+      this.db.run(sql, [userId, period], function(err) {
+        if (err) return reject(err);
+        resolve(true);
+      });
+    });
+  }
+
+  async incrementDuplicateWindowRetries(userId, period) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        INSERT INTO usage_counters (user_id, period, scans_started, scans_completed, total_runtime_ms, cancel_count, duplicate_window_retries)
+        VALUES (?, ?, 0, 0, 0, 0, 1)
+        ON CONFLICT(user_id, period) DO UPDATE SET duplicate_window_retries = duplicate_window_retries + 1
+      `;
+      this.db.run(sql, [userId, period], function(err) {
+        if (err) return reject(err);
+        resolve(true);
+      });
+    });
+  }
+
   async getUsageForUser(userId, period) {
     return new Promise((resolve, reject) => {
       const sql = 'SELECT * FROM usage_counters WHERE user_id = ? AND period = ?';
       this.db.get(sql, [userId, period], (err, row) => {
         if (err) return reject(err);
-        resolve(row || { user_id: userId, period, scans_started: 0, scans_completed: 0, total_runtime_ms: 0 });
+        if (!row) {
+          return resolve({ user_id: userId, period, scans_started: 0, scans_completed: 0, total_runtime_ms: 0, cancel_count: 0, duplicate_window_retries: 0 });
+        }
+        // Coalesce possibly NULL columns introduced via ALTER TABLE
+        const safe = {
+          ...row,
+          scans_started: row.scans_started || 0,
+          scans_completed: row.scans_completed || 0,
+          total_runtime_ms: row.total_runtime_ms || 0,
+          cancel_count: row.cancel_count || 0,
+          duplicate_window_retries: row.duplicate_window_retries || 0
+        };
+        resolve(safe);
       });
     });
   }

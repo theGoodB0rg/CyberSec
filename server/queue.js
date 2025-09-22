@@ -48,6 +48,11 @@ class QueueRunner {
             const windowSec = parseInt(process.env.DUPLICATE_SCAN_WINDOW_SECONDS || '10', 10);
             const dup = await this.db.hasRecentSimilarScan(userId, target, windowSec);
             if (dup) {
+              // Telemetry: track duplicate-window retries
+              try {
+                const period = new Date().toISOString().slice(0,7);
+                await this.db.incrementDuplicateWindowRetries(userId, period);
+              } catch (_) {}
               await this.handleRetry(job, 'duplicate-start-window');
               continue;
             }
