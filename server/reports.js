@@ -203,9 +203,16 @@ class ReportGenerator {
         : scanData.options;
       
       for (const [key, value] of Object.entries(options)) {
-        if (value && key !== 'customFlags') {
-          parts.push(`--${key}`, value);
+        if (key === 'customFlags') continue;
+        if (value === undefined || value === null) continue;
+        // Booleans: include flag only when true (no explicit value)
+        if (typeof value === 'boolean') {
+          if (value) parts.push(`--${key}`);
+          continue;
         }
+        // Objects/arrays: stringify for visibility
+        const formatted = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        parts.push(`--${key}`, formatted);
       }
     }
     
