@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 const Logger = require('./utils/logger');
+const killTree = require('tree-kill');
 
 class SQLMapIntegration {
   constructor() {
@@ -841,7 +842,14 @@ class SQLMapIntegration {
   terminateProcess(processId) {
     const processInfo = this.runningProcesses.get(processId);
     if (processInfo) {
-      processInfo.process.kill('SIGTERM');
+      try {
+        const pid = processInfo.process?.pid;
+        if (pid) {
+          killTree(pid, 'SIGTERM');
+        } else {
+          processInfo.process.kill('SIGTERM');
+        }
+      } catch (_) {}
       this.runningProcesses.delete(processId);
       return true;
     }
@@ -880,7 +888,12 @@ class SQLMapIntegration {
     // Terminate all running processes
     for (const [id, info] of this.runningProcesses.entries()) {
       try {
-        info.process.kill('SIGTERM');
+        const pid = info.process?.pid;
+        if (pid) {
+          try { killTree(pid, 'SIGTERM'); } catch (_) {}
+        } else {
+          info.process?.kill?.('SIGTERM');
+        }
         this.cleanupTempFiles(info.outputDir);
       } catch (error) {
         Logger.error(`Error terminating process ${id}: ${error.message}`);

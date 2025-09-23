@@ -334,9 +334,50 @@ export default function Terminal() {
     }
   }
 
+  const restartScan = () => {
+    const lastTarget = lastStartedTargetRef.current?.trim()
+    const lastProfile = lastStartedProfileRef.current
+    const lastOptions = lastStartedOptionsRef.current
+
+    if (!lastTarget) {
+      toast.error('No previous scan parameters to restart')
+      return
+    }
+
+    // If a scan is currently running, send terminate first
+    if (isScanning) {
+      terminateScan()
+      if (xtermRef.current) {
+        xtermRef.current.writeln('')
+        xtermRef.current.writeln('\x1b[1;33m! Terminating current scan before restart...\x1b[0m')
+      }
+      // Small delay to allow server to process termination
+      setTimeout(() => {
+        setIsScanning(true)
+        if (xtermRef.current) {
+          xtermRef.current.writeln('')
+          xtermRef.current.writeln(`\x1b[1;36m↻ Restarting ${lastProfile} scan for: ${lastTarget}\x1b[0m`)
+          xtermRef.current.writeln('')
+        }
+        sendStartScan(lastTarget, lastOptions, lastProfile)
+      }, 600)
+      return
+    }
+
+    // No active scan; just start again with last params
+    setIsScanning(true)
+    if (xtermRef.current) {
+      xtermRef.current.writeln('')
+      xtermRef.current.writeln(`\x1b[1;36m↻ Restarting ${lastProfile} scan for: ${lastTarget}\x1b[0m`)
+      xtermRef.current.writeln('')
+    }
+    sendStartScan(lastTarget, lastOptions, lastProfile)
+  }
+
   const clearTerminal = () => {
     if (xtermRef.current) {
       xtermRef.current.clear()
+      xtermRef.current.writeln('\x1b[90m[terminal cleared]\x1b[0m')
     }
     clearTerminalOutput()
   }
@@ -408,6 +449,15 @@ export default function Terminal() {
                 Stop Scan
               </button>
             )}
+            <button
+              onClick={restartScan}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!isConnected || !lastStartedTargetRef.current}
+              title={lastStartedTargetRef.current ? `Restart last scan for ${lastStartedTargetRef.current}` : 'Start a scan first to enable restart'}
+            >
+              <ArrowPathIcon className="h-4 w-4 mr-2" />
+              Restart
+            </button>
             
             <button
               onClick={clearTerminal}
@@ -530,6 +580,7 @@ export default function Terminal() {
                   <tr className="text-left">
                     <th className="py-2 pr-4">Job</th>
                     <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Error</th>
                     <th className="py-2 pr-4">Run At</th>
                     <th className="py-2 pr-4">Retries</th>
                     <th className="py-2 pr-4">Target</th>
@@ -540,7 +591,13 @@ export default function Terminal() {
                   {jobs.map(j => (
                     <tr key={j.id} className="border-t border-gray-700">
                       <td className="py-2 pr-4 font-mono text-xs">{j.id}</td>
-                      <td className="py-2 pr-4">{j.status}</td>
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center gap-2">
+                          <span>{j.status}</span>
+                          {j.created_by_admin ? <span className="text-[10px] px-1 py-0.5 bg-blue-800 text-blue-100 rounded">admin</span> : null}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-4 max-w-[260px] truncate" title={j.last_error || ''}>{j.last_error || ''}</td>
                       <td className="py-2 pr-4">{new Date(j.run_at).toLocaleString()}</td>
                       <td className="py-2 pr-4">{j.retries}/{j.max_retries}</td>
                       <td className="py-2 pr-4 break-all">{j.target}</td>
@@ -552,7 +609,7 @@ export default function Terminal() {
                     </tr>
                   ))}
                   {jobs.length === 0 && (
-                    <tr><td colSpan={6} className="py-3 text-gray-500">No queued jobs</td></tr>
+                    <tr><td colSpan={7} className="py-3 text-gray-500">No queued jobs</td></tr>
                   )}
                 </tbody>
               </table>

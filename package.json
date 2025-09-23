@@ -5,7 +5,7 @@
   "main": "server/index.js",
   "scripts": {
     "predev": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/kill-ports.ps1",
-    "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
+    "dev": "concurrently -k --success=first -n server,client -c yellow,cyan \"npm run server:dev\" \"npm run client:dev\"",
     "build": "npm run client:build && npm run server:build",
     "start": "node server/index.js",
     "start:prod": "node server/dist/index.js",
@@ -50,6 +50,7 @@
     "socket.io": "^4.7.4",
     "sqlite3": "^5.1.6",
     "uuid": "^9.0.1",
+    "tree-kill": "^1.2.2",
   "validator": "^13.11.0",
   "winston": "^3.11.0",
   "axios": "^1.7.2",

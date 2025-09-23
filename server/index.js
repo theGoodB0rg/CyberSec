@@ -10,6 +10,7 @@ const fs = require('fs');
 // Import custom modules
 const Database = require('./database');
 const SQLMapIntegration = require('./sqlmap');
+const { shutdown, killPid } = require('./shutdown');
 const ReportGenerator = require('./reports');
 const SecurityMiddleware = require('./middleware/security');
 const AuthMiddleware = require('./middleware/auth');
@@ -130,6 +131,7 @@ const reconEngine = new ReconEngine();
 
 // Track running scans and their output directories and ownership
 let scanProcesses = new Map();
+let queueRunner = null;
 // Lightweight per-user start locks to prevent race conditions on rapid clicks
 const userStartLocks = new Map();
 
@@ -199,7 +201,7 @@ app.post('/api/scans/schedule', async (req, res) => {
       }
     }
 
-    const id = await database.createJob({ user_id: userId, org_id: orgId, run_at: when.toISOString(), target, options, scan_profile: scanProfile, max_retries: Math.min(10, Math.max(0, Number(maxRetries) || 3)) });
+    const id = await database.createJob({ user_id: userId, org_id: orgId, run_at: when.toISOString(), target, options, scan_profile: scanProfile, max_retries: Math.min(10, Math.max(0, Number(maxRetries) || 3)), created_by_admin: isAdmin ? 1 : 0 });
     res.status(202).json({ jobId: id, status: 'scheduled', runAt: when.toISOString() });
   } catch (e) {
     Logger.error('Failed to schedule job', e);
@@ -926,6 +928,17 @@ app.get('/api/admin/visits', async (req, res) => {
   }
 });
 
+// Admin: graceful shutdown endpoint (responds 202 then initiates shutdown)
+app.post('/api/admin/shutdown', async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    res.status(202).json({ ok: true, message: 'Shutdown initiated' });
+    setTimeout(() => handleSignal('API'), 50);
+  } catch (e) {
+    Logger.error('Admin shutdown failed to schedule', e);
+  }
+});
+
 // Admin settings endpoints: allow toggling sitewide settings like proxy enforcement and trust proxy
 app.get('/api/admin/settings', async (req, res) => {
   try {
@@ -1047,7 +1060,7 @@ io.on('connection', (socket) => {
 
   // Handle SQLMap scan initiation
   socket.on('start-sqlmap-scan', async (data) => {
-    try {
+  try {
   const { target, options, scanProfile } = data;
       
       // Validate input
@@ -1316,6 +1329,209 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Restart a scan: either by prior scanId (reuse saved target/options/profile) or by explicit payload
+  socket.on('restart-scan', async (payload = {}) => {
+    try {
+      const userId = socket.user?.id || 'system';
+      const orgId = socket.user?.orgId || null;
+      const isAdmin = socket.user?.role === 'admin';
+
+      // Resolve target/options/profile
+      let target = payload.target;
+      let options = payload.options || {};
+      let scanProfile = payload.scanProfile || 'basic';
+
+      if (!target && payload.scanId) {
+        // Load previous scan and reuse its parameters
+        const prev = await database.getScan(String(payload.scanId));
+        if (!prev) {
+          socket.emit('scan-error', { message: 'Previous scan not found' });
+          return;
+        }
+        // Ownership check
+        const owns = isAdmin || prev.user_id === userId || (orgId && prev.org_id === orgId);
+        if (!owns) {
+          Logger.unauthorizedAccess('scan-restart', { scanId: payload.scanId, owner: prev.user_id, by: userId, byOrg: orgId });
+          socket.emit('scan-error', { message: 'You do not have permission to restart this scan.' });
+          return;
+        }
+        target = prev.target;
+        // prev.options may be JSON string; parse safely
+        try { options = typeof prev.options === 'string' ? JSON.parse(prev.options) : (prev.options || {}); } catch (_) { options = {}; }
+        scanProfile = prev.scan_profile || 'basic';
+      }
+
+      if (!target || !SecurityMiddleware.isValidURL(target)) {
+        socket.emit('scan-error', { message: 'Invalid or missing target for restart' });
+        return;
+      }
+
+      // Proxy requirement
+      const proxyCheck = SecurityMiddleware.requireProxyIfEnabled(options || {});
+      if (!proxyCheck.ok) {
+        socket.emit('scan-error', { message: proxyCheck.error });
+        return;
+      }
+
+      // Per-user start lock
+      if (userStartLocks.get(userId)) {
+        socket.emit('scan-error', { message: 'Another scan is being started. Please wait a moment and try again.' });
+        return;
+      }
+      userStartLocks.set(userId, true);
+      const releaseLock = () => userStartLocks.delete(userId);
+
+      try {
+        // Concurrency
+        const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
+        const runningForUser = Array.from(scanProcesses.values()).filter(p => p.userId === userId).length;
+        if (!isAdmin && runningForUser >= MAX_CONCURRENT) {
+          socket.emit('scan-error', { message: `Concurrent scan limit reached (${MAX_CONCURRENT}). Please wait for existing scans to finish.` });
+          return;
+        }
+
+        // Quotas
+        const period = new Date().toISOString().slice(0,7);
+        const MAX_SCANS_MONTH = parseInt(process.env.MAX_SCANS_PER_MONTH || '100', 10);
+        if (!isAdmin) {
+          const usage = await database.getUsageForUser(userId, period);
+          if ((usage?.scans_started || 0) >= MAX_SCANS_MONTH) {
+            socket.emit('scan-error', { message: `Monthly scan quota reached (${MAX_SCANS_MONTH} in ${period}).` });
+            return;
+          }
+        }
+
+        // Restart semantics: bypass duplicate-start debounce window intentionally
+
+        // Verified target policy unless explicitly allowed
+        const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
+        if (!allowUnverified && !isAdmin) {
+          try {
+            const hostname = new URL(target).hostname;
+            const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
+            if (!verified) {
+              Logger.suspiciousActivity('unverified-target-restart', { userId, orgId, hostname, target });
+              socket.emit('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
+              return;
+            }
+          } catch (e) {
+            socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
+            return;
+          }
+        }
+
+        // Prepare auth context
+        const { preparedOptions, authMeta } = await prepareAuthContext(options || {}, target, userId);
+
+        // Start scan
+        const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, preparedOptions, scanProfile, userId);
+
+        const startTimeIso = new Date().toISOString();
+        const scanId = await database.createScan({
+          target,
+          options: sanitizeOptionsForStorage({ ...preparedOptions, auth: { ...(preparedOptions.auth || {}), type: authMeta.mode } }),
+          scanProfile,
+          user_id: userId,
+          org_id: orgId,
+          output_dir: outputDir,
+          status: 'running',
+          start_time: startTimeIso
+        });
+
+        // Audit event: restarted
+        database.logScanEvent({
+          scan_id: scanId,
+          user_id: userId,
+          org_id: orgId,
+          event_type: 'restarted',
+          metadata: { target, scanProfile, via: 'ws', fromScanId: payload.scanId || null, options: preparedOptions, auth: authMeta }
+        }).catch(()=>{});
+
+        // Usage increment
+        database.incrementUsageOnStart(userId, period).catch(()=>{});
+
+        scanProcesses.set(scanId, { process: proc, outputDir, target, scanProfile, startTime: new Date(), userId, orgId });
+
+        // Stream output
+        proc.stdout.on('data', (data) => {
+          const output = data.toString();
+          socket.emit('scan-output', { scanId, output, type: 'stdout' });
+          database.appendScanOutput(scanId, output, 'stdout');
+          if (output && output.trim()) {
+            database.logScanEvent({
+              scan_id: scanId,
+              user_id: userId,
+              org_id: orgId,
+              event_type: 'output',
+              metadata: { type: 'stdout', chunk: output.slice(0, 1000) }
+            }).catch(() => {});
+          }
+        });
+        proc.stderr.on('data', (data) => {
+          const output = data.toString();
+          socket.emit('scan-output', { scanId, output, type: 'stderr' });
+          database.appendScanOutput(scanId, output, 'stderr');
+          if (output && output.trim()) {
+            database.logScanEvent({
+              scan_id: scanId,
+              user_id: userId,
+              org_id: orgId,
+              event_type: 'output',
+              metadata: { type: 'stderr', chunk: output.slice(0, 1000) }
+            }).catch(() => {});
+          }
+        });
+
+        proc.on('close', async (code) => {
+          const endTime = new Date().toISOString();
+          let scanData = await database.getScan(scanId);
+          await database.updateScan(scanId, { status: code === 0 ? 'completed' : 'failed', end_time: endTime, exit_code: code });
+          scanData = await database.getScan(scanId);
+          try {
+            let sqlmapResults = null;
+            if (code === 0) {
+              try {
+                const processInfo = scanProcesses.get(scanId);
+                const outDir = processInfo?.outputDir;
+                if (outDir && fs.existsSync(outDir)) {
+                  sqlmapResults = await sqlmapIntegration.parseResults(outDir, scanId);
+                }
+              } catch (e) { Logger.error('Restart parse results error', e); }
+            }
+            const reportData = await reportGenerator.generateReport(scanId, scanData, sqlmapResults);
+            const reportId = await database.createReport({ ...reportData, user_id: userId, org_id: orgId });
+            socket.emit('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults });
+            database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: code === 0 ? 'completed' : 'failed', metadata: { exit_code: code, reportId, hasStructuredResults: !!sqlmapResults, via: 'ws', restartOf: payload.scanId || null } }).catch(()=>{});
+            try {
+              const runtime = (new Date(scanData.end_time).getTime() - new Date(scanData.start_time).getTime()) || 0;
+              await database.incrementUsageOnComplete(userId, period, Math.max(0, runtime));
+            } catch (_) {}
+          } catch (e) {
+            Logger.error('Restart scan close handler error', e);
+            socket.emit('scan-error', { scanId, message: 'Scan completed but failed to generate report' });
+          } finally {
+            scanProcesses.delete(scanId);
+          }
+        });
+
+        proc.on('error', (error) => {
+          Logger.error('SQLMap process error (restart):', error);
+          socket.emit('scan-error', { scanId, message: error.message });
+          database.updateScan(scanId, { status: 'failed', error: error.message });
+          database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: 'process-error', metadata: { message: error.message, via: 'ws', restartOf: payload.scanId || null } }).catch(()=>{});
+          scanProcesses.delete(scanId);
+        });
+
+        socket.emit('scan-started', { scanId, target, scanProfile, startTime: startTimeIso });
+      } finally {
+        releaseLock();
+      }
+    } catch (e) {
+      Logger.error('Restart-scan failed', e);
+      socket.emit('scan-error', { message: e.message || 'Failed to restart scan' });
+    }
+  });
+
   // Handle scan termination (Ctrl+C functionality)
   socket.on('terminate-scan', (payload = {}) => {
     const reqScanId = payload.scanId || socket.scanId;
@@ -1334,7 +1550,13 @@ io.on('connection', (socket) => {
       return;
     }
     try {
-      procInfo.process.kill('SIGTERM');
+      const pid = procInfo.process?.pid;
+      if (pid) {
+        // Kill entire tree cross-platform
+        killPid(pid, 'SIGTERM', 6000).then(()=>{});
+      } else {
+        procInfo.process?.kill?.('SIGTERM');
+      }
       socket.emit('scan-terminated', { scanId: reqScanId });
       database.updateScan(reqScanId, { 
         status: 'terminated',
@@ -1382,21 +1604,19 @@ io.on('connection', (socket) => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  Logger.info('SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    database.close();
+const handleSignal = async (sig) => {
+  try { Logger.info(`${sig} received, shutting down gracefully`); } catch (_) {}
+  try {
+    await shutdown({ httpServer: server, io, db: database, queue: queueRunner, sqlmap: sqlmapIntegration, scanProcessesRef: scanProcesses });
+  } finally {
     process.exit(0);
-  });
-});
+  }
+};
 
-process.on('SIGINT', () => {
-  Logger.info('SIGINT received, shutting down gracefully');
-  server.close(() => {
-    database.close();
-    process.exit(0);
-  });
-});
+process.on('SIGTERM', () => handleSignal('SIGTERM'));
+process.on('SIGINT', () => handleSignal('SIGINT'));
+// Windows specific: handle Ctrl+Break when available
+try { process.on('SIGBREAK', () => handleSignal('SIGBREAK')); } catch (_) {}
 
 // Error handling
 process.on('uncaughtException', (error) => {
@@ -1535,8 +1755,8 @@ server.listen(PORT, async () => {
   try {
     const enableQueue = String(process.env.ENABLE_JOB_QUEUE || 'true').toLowerCase();
     if (['true','1','yes','on'].includes(enableQueue)) {
-  const queue = new QueueRunner({ database, io, scanProcessesRef: scanProcesses, sqlmap: sqlmapIntegration, reportGenerator });
-      queue.start();
+      queueRunner = new QueueRunner({ database, io, scanProcessesRef: scanProcesses, sqlmap: sqlmapIntegration, reportGenerator });
+      queueRunner.start();
       Logger.info('Job queue enabled');
     } else {
       Logger.info('Job queue disabled via ENABLE_JOB_QUEUE');

@@ -247,6 +247,11 @@ export const useScanSocket = () => {
     emit('terminate-scan')
   }
 
+  // Optional: server may handle restart specifically; client can also just call startScan again
+  const restartScan = (scanId?: string, payload?: { target?: string; options?: any; scanProfile?: string }) => {
+    emit('restart-scan', { scanId, ...payload })
+  }
+
   const executeCommand = (command: string, args: string[] = []) => {
     emit('execute-command', { command, args })
   }
@@ -254,6 +259,7 @@ export const useScanSocket = () => {
   return {
     startScan,
     terminateScan,
+    restartScan,
     executeCommand,
     on,
     off,

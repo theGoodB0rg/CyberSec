@@ -152,6 +152,7 @@ class Database {
         target TEXT NOT NULL,
         options TEXT,
         scan_profile TEXT,
+        created_by_admin INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -206,6 +207,12 @@ class Database {
       this.db.run(createScanEventsTable);
   this.db.run(createTelemetryTable);
   this.db.run(createJobsTable);
+      // Migration: ensure jobs.created_by_admin exists
+      this.db.run(`ALTER TABLE jobs ADD COLUMN created_by_admin INTEGER DEFAULT 0`, (err) => {
+        if (err && !/duplicate column/i.test(err.message)) {
+          Logger.debug('Alter table jobs (created_by_admin) skipped', { error: err.message });
+        }
+      });
 
       // Helpful indices
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_scans_output_dir ON scans(output_dir)`);
@@ -572,13 +579,13 @@ class Database {
   }
 
   // Jobs API
-  async createJob({ id = uuidv4(), user_id, org_id = null, run_at, target, options = {}, scan_profile = 'basic', max_retries = 3 }) {
+  async createJob({ id = uuidv4(), user_id, org_id = null, run_at, target, options = {}, scan_profile = 'basic', max_retries = 3, created_by_admin = 0 }) {
     return new Promise((resolve, reject) => {
       const stmt = this.db.prepare(`
-        INSERT INTO jobs (id, user_id, org_id, status, run_at, retries, max_retries, last_error, scan_id, target, options, scan_profile)
-        VALUES (?, ?, ?, 'scheduled', ?, 0, ?, NULL, NULL, ?, ?, ?)
+        INSERT INTO jobs (id, user_id, org_id, status, run_at, retries, max_retries, last_error, scan_id, target, options, scan_profile, created_by_admin)
+        VALUES (?, ?, ?, 'scheduled', ?, 0, ?, NULL, NULL, ?, ?, ?, ?)
       `);
-      stmt.run([id, user_id, org_id, run_at, max_retries, target, JSON.stringify(options || {}), scan_profile], function(err) {
+      stmt.run([id, user_id, org_id, run_at, max_retries, target, JSON.stringify(options || {}), scan_profile, created_by_admin ? 1 : 0], function(err) {
         if (err) return reject(err);
         resolve(id);
       });

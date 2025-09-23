@@ -31,7 +31,7 @@ class QueueRunner {
       if (!due.length) return;
 
       for (const job of due) {
-        const { id: jobId, user_id: userId, org_id: orgId, target, options, scan_profile: scanProfile } = job;
+        const { id: jobId, user_id: userId, org_id: orgId, target, options, scan_profile: scanProfile, created_by_admin } = job;
 
         // Enforce per-user concurrency limit
         const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
@@ -75,11 +75,12 @@ class QueueRunner {
           // Verified target policy (non-admin path—queue runner lacks role; enforce strictly unless toggled)
           try {
             const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
-            if (!allowUnverified) {
+            const adminSkip = created_by_admin ? true : false;
+            if (!allowUnverified && !adminSkip) {
               const hostname = new URL(target).hostname;
               const verified = await this.db.getVerifiedTargetForUser(hostname, userId, orgId, false);
               if (!verified) {
-                await this.db.markJobFailed(jobId, `Target ${hostname} not verified`);
+                await this.db.markJobFailed(jobId, `Target ${hostname} not verified (queue)`);
                 continue;
               }
             }

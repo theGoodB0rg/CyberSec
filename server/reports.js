@@ -9,7 +9,13 @@ class ReportGenerator {
     this.pdfGenerationQueue = [];
     this.isGeneratingPdf = false;
     this.puppeteerChecked = false;
-    this.validatePuppeteerSetup();
+    const disableValidation = ['true','1','yes','on'].includes(String(process.env.DISABLE_PUPPETEER_VALIDATION).toLowerCase());
+    if (disableValidation) {
+      Logger.info('Puppeteer setup validation disabled via DISABLE_PUPPETEER_VALIDATION');
+      this.puppeteerChecked = true;
+    } else {
+      this.validatePuppeteerSetup();
+    }
   }
 
   async validatePuppeteerSetup() {
