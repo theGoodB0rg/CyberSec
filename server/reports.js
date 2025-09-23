@@ -965,6 +965,22 @@ class ReportGenerator {
               return Buffer.from(htmlContent, 'utf8');
             }
           }
+        case 'csv': {
+          // Create a compact CSV from the report findings
+          const sanitized = this.sanitizeReportData(reportData);
+          const rows = [];
+          // Header
+          rows.push('Type,Parameter,Severity,Confidence,Description');
+          for (const v of (sanitized.vulnerabilities.findings || [])) {
+            const type = (v.type || '').replace(/\s+/g, ' ').trim();
+            const param = (v.parameter || '').replace(/\s+/g, ' ').trim();
+            const sev = (v.severity || '').trim();
+            const conf = typeof v.confidenceScore === 'number' ? `${Math.round(v.confidenceScore * 100)}%` : (v.confidenceLabel || '');
+            const desc = (v.description || '').replace(/"/g, '""');
+            rows.push([type, param, sev, conf, `"${desc}"`].join(','));
+          }
+          return rows.join('\n');
+        }
         case 'html':
           return this.generateHTMLReport(reportData);
         case 'md':
@@ -1832,7 +1848,8 @@ ${r.description || 'No description available'}
       'pdf': 'application/pdf',
       'html': 'text/html',
       'markdown': 'text/markdown',
-      'md': 'text/markdown'
+      'md': 'text/markdown',
+      'csv': 'text/csv; charset=utf-8'
     };
     
     return contentTypes[format.toLowerCase()] || 'application/octet-stream';

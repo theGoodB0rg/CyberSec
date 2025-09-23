@@ -148,8 +148,67 @@ sqlmap -u <target> --batch --random-agent --dump --exclude-sysdbs
 The application now provides comprehensive structured output from SQLMap scans:
 
 ### Output
-- CSV dumps, session.sqlite, traffic.log
-- JSON/HTML/PDF report exports (PDF via Puppeteer; auto HTML fallback if headless fails)
+
+### Exports and Downloads
+
+You can export reports in multiple formats from the UI or via REST endpoints:
+
+- GET `/api/reports/:id/export/json` → JSON
+- GET `/api/reports/:id/export/html` → HTML
+- GET `/api/reports/:id/export/csv` → CSV (findings table)
+- GET `/api/reports/:id/export/pdf` → PDF
+
+If the server cannot render a PDF (Chromium/Puppeteer unavailable), it returns a PDF-styled HTML instead with header `X-PDF-Fallback: true` and the UI will save it as `*.html`. You can print it to PDF via the browser (Ctrl+P → Save as PDF).
+
+For csv dumps produced by sqlmap (tables content), use:
+`GET /api/reports/:id/files/:filename` (ownership enforced) to download individual CSV artifacts located under the scan output directory. The server recognizes both `results.csv` and `results-*.csv` naming patterns.
+
+---
+### 📤 **Report Export & Download – Professional Usage & Troubleshooting**
+
+#### **Export Endpoints**
+
+- `GET /api/reports/:id/export/json` – Download full report as JSON
+- `GET /api/reports/:id/export/html` – Download full report as HTML
+- `GET /api/reports/:id/export/pdf` – Download full report as PDF (uses Puppeteer; falls back to HTML if headless Chromium is unavailable)
+- `GET /api/reports/:id/export/csv` – Download findings table as CSV (not raw SQLMap dump)
+- `GET /api/reports/:id/files/:filename` – Download raw SQLMap CSV dump or other artifacts (ownership enforced)
+
+#### **How to Export Reports**
+
+- **From the UI**: On the Reports list or Report Details page, use the download buttons to export in your preferred format. PDF, HTML, JSON, and CSV are available. CSV (findings) is distinct from raw SQLMap CSV dumps.
+- **From the API**: Use the endpoints above with your JWT token. For file downloads, ensure you have access rights to the report.
+
+#### **PDF Export Details**
+
+- PDF export uses Puppeteer (headless Chromium). If Puppeteer is not available or fails, the server returns a styled HTML with header `X-PDF-Fallback: true`. The UI will save this as `.html` and prompt you to print to PDF via your browser.
+- All binary downloads set correct `Content-Type` and `Content-Disposition` headers for professional compatibility.
+
+#### **CSV Export Details**
+
+- The `/export/csv` endpoint provides a clean, findings-only CSV (not a raw SQLMap dump).
+- For raw SQLMap CSVs (table dumps), use `/files/:filename` with the correct filename (e.g., `results.csv`, `results-20240629_0929pm.csv`).
+- The server detects all `results-*.csv` files in the scan output directory.
+
+#### **Troubleshooting PDF/CSV Exports**
+
+- **Malformed PDF or unopenable file?**
+   - Ensure Puppeteer/Chromium is installed and accessible on the server.
+   - If you receive an HTML file instead of PDF, check for the `X-PDF-Fallback: true` header. Open in browser and print to PDF.
+- **Empty CSV file?**
+   - Ensure the scan produced findings. The `/export/csv` endpoint only exports findings, not raw dumps.
+   - For raw SQLMap CSVs, verify the file exists in the scan output directory and use the `/files/:filename` endpoint.
+- **Download fails or file is corrupt?**
+   - Ensure you are authenticated and have access to the report.
+   - Check that your client handles binary downloads correctly (the UI uses Blob and detects PDF/HTML fallback automatically).
+
+#### **Client/Server Download Behavior**
+
+- The client detects PDF fallbacks and saves as `.html` if needed.
+- All downloads use proper headers for browser compatibility.
+- Ownership and path traversal are enforced on all file downloads.
+
+---
 
 ### Report Features
 - **Professional Formatting**: Clean, organized vulnerability reports

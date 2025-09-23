@@ -331,27 +331,68 @@ export default function ReportDetails() {
   const resetZoomPan = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
   
   // Helper to fetch a protected URL with Authorization and return a blob
-  const fetchBlobWithAuth = async (path: string): Promise<Blob> => {
+  const fetchWithAuth = async (path: string): Promise<Response> => {
     const token = localStorage.getItem('authToken') || '';
-    const res = await fetch(path, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    let res: Response;
+    try {
+      res = await fetch(path, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+    } catch (err: any) {
+      // Provide a friendlier hint when the browser/extension blocks the request
+      const msg = (err?.message || '').toLowerCase();
+      if (msg.includes('failed to fetch') || msg.includes('blocked')) {
+        throw new Error('Download was blocked by the browser or an extension. Please temporarily disable download managers (e.g., IDM) or ad blockers for this site and try again.');
+      }
+      throw err;
+    }
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.text()).slice(0, 200); } catch {}
+      throw new Error(`Request failed (${res.status})${detail ? `: ${detail}` : ''}`);
+    }
+    return res;
+  };
+
+  // Convenience: get a Blob with auth
+  const fetchBlobWithAuth = async (path: string): Promise<Blob> => {
+    const res = await fetchWithAuth(path);
     return await res.blob();
   };
 
   const handleDownload = async (format: 'pdf' | 'json' | 'html') => {
     try {
-      const blob = await fetchBlobWithAuth(`/api/reports/${reportId}/export/${format}`);
+      const res = await fetchWithAuth(`/api/reports/${reportId}/export/${format}`);
+      const isPdfFallback = res.headers.get('x-pdf-fallback') === 'true';
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `report-${reportId}.${format}`;
+      const ext = isPdfFallback ? 'html' : format;
+      a.download = `report-${reportId}.${ext}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success(`Report downloaded as ${format.toUpperCase()}`);
+      toast.success(`Report downloaded as ${ext.toUpperCase()}`);
     } catch (e: any) {
-      toast.error(e.message || 'Failed to download');
+      const msg = String(e?.message || 'Failed to download');
+      // Fallback: some extensions block fetch/XHR downloads; let the browser navigate to the URL instead
+      const apiUrl = `/api/reports/${reportId}/export/${format}`;
+      if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('blocked')) {
+        // Open in a new tab to avoid replacing the SPA; browser will handle Content-Disposition
+        const link = document.createElement('a');
+        link.href = apiUrl;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        // Attach auth header via token param if needed? Not safe; instead rely on cookie or bearer not possible.
+        // As a compromise for blocked fetch, we try same-origin with bearer via a temporary window.fetch is not available.
+        // If your backend requires Authorization header (Bearer), consider enabling cookie-based auth or creating a short-lived download token.
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast('Opening download in a new tab (if blocked by an extension, allow it).', { icon: '⬇️' });
+      } else {
+        toast.error(msg);
+      }
     }
   };
 
@@ -396,10 +437,13 @@ export default function ReportDetails() {
             <FileJson size={18} />
             Download JSON
           </button>
-          <button onClick={() => handleDownload('pdf')} className="btn-primary flex items-center gap-2">
-            <FileText size={18} />
-            Download PDF
-          </button>
+          {/* PDF export is behind a feature flag. To enable, set VITE_ENABLE_PDF_EXPORT=true and ENABLE_PDF_EXPORT=true on the server. */}
+          {String(import.meta.env.VITE_ENABLE_PDF_EXPORT || 'false').toLowerCase() === 'true' && (
+            <button onClick={() => handleDownload('pdf')} className="btn-primary flex items-center gap-2">
+              <FileText size={18} />
+              Download PDF
+            </button>
+          )}
         </div>
       </div>
 

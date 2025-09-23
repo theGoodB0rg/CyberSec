@@ -22,7 +22,8 @@
     "install-all": "npm run server:install && npm run client:install",
     "test": "jest",
     "lint": "eslint server/**/*.js",
-    "format": "prettier --write server/**/*.js"
+    "format": "prettier --write server/**/*.js",
+    "smoke:pdf": "node scripts/smoke-pdf.js"
   },
   "keywords": [
     "cybersecurity",

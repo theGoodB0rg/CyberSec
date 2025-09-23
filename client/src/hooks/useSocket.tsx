@@ -31,9 +31,14 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const { setConnected, upsertScanFromEvent, loadRunningScans, updateScan, addReport, addTerminalOutput, authToken, isAuthenticated } = useAppStore()
 
   // Derive WS host once
-  const WS_HOST = useMemo(() => (
-    import.meta.env.VITE_WS_URL || `${window.location.protocol}//${window.location.hostname}:3001`
-  ), [])
+  const WS_HOST = useMemo(() => {
+    // Prefer explicit override if provided
+    if (import.meta.env.VITE_WS_URL) return String(import.meta.env.VITE_WS_URL)
+    const host = window.location.hostname
+    // Force http for localhost to ensure ws:// is used (avoid extensions auto-upgrading to wss://)
+    const scheme = (host === 'localhost' || host === '127.0.0.1') ? 'http' : (window.location.protocol === 'https:' ? 'https' : 'http')
+    return `${scheme}://${host}:3001`
+  }, [])
 
   useEffect(() => {
     // Build the websocket URL dynamically so it works regardless of which port

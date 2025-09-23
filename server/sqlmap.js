@@ -523,11 +523,24 @@ class SQLMapIntegration {
         // You could parse HTTP requests/responses here
       }
 
-      // Parse CSV results file
-      const resultsFile = path.join(outputDir, 'results.csv');
+      // Parse CSV results file (support both results.csv and results-*.csv)
+      let resultsFile = path.join(outputDir, 'results.csv');
+      if (!fs.existsSync(resultsFile)) {
+        try {
+          const candidates = fs.readdirSync(outputDir).filter(f => /^results-.*\.csv$/i.test(f));
+          if (candidates.length > 0) {
+            // Choose the latest by mtime
+            const latest = candidates
+              .map(name => ({ name, mtime: fs.statSync(path.join(outputDir, name)).mtimeMs }))
+              .sort((a, b) => b.mtime - a.mtime)[0];
+            resultsFile = path.join(outputDir, latest.name);
+          }
+        } catch (_) {}
+      }
       if (fs.existsSync(resultsFile)) {
         const csvData = fs.readFileSync(resultsFile, 'utf8');
         results.csvData = csvData;
+        results.files.results = resultsFile;
       }
 
       // Find and catalog dump files

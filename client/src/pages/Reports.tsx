@@ -78,17 +78,19 @@ export default function Reports() {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
       if (!response.ok) throw new Error('Failed to download report')
+      const isPdfFallback = response.headers.get('x-pdf-fallback') === 'true'
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `report-${reportId}.${format}`
+      const ext = isPdfFallback ? 'html' : format
+      a.download = `report-${reportId}.${ext}`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
       
-      toast.success(`Report downloaded as ${format.toUpperCase()}`)
+      toast.success(`Report downloaded as ${ext.toUpperCase()}`)
     } catch (err) {
       toast.error('Failed to download report')
     }
@@ -335,14 +337,17 @@ export default function Reports() {
                               <ArrowDownTrayIcon className="h-4 w-4" />
                             </button>
                             
-                            <div className="absolute right-0 mt-2 w-32 bg-gray-700 border border-gray-600 rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                            <div className="absolute right-0 mt-2 w-36 bg-gray-700 border border-gray-600 rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
                               <div className="py-1">
-                                <button
-                                  onClick={() => downloadReport(report.id, 'pdf')}
-                                  className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-600 hover:text-white"
-                                >
-                                  Download PDF
-                                </button>
+                                {String(import.meta.env.VITE_ENABLE_PDF_EXPORT || 'false').toLowerCase() === 'true' && (
+                                  <button
+                                    // PDF export is feature-flagged. Enable via VITE_ENABLE_PDF_EXPORT and server ENABLE_PDF_EXPORT.
+                                    onClick={() => downloadReport(report.id, 'pdf')}
+                                    className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-600 hover:text-white"
+                                  >
+                                    Download PDF
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => downloadReport(report.id, 'html')}
                                   className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-600 hover:text-white"
@@ -354,6 +359,12 @@ export default function Reports() {
                                   className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-600 hover:text-white"
                                 >
                                   Download JSON
+                                </button>
+                                <button
+                                  onClick={() => downloadReport(report.id, 'csv')}
+                                  className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-600 hover:text-white"
+                                >
+                                  Download CSV
                                 </button>
                               </div>
                             </div>

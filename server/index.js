@@ -196,41 +196,27 @@ app.post('/api/scans/schedule', async (req, res) => {
           Logger.suspiciousActivity('unverified-target-schedule', { userId, orgId, hostname, target });
           return res.status(403).json({ error: `Target ${hostname} is not verified for your account. Verify ownership before scheduling.` });
         }
-      } catch (_) {
+      } catch (e) {
         return res.status(400).json({ error: 'Unable to parse target hostname for verification.' });
       }
     }
 
-    const id = await database.createJob({ user_id: userId, org_id: orgId, run_at: when.toISOString(), target, options, scan_profile: scanProfile, max_retries: Math.min(10, Math.max(0, Number(maxRetries) || 3)), created_by_admin: isAdmin ? 1 : 0 });
-    res.status(202).json({ jobId: id, status: 'scheduled', runAt: when.toISOString() });
-  } catch (e) {
-    Logger.error('Failed to schedule job', e);
-    res.status(500).json({ error: 'Failed to schedule scan' });
-  }
-});
+    const retries = Math.min(Math.max(parseInt(maxRetries ?? '3', 10) || 3, 0), 10);
+    const jobId = await database.createJob({
+      user_id: userId,
+      org_id: orgId,
+      run_at: when.toISOString(),
+      target,
+      options,
+      scan_profile: scanProfile,
+      max_retries: retries,
+      created_by_admin: isAdmin ? 1 : 0,
+    });
 
-app.get('/api/queue', async (req, res) => {
-  try {
-    const jobs = await database.getJobsForUser(req.user.id, req.user.orgId, req.user.role === 'admin', 100, 0);
-    res.json(jobs);
+    return res.status(201).json({ ok: true, jobId, status: 'scheduled', runAt: when.toISOString() });
   } catch (e) {
-    Logger.error('Queue list error', e);
-    res.status(500).json({ error: 'Failed to fetch queue' });
-  }
-});
-
-app.get('/api/jobs/:id', async (req, res) => {
-  try {
-    const job = await database.getJob(req.params.id);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-    if (req.user.role !== 'admin') {
-      const owns = (job.user_id === req.user.id) || (req.user.orgId && job.org_id === req.user.orgId);
-      if (!owns) return res.status(403).json({ error: 'Forbidden' });
-    }
-    res.json(job);
-  } catch (e) {
-    Logger.error('Get job error', e);
-    res.status(500).json({ error: 'Failed to get job' });
+    Logger.error('Schedule job error', e);
+    return res.status(500).json({ error: 'Failed to schedule job', details: e.message });
   }
 });
 
@@ -589,26 +575,99 @@ app.get('/api/reports/:id/export/:format', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const exportedData = await reportGenerator.exportReport(report, format);
-    
-    // Handle PDF fallback case
-    if (format.toLowerCase() === 'pdf' && typeof exportedData === 'object' && exportedData.length && exportedData[0] === 0x3C) {
-      // This looks like HTML content (starts with '<'), so it's likely a fallback
-      Logger.warn('PDF export returned HTML fallback', { reportId: id });
-      res.setHeader('Content-Disposition', `attachment; filename="report-${id}-fallback.html"`);
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('X-PDF-Fallback', 'true'); // Custom header to indicate fallback
+  // Determine requested format and whether PDF export is enabled
+  const fmt = String(format || '').toLowerCase();
+  const pdfEnabled = ['true','1','yes','on'].includes(String(process.env.ENABLE_PDF_EXPORT || 'false').toLowerCase());
+  const effectiveFormat = (fmt === 'pdf' && !pdfEnabled) ? 'html' : fmt;
+  const exportedData = await reportGenerator.exportReport(report, effectiveFormat);
+
+    // Determine payload as Buffer for binary-safe send
+    let payload;
+    if (Buffer.isBuffer(exportedData)) {
+      payload = exportedData;
+    } else if (typeof exportedData === 'string') {
+      // If PDF came as string, detect if it's an actual PDF or HTML fallback
+      const looksPdf = exportedData.startsWith('%PDF');
+      payload = Buffer.from(exportedData, looksPdf ? 'binary' : 'utf8');
+    } else if (exportedData && exportedData.type === 'Buffer' && Array.isArray(exportedData.data)) {
+      payload = Buffer.from(exportedData.data);
     } else {
-      res.setHeader('Content-Disposition', `attachment; filename="report-${id}.${format}"`);
-      res.setHeader('Content-Type', reportGenerator.getContentType(format));
+      // Fallback to JSON serialization
+      const txt = typeof exportedData === 'object' ? JSON.stringify(exportedData) : String(exportedData ?? '');
+      payload = Buffer.from(txt, 'utf8');
     }
-    
-    res.send(exportedData);
+
+    // If request is for PDF, robustly validate payload and attempt to fix leading noise
+  if (fmt === 'pdf' && effectiveFormat === 'pdf') {
+      const MAGIC = Buffer.from('%PDF');
+      const hasPdfAtZero = payload.length >= 4 && payload[0] === 0x25 && payload[1] === 0x50 && payload[2] === 0x44 && payload[3] === 0x46;
+      let fixed = payload;
+      let pdfOffset = -1;
+      if (!hasPdfAtZero) {
+        // Search for %PDF within the first 2KB; sometimes extra bytes/BOM prepend output
+        const searchWindow = payload.slice(0, Math.min(payload.length, 2048));
+        const idx = searchWindow.indexOf(MAGIC);
+        if (idx > 0) {
+          pdfOffset = idx;
+          fixed = payload.slice(idx);
+        } else {
+          // Not a PDF at all; check if it's HTML and fallback
+          let start = 0;
+          if (payload.length >= 3 && payload[0] === 0xEF && payload[1] === 0xBB && payload[2] === 0xBF) start = 3; // UTF-8 BOM
+          while (start < payload.length) {
+            const b = payload[start];
+            if (b === 0x20 || b === 0x09 || b === 0x0A || b === 0x0D) start++; else break;
+          }
+          const head = payload.slice(start, Math.min(start + 128, payload.length)).toString('utf8').toLowerCase();
+          const looksHtml = head.startsWith('<!doctype html') || head.startsWith('<html') || head.startsWith('<');
+          if (looksHtml) {
+            Logger.warn('PDF export fell back to HTML; sending HTML with fallback headers', { reportId: id });
+            res.setHeader('Content-Disposition', `attachment; filename="report-${id}-fallback.html"`);
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.setHeader('X-PDF-Fallback', 'true');
+            res.setHeader('Content-Length', String(payload.length));
+            return res.send(payload);
+          }
+        }
+      }
+      // If we found a later %PDF, use the sliced buffer and include debug header
+      if (pdfOffset > 0) {
+        res.setHeader('X-PDF-Offset-Fixed', String(pdfOffset));
+        payload = fixed;
+      }
+    }
+
+    // If PDF was requested but disabled, signal fallback via headers and use HTML content type
+    if (fmt === 'pdf' && effectiveFormat !== 'pdf') {
+      res.setHeader('X-PDF-Fallback', 'true');
+    }
+
+    const filename = effectiveFormat === 'csv' ? `report-${id}.csv` : `report-${id}.${effectiveFormat}`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', reportGenerator.getContentType(effectiveFormat));
+    res.setHeader('Content-Length', String(payload.length));
+    res.send(payload);
   } catch (error) {
     Logger.error('Error exporting report:', error);
     res.status(500).json({ error: 'Failed to export report' });
   }
 });
+
+// Dev-only PDF test endpoint to validate Puppeteer output end-to-end
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/api/debug/pdf-test', async (req, res) => {
+    try {
+      const buf = await reportGenerator.testPDFGeneration();
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="pdf-test.pdf"');
+      res.setHeader('Content-Length', String(buf.length));
+      res.send(buf);
+    } catch (e) {
+      Logger.error('PDF test endpoint failed', e);
+      res.status(500).json({ error: 'PDF test failed', details: e.message });
+    }
+  });
+}
 
 // Download CSV results file
 app.get('/api/reports/:id/files/:filename', async (req, res) => {
@@ -624,9 +683,17 @@ app.get('/api/reports/:id/files/:filename', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-  // Check if the report has structured results with files (stored under extractedData)
-  const dumps = report.extractedData && report.extractedData.outputFiles && report.extractedData.outputFiles.dumps;
-    if (!dumps || !Array.isArray(dumps)) {
+    // Locate dumps list from the report
+    let dumps = [];
+    if (report.outputFiles && Array.isArray(report.outputFiles.dumps)) {
+      dumps = report.outputFiles.dumps;
+    } else if (report.sqlmapResults && report.sqlmapResults.files && Array.isArray(report.sqlmapResults.files.dumps)) {
+      dumps = report.sqlmapResults.files.dumps;
+    } else if (report.extractedData && Array.isArray(report.extractedData.csvFiles)) {
+      // Back-compat: some reports keep csv files under extractedData.csvFiles
+      dumps = report.extractedData.csvFiles;
+    }
+    if (!dumps || dumps.length === 0) {
       return res.status(404).json({ error: 'No output files found for this report' });
     }
 
