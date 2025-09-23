@@ -12,7 +12,18 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    strictPort: true,
     host: true,
+    watch: {
+      ignored: [
+        '**/server/**',
+        '**/logs/**',
+        '**/server/logs/**',
+        '**/server/temp/**',
+        '**/server/data/**',
+        '**/server/**/*.db',
+      ],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
@@ -42,5 +53,15 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['react', 'react-dom', 'socket.io-client', 'xterm'],
+    exclude: [
+      'puppeteer',
+      'sqlite3',
+      'bcrypt',
+      'pdf-lib',
+      'markdown-pdf',
+    ],
+  },
+  esbuild: {
+    legalComments: 'none',
   },
 }) 

@@ -4,11 +4,12 @@
   "description": "Comprehensive Cybersecurity Web App with Interactive Terminal and SQLMap Integration",
   "main": "server/index.js",
   "scripts": {
+    "predev": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/kill-ports.ps1",
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
     "build": "npm run client:build && npm run server:build",
     "start": "node server/index.js",
     "start:prod": "node server/dist/index.js",
-    "server:dev": "nodemon server/index.js",
+  "server:dev": "nodemon",
     "server:build": "node -p \"require('fs').mkdirSync('server/dist', {recursive: true})\" && node -p \"require('fs').copyFileSync('server/index.js', 'server/dist/index.js')\"",
     "client:dev": "cd client && npm run dev",
     "client:build": "cd client && npm run build",

@@ -335,6 +335,33 @@ The application is fully responsive and supports:
    - Check SQLMap execution permissions
    - Verify output directory write access
 
+### Windows-specific tips
+
+- Client OOM or sudden crash at startup:
+   - Ensure the client does not depend on the repo root. We removed a local file dependency to prevent Vite from crawling the entire workspace.
+   - Vite watch ignores heavy folders (server/, logs/, temp/, data/) via `client/vite.config.ts` to reduce file watcher load.
+   - Tailwind content is scoped to `client/` only.
+- Port conflicts (EADDRINUSE: :3001 or Vite port bump):
+   - Make sure you run `npm run dev` once from the repo root. If you accidentally start multiple sessions, kill stray Node processes or close duplicate terminals.
+   - Nodemon is configured via `nodemon.json` to watch only `server/**`.
+- Proxy errors in Vite (`/api/health` ECONNREFUSED):
+   - This is transient while the server boots. It should clear once the backend is listening on 3001.
+
+### Proxy and trust-proxy configuration
+
+You can configure whether scans must use an outbound proxy, and how Express calculates client IPs (trust proxy):
+
+- REQUIRE_PROXY: if set to `true`/`1`/`yes`/`on`, scans must include a valid proxy URL (http(s):// or socks5:// host:port). Example:
+   - `REQUIRE_PROXY=false` (default)
+
+- TRUST_PROXY: controls Express "trust proxy". Accepts:
+   - `auto` (default; trusts loopback/linklocal/uniquelocal)
+   - `true` (trust all)
+   - `false` (trust none)
+   - or a comma-separated list of IP/CIDR values
+
+Admin overrides: As an admin, you can change these sitewide at runtime in Admin → Site Settings. Changes are persisted in the DB and applied immediately; they override env at runtime. If you see an express-rate-limit error about X-Forwarded-For in dev, set TRUST_PROXY to `auto` or `true`.
+
 ### Debug Mode
 
 Enable debug mode by setting:

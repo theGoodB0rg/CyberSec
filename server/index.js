@@ -43,6 +43,35 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
+// Trust proxy configuration (pre-middleware):
+// Allow configuring Express trust proxy via env and admin settings.
+let __currentTrustProxySetting = String(process.env.TRUST_PROXY || 'auto').toLowerCase();
+const applyTrustProxy = (setting) => {
+  try {
+    let value;
+    const s = String(setting || '').toLowerCase();
+    if (['true','1','yes','on'].includes(s)) value = true;
+    else if (['false','0','no','off'].includes(s)) value = false;
+    else if (s === 'auto' || !s) {
+      // Trust local and private networks (loopback, link-local, unique-local)
+      value = ['loopback','linklocal','uniquelocal'];
+    } else if (s.includes(',')) {
+      value = s.split(',').map(x => x.trim()).filter(Boolean);
+    } else {
+      // Accept single token: ip, cidr, or named preset
+      value = s;
+    }
+    app.set('trust proxy', value);
+    __currentTrustProxySetting = s || 'auto';
+    try { Logger.info('Express trust proxy configured', { setting: value }); } catch (_) {}
+  } catch (e) {
+    try { Logger.warn('Failed to apply trust proxy setting; using default auto', { error: e.message }); } catch (_) {}
+    app.set('trust proxy', ['loopback','linklocal','uniquelocal']);
+    __currentTrustProxySetting = 'auto';
+  }
+};
+applyTrustProxy(__currentTrustProxySetting);
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -897,6 +926,61 @@ app.get('/api/admin/visits', async (req, res) => {
   }
 });
 
+// Admin settings endpoints: allow toggling sitewide settings like proxy enforcement and trust proxy
+app.get('/api/admin/settings', async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    const [requireProxyDb, trustProxyDb] = await Promise.all([
+      database.getSetting('require_proxy', null),
+      database.getSetting('trust_proxy', null)
+    ]);
+    const requireProxyEnv = process.env.REQUIRE_PROXY;
+    const effectiveRequireProxy = ['true','1','yes','on'].includes(String(requireProxyDb ?? requireProxyEnv).toLowerCase());
+    res.json({
+      settings: {
+        require_proxy: {
+          effective: effectiveRequireProxy,
+          env: requireProxyEnv ?? null,
+          db: requireProxyDb
+        },
+        trust_proxy: {
+          effective: __currentTrustProxySetting,
+          env: process.env.TRUST_PROXY || null,
+          db: trustProxyDb
+        }
+      }
+    });
+  } catch (e) {
+    Logger.error('Admin settings fetch failed', e);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+app.put('/api/admin/settings', async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    const { require_proxy, trust_proxy } = req.body || {};
+    const updates = {};
+    if (require_proxy !== undefined) {
+      const val = String(require_proxy);
+      await database.setSetting('require_proxy', val);
+      process.env.REQUIRE_PROXY = val; // picked up by SecurityMiddleware.requireProxyIfEnabled
+      updates.require_proxy = val;
+    }
+    if (trust_proxy !== undefined) {
+      const val = String(trust_proxy);
+      await database.setSetting('trust_proxy', val);
+      applyTrustProxy(val); // apply live
+      process.env.TRUST_PROXY = val;
+      updates.trust_proxy = val;
+    }
+    res.json({ ok: true, updated: updates });
+  } catch (e) {
+    Logger.error('Admin settings update failed', e);
+    res.status(500).json({ error: 'Failed to update settings', details: e.message });
+  }
+});
+
 // Test PDF generation endpoint
 app.get('/api/test-pdf', async (req, res) => {
   try {
@@ -1459,5 +1543,21 @@ server.listen(PORT, async () => {
     }
   } catch (e) {
     Logger.warn('Failed to start queue runner', { error: e.message });
+  }
+
+  // Load and apply admin-configured settings (overrides env) after DB ready
+  try {
+    const requireProxyDb = await database.getSetting('require_proxy', null);
+    if (requireProxyDb !== null && requireProxyDb !== undefined) {
+      process.env.REQUIRE_PROXY = String(requireProxyDb);
+      Logger.info('Applied admin setting: REQUIRE_PROXY', { value: process.env.REQUIRE_PROXY });
+    }
+    const trustProxyDb = await database.getSetting('trust_proxy', null);
+    if (trustProxyDb !== null && trustProxyDb !== undefined) {
+      applyTrustProxy(String(trustProxyDb));
+      Logger.info('Applied admin setting: TRUST_PROXY', { value: String(trustProxyDb) });
+    }
+  } catch (e) {
+    Logger.warn('Failed to load admin settings on startup', { error: e.message });
   }
 }); 

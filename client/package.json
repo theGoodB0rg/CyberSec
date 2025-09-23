@@ -14,7 +14,6 @@
     "@headlessui/tailwindcss": "^0.2.2",
     "@heroicons/react": "^2.0.18",
     "clsx": "^2.0.0",
-    "cybersecurity-web-app": "file:..",
     "date-fns": "^2.30.0",
     "immer": "^10.1.1",
     "lucide-react": "^0.294.0",

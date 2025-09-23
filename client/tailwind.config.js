@@ -4,6 +4,8 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  // Note: Keep content globs strictly within client/ to avoid scanning server files
+  // which can cause high memory usage on Windows during dev.
   darkMode: 'class',
   theme: {
     extend: {

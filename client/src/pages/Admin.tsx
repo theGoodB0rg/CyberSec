@@ -17,13 +17,22 @@ export default function Admin() {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [settings, setSettings] = useState<{
+    require_proxy: { effective: boolean; env: string | null; db: string | null }
+    trust_proxy: { effective: string; env: string | null; db: string | null }
+  } | null>(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true)
-        const data = await apiFetch<Metrics>('/api/admin/metrics')
-        setMetrics(data)
+        const [m, s] = await Promise.all([
+          apiFetch<Metrics>('/api/admin/metrics'),
+          apiFetch<{ settings: any }>('/api/admin/settings')
+        ])
+        setMetrics(m)
+        setSettings(s.settings)
       } catch (e: any) {
         setError(e.message || 'Failed to fetch metrics')
         toast.error(e.message || 'Failed to fetch metrics')
@@ -54,6 +63,8 @@ export default function Admin() {
   }
 
   const avgTtfr = metrics.timeToFirstReportMsAvg7d != null ? `${Math.round(metrics.timeToFirstReportMsAvg7d/1000)}s` : '—'
+  const requireProxyEffective = settings?.require_proxy.effective ? 'Enabled' : 'Disabled'
+  const trustProxyEffective = settings?.trust_proxy.effective || 'auto'
   // Map visits count to a fixed set of height classes to avoid inline styles
   const heightClassForVisits = (v: number) => {
     const capped = Math.min(100, Math.max(0, v * 10))
@@ -139,6 +150,87 @@ export default function Admin() {
               <span className="text-gray-400">{p.c}</span>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Settings Panel */}
+      <div className="bg-gray-800 p-4 rounded-lg border border-gray-700 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-blue-200">Site Settings</h2>
+          <div className="text-xs text-gray-400">Admin-only</div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <div className="text-gray-300 font-medium">Require Proxy</div>
+            <div className="text-sm text-gray-400">Effective: {requireProxyEffective} {settings?.require_proxy.env ? '(ENV override)' : settings?.require_proxy.db ? '(Admin override)' : ''}</div>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={saving}
+                className={`px-3 py-1 rounded border ${settings?.require_proxy.effective ? 'bg-green-700 border-green-600' : 'bg-gray-700 border-gray-600'} text-white text-sm`}
+                onClick={async () => {
+                  try {
+                    setSaving(true)
+                    const next = !(settings?.require_proxy.effective)
+                    await apiFetch('/api/admin/settings', {
+                      method: 'PUT',
+                      body: JSON.stringify({ require_proxy: String(next) })
+                    })
+                    toast.success(`Require Proxy ${next ? 'enabled' : 'disabled'}`)
+                    const s = await apiFetch<{ settings: any }>('/api/admin/settings')
+                    setSettings(s.settings)
+                  } catch (e: any) {
+                    toast.error(e.message || 'Failed to update setting')
+                  } finally {
+                    setSaving(false)
+                  }
+                }}
+              >
+                Toggle
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-gray-300 font-medium">Trust Proxy</div>
+            <div className="text-sm text-gray-400">Effective: {trustProxyEffective} {settings?.trust_proxy.env ? '(ENV override)' : settings?.trust_proxy.db ? '(Admin override)' : ''}</div>
+            <div className="flex items-center gap-2">
+              <select
+                disabled={saving}
+                className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200"
+                aria-label="Trust Proxy mode"
+                value={(settings?.trust_proxy.db ?? settings?.trust_proxy.env ?? 'auto').toString()}
+                onChange={e => setSettings(s => s ? { ...s, trust_proxy: { ...s.trust_proxy, db: e.target.value } } : s)}
+              >
+                <option value="auto">auto (loopback, linklocal, uniquelocal)</option>
+                <option value="true">true (trust all)</option>
+                <option value="false">false (trust none)</option>
+              </select>
+              <button
+                disabled={saving}
+                className="px-3 py-1 rounded border bg-blue-700 border-blue-600 text-white text-sm"
+                onClick={async () => {
+                  try {
+                    setSaving(true)
+                    const val = (settings?.trust_proxy.db ?? 'auto').toString()
+                    await apiFetch('/api/admin/settings', {
+                      method: 'PUT',
+                      body: JSON.stringify({ trust_proxy: val })
+                    })
+                    toast.success('Trust Proxy updated')
+                    const s = await apiFetch<{ settings: any }>('/api/admin/settings')
+                    setSettings(s.settings)
+                  } catch (e: any) {
+                    toast.error(e.message || 'Failed to update trust proxy')
+                  } finally {
+                    setSaving(false)
+                  }
+                }}
+              >
+                Save
+              </button>
+            </div>
+            <div className="text-xs text-gray-500">Tip: When behind a dev proxy (like Vite), set this to auto or true to avoid rate-limit IP warnings.</div>
+          </div>
         </div>
       </div>
     </div>

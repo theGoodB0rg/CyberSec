@@ -5,6 +5,7 @@ const Logger = require('../utils/logger');
 
 class SecurityMiddleware {
   static requireProxyIfEnabled(options = {}) {
+    // Env may be overridden at runtime by admin settings in the DB (index.js updates process.env)
     const requireProxyEnv = process.env.REQUIRE_PROXY;
     const enforced = ['true', '1', 'yes', 'on'].includes(String(requireProxyEnv).toLowerCase());
     if (!enforced) return { enforced: false, ok: true };
@@ -53,13 +54,21 @@ class SecurityMiddleware {
         const urlFields = ['target', 'url', 'proxy'];
         for (const field of urlFields) {
           if (req.body[field]) {
-            if (!validator.isURL(req.body[field], { 
-              protocols: ['http', 'https'],
-              require_protocol: true 
-            })) {
-              return res.status(400).json({ 
-                error: `Invalid ${field}: Must be a valid HTTP/HTTPS URL` 
-              });
+            if (field === 'proxy') {
+              if (!SecurityMiddleware.isValidProxyURL(req.body[field])) {
+                return res.status(400).json({
+                  error: 'Invalid proxy: Must be http(s):// or socks5:// host:port'
+                });
+              }
+            } else {
+              if (!validator.isURL(req.body[field], {
+                protocols: ['http', 'https'],
+                require_protocol: true
+              })) {
+                return res.status(400).json({
+                  error: `Invalid ${field}: Must be a valid HTTP/HTTPS URL`
+                });
+              }
             }
           }
         }
