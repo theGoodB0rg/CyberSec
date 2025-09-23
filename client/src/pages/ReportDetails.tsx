@@ -87,6 +87,7 @@ export default function ReportDetails() {
   const [verifyAllRunning, setVerifyAllRunning] = useState(false);
   const [verifyAllProgress, setVerifyAllProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [verifyOnlyChanged, setVerifyOnlyChanged] = useState<boolean>(false);
+  const [globalVerifying, setGlobalVerifying] = useState<boolean>(false);
   const [showFalsePositivesOnly, setShowFalsePositivesOnly] = useState<boolean>(false);
   const [proofModal, setProofModal] = useState<{ open: boolean; src: string; title?: string }>({ open: false, src: '' });
   const [zoom, setZoom] = useState<number>(1);
@@ -210,11 +211,17 @@ export default function ReportDetails() {
   
   const onVerify = async (findingId: string) => {
     if (!report?.id) return;
+    setGlobalVerifying(true);
     setVerifying(prev => ({ ...prev, [findingId]: true }));
     try {
       const res = await apiVerifyFinding(report.id, findingId);
       setVerifyResult(prev => ({ ...prev, [findingId]: res }));
       setVerifyMeta(prev => ({ ...prev, [findingId]: { at: new Date().toISOString() } }));
+      // Refresh report to pull persisted verification metadata
+      try {
+        const nr = await apiFetch(`/api/reports/${report.id}`);
+        setReport(nr);
+      } catch { /* non-fatal */ }
       if (res.ok) {
         toast.success(`Verification: ${res.label} (${formatConfidence(res.score)})`);
       } else {
@@ -224,6 +231,7 @@ export default function ReportDetails() {
       toast.error(e.message || 'Verification error');
     } finally {
       setVerifying(prev => ({ ...prev, [findingId]: false }));
+      setGlobalVerifying(false);
     }
   }
 
@@ -243,6 +251,7 @@ export default function ReportDetails() {
       ids = ids.filter(shouldReverify);
     }
     if (ids.length === 0) return;
+    setGlobalVerifying(true);
     setVerifyAllRunning(true);
     setVerifyAllProgress({ done: 0, total: ids.length });
     let success = 0;
@@ -273,6 +282,12 @@ export default function ReportDetails() {
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, () => worker()));
     setVerifyAllRunning(false);
+    setGlobalVerifying(false);
+    // Refresh report after batch verifications to reflect persisted summaries
+    try {
+      const nr = await apiFetch(`/api/reports/${report.id}`);
+      setReport(nr);
+    } catch { /* non-fatal */ }
     if (failed === 0) {
       toast.success(`Verified all ${success} findings.`);
     } else if (success === 0) {
@@ -354,6 +369,18 @@ export default function ReportDetails() {
 
   return (
     <div className="container mx-auto p-6 bg-gray-900 text-white">
+      {globalVerifying && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50" aria-busy="true" aria-live="polite">
+          <div className="bg-gray-800 border border-gray-700 rounded-lg px-6 py-5 shadow-xl flex items-center gap-3">
+            <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
+            <div className="text-gray-200 text-sm">
+              {verifyAllRunning
+                ? `Verifying ${verifyAllProgress.done}/${verifyAllProgress.total} findings…`
+                : 'Verifying…'}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <Link to="/reports" className="flex items-center text-blue-400 hover:text-blue-300 transition-colors">

@@ -99,6 +99,41 @@ class ReportGenerator {
           'Implement query timeout controls',
           'Monitor and alert on unusual query patterns'
         ]
+      },
+      'Error-based SQL injection': {
+        severity: 'High',
+        cvss: 8.3,
+        description: 'Error-based SQL injection leverages database error messages to extract data and metadata',
+        impact: 'DBMS/version disclosure, schema enumeration via errors, potential data exfiltration through functions like EXTRACTVALUE/UPDATEXML (MySQL) or convert/error casting (other DBMS)',
+        remediation: [
+          'Use parameterized queries and stored procedures where appropriate',
+          'Disable verbose error messages and avoid echoing DB errors to clients',
+          'Implement centralized error handling and generic error responses',
+          'Apply least privilege to DB users to limit metadata exposure'
+        ]
+      },
+      'Union query SQL injection': {
+        severity: 'High',
+        cvss: 7.8,
+        description: 'Union-based SQL injection appends UNION SELECT to extract arbitrary rows/columns',
+        impact: 'Arbitrary data extraction across tables, potential credential disclosure if UNION aligns column counts/types',
+        remediation: [
+          'Always use parameterized queries and avoid dynamic column concatenation',
+          'Validate and whitelist expected columns and sort/order parameters',
+          'Restrict DB account permissions to the minimum required'
+        ]
+      },
+      'Stacked queries': {
+        severity: 'Critical',
+        cvss: 8.8,
+        description: 'Stacked (batched) queries allow execution of multiple statements in one request',
+        impact: 'Data tampering (INSERT/UPDATE/DELETE), schema changes (DROP/ALTER), potential file read/write or command execution depending on DBMS configuration',
+        remediation: [
+          'Disable multiple statements in DB drivers if supported (e.g., disallow multiStatements)',
+          'Use parameterized queries; never concatenate untrusted input into SQL',
+          'Ensure DB user has no DDL privileges and minimal DML privileges',
+          'Harden DBMS (e.g., restrict FILE/XP_CMDSHELL features, sandbox external procedures)'
+        ]
       }
     };
   }
@@ -262,15 +297,31 @@ class ReportGenerator {
       // Ultra-comprehensive parameter extraction
       const parameterMatches = output.match(/(?:parameter[:\s]+['"`]?|testing\s+(?:parameter\s+)?['"`]?|GET\s+parameter\s+['"`]?|POST\s+parameter\s+['"`]?|URI\s+parameter\s+['"`]?)([^\s\n'",()]+)['"`]?/gi) || [];
       const additionalParams = output.match(/\((?:GET|POST|PUT|DELETE)\)\s+([^:\s\n]+)/gi) || [];
-      const allParamMatches = [...parameterMatches, ...additionalParams];
+      // Lines like: POST parameter 'searchFor' is 'MySQL >= 5.1 AND error-based ...' injectable
+      const injectableLineParams = (output.match(/\b(?:GET|POST|PUT|DELETE)\s+parameter\s+['"`]([^-'"`\s]+)['"`]\s+is\s+[^\n]*?injectable/gi) || [])
+        .map(s => {
+          const m = s.match(/parameter\s+['"`]([^-'"`\s]+)['"`]/i) || [];
+          return m[1] || '';
+        })
+        .filter(Boolean);
+      const allParamMatches = [...parameterMatches, ...additionalParams, ...injectableLineParams];
       
-      const parameters = allParamMatches.map(match => 
-        match.replace(/(?:parameter[:\s]+['"`]?|testing\s+(?:parameter\s+)?['"`]?|GET\s+parameter\s+['"`]?|POST\s+parameter\s+['"`]?|URI\s+parameter\s+['"`]?|\((?:GET|POST|PUT|DELETE)\)\s+)/i, '').replace(/['"`:\s]/g, '').trim()
-      ).filter(param => param.length > 0);
+      const parameters = allParamMatches.map(match => {
+        if (typeof match === 'string') {
+          if (!/\s/.test(match) && !/[:()'"`]/.test(match)) return match.trim();
+          return match.replace(/(?:parameter[:\s]+['"`]?|testing\s+(?:parameter\s+)?['"`]?|GET\s+parameter\s+['"`]?|POST\s+parameter\s+['"`]?|URI\s+parameter\s+['"`]?|\((?:GET|POST|PUT|DELETE)\)\s+)/i, '').replace(/['"`:\s]/g, '').trim();
+        }
+        return '';
+      }).filter(param => param.length > 0);
+
+      // Extract DBMS information for impact/context enrichment if present
+      const dbmsMatch = output.match(/back-?end\s+DBMS:\s*([^\n]+)/i);
+      const dbmsInfo = dbmsMatch ? dbmsMatch[1].trim() : null;
 
       // Ultra-comprehensive SQLMap success indicators
       const sqlmapSuccessPatterns = [
         /parameter\s+['"`]?([^'"`\s\n]+)['"`]?\s+is\s+vulnerable/gi,
+        /(?:GET|POST|PUT|DELETE)\s+parameter\s+['"`]([^'"`\s\n]+)['"`]\s+is\s+[^\n]*?injectable/gi,
         /parameter\s+['"`]?([^'"`\s\n]+)['"`]?\s+appears\s+to\s+be\s+(?:['"`]?([^'"`\s\n]+)['"`]?\s+)?injectable/gi,
         /parameter\s+['"`]?([^'"`\s\n]+)['"`]?\s+might\s+be\s+(?:['"`]?([^'"`\s\n]+)['"`]?\s+)?vulnerable/gi,
         /(?:GET|POST|PUT|DELETE)\s+parameter\s+['"`]?([^'"`\s\n]+)['"`]?\s+is\s+vulnerable/gi,
@@ -309,19 +360,29 @@ class ReportGenerator {
                 remediation: ['Use parameterized queries', 'Implement input validation', 'Apply least privilege principle']
               };
 
+              const paramName = (paramMatch[1] || paramMatch[2] || '').trim() || (parameters[0] || 'Unknown');
+              const strongSignal = /\bis\s+[^\n]*?(?:vulnerable|injectable)\b/i.test(match) || /sqlmap\s+identified\s+the\s+following\s+injection\s+point/i.test(output);
+              const baseScore = strongSignal ? 0.6 : 0.4;
+              const enrichedDescription = dbmsInfo
+                ? `${vulnInfo.description}: ${match.trim()} (DBMS: ${dbmsInfo})`
+                : `${vulnInfo.description}: ${match.trim()}`;
+              const enrichedImpact = (/error-?based/i.test(output) || /EXTRACTVALUE|UPDATEXML/i.test(output))
+                ? 'Error-based SQLi detected. Likely DBMS/version disclosure, schema enumeration via errors, and potential data exfiltration.'
+                : vulnInfo.impact;
+
               vulnerabilities.push({
                 id: uuidv4(),
                 type: 'SQL Injection',
-                parameter: paramMatch[1] || 'Unknown',
+                parameter: paramName,
                 severity: vulnInfo.severity,
                 cvss: vulnInfo.cvss,
-                description: `${vulnInfo.description}: ${match.trim()}`,
-                impact: vulnInfo.impact,
+                description: enrichedDescription,
+                impact: enrichedImpact,
                 remediation: vulnInfo.remediation,
-                confidenceLabel: 'Suspected',
-                confidenceScore: 0.4,
-                signals: ['heuristic-output'],
-                why: 'Heuristic patterns in scan output indicate possible injection.',
+                confidenceLabel: strongSignal ? 'Likely' : 'Suspected',
+                confidenceScore: baseScore,
+                signals: [strongSignal ? 'explicit-tool-output' : 'heuristic-output'],
+                why: strongSignal ? 'Tool output explicitly reports an injectable/vulnerable parameter.' : 'Heuristic patterns in scan output indicate possible injection.',
                 evidence: this.extractEvidence(output, 'SQL Injection'),
                 discoveredAt: new Date().toISOString()
               });
@@ -351,7 +412,9 @@ class ReportGenerator {
               severity: vulnInfo.severity,
               cvss: vulnInfo.cvss,
               description: vulnInfo.description,
-              impact: vulnInfo.impact,
+              impact: dbmsInfo && /error-?based/i.test(vulnType)
+                ? `${vulnInfo.impact}; DBMS disclosed: ${dbmsInfo}`
+                : vulnInfo.impact,
               remediation: vulnInfo.remediation,
               confidenceLabel: 'Suspected',
               confidenceScore: 0.35,
@@ -415,7 +478,7 @@ class ReportGenerator {
           vulnerabilities.push({
             id: uuidv4(),
             type: 'Potential SQL Injection',
-            parameter: this.extractParameter(output) || 'Unknown',
+            parameter: parameters.length > 0 ? parameters[0] : 'Unknown',
             severity: 'Medium',
             cvss: 5.0,
             description: 'SQLMap detected potential SQL injection indicators',
