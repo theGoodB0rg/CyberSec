@@ -588,7 +588,15 @@ class Database {
 
   async getDueJobs(limit = 20) {
     return new Promise((resolve, reject) => {
-      const sql = `SELECT * FROM jobs WHERE status IN ('scheduled','retrying') AND run_at <= datetime('now') ORDER BY run_at ASC LIMIT ?`;
+      // SQLite's datetime() handles 'YYYY-MM-DD HH:MM:SS'. ISO strings with 'T' and trailing 'Z' need normalization.
+      // Normalize by replacing 'T' with space and removing trailing 'Z' for comparison via julianday().
+      const sql = `
+        SELECT * FROM jobs
+        WHERE status IN ('scheduled','retrying')
+          AND julianday(replace(replace(run_at,'T',' '),'Z','')) <= julianday('now')
+        ORDER BY julianday(replace(replace(run_at,'T',' '),'Z','')) ASC
+        LIMIT ?
+      `;
       this.db.all(sql, [limit], (err, rows) => {
         if (err) return reject(err);
         const parsed = (rows || []).map(r => ({ ...r, options: this.safeJson(r.options, {}) }));
@@ -657,7 +665,7 @@ class Database {
         if (orgId) { sql += ' WHERE org_id = ?'; params.push(orgId); }
         else { sql += ' WHERE user_id = ?'; params.push(userId); }
       }
-      sql += ' ORDER BY run_at ASC LIMIT ? OFFSET ?';
+      sql += ` ORDER BY julianday(replace(replace(run_at,'T',' '),'Z','')) ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
       this.db.all(sql, params, (err, rows) => {
         if (err) return reject(err);
