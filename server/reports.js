@@ -297,6 +297,8 @@ class ReportGenerator {
       // Ultra-comprehensive parameter extraction
       const parameterMatches = output.match(/(?:parameter[:\s]+['"`]?|testing\s+(?:parameter\s+)?['"`]?|GET\s+parameter\s+['"`]?|POST\s+parameter\s+['"`]?|URI\s+parameter\s+['"`]?)([^\s\n'",()]+)['"`]?/gi) || [];
       const additionalParams = output.match(/\((?:GET|POST|PUT|DELETE)\)\s+([^:\s\n]+)/gi) || [];
+      // Capture lines like: "Parameter: searchFor (POST)"
+      const namedParamMatches = output.match(/Parameter:\s*([^\s(]+)\s*\((GET|POST|PUT|DELETE)\)/gi) || [];
       // Lines like: POST parameter 'searchFor' is 'MySQL >= 5.1 AND error-based ...' injectable
       const injectableLineParams = (output.match(/\b(?:GET|POST|PUT|DELETE)\s+parameter\s+['"`]([^-'"`\s]+)['"`]\s+is\s+[^\n]*?injectable/gi) || [])
         .map(s => {
@@ -304,7 +306,7 @@ class ReportGenerator {
           return m[1] || '';
         })
         .filter(Boolean);
-      const allParamMatches = [...parameterMatches, ...additionalParams, ...injectableLineParams];
+      const allParamMatches = [...parameterMatches, ...additionalParams, ...namedParamMatches, ...injectableLineParams];
       
       const parameters = allParamMatches.map(match => {
         if (typeof match === 'string') {
@@ -318,7 +320,7 @@ class ReportGenerator {
       const dbmsMatch = output.match(/back-?end\s+DBMS:\s*([^\n]+)/i);
       const dbmsInfo = dbmsMatch ? dbmsMatch[1].trim() : null;
 
-      // Ultra-comprehensive SQLMap success indicators
+      // SQLMap success indicators (restricted to real vuln cues)
       const sqlmapSuccessPatterns = [
         /parameter\s+['"`]?([^'"`\s\n]+)['"`]?\s+is\s+vulnerable/gi,
         /(?:GET|POST|PUT|DELETE)\s+parameter\s+['"`]([^'"`\s\n]+)['"`]\s+is\s+[^\n]*?injectable/gi,
@@ -326,68 +328,98 @@ class ReportGenerator {
         /parameter\s+['"`]?([^'"`\s\n]+)['"`]?\s+might\s+be\s+(?:['"`]?([^'"`\s\n]+)['"`]?\s+)?vulnerable/gi,
         /(?:GET|POST|PUT|DELETE)\s+parameter\s+['"`]?([^'"`\s\n]+)['"`]?\s+is\s+vulnerable/gi,
         /(?:GET|POST|PUT|DELETE)\s+parameter\s+['"`]?([^'"`\s\n]+)['"`]?\s+appears\s+to\s+be\s+injectable/gi,
-        /testing\s+(?:parameter\s+)?['"`]?([^'"`\s\n]+)['"`]?.*(?:vulnerable|injectable|positive)/gi,
-        /heuristic.*test.*shows.*that.*(?:the\s+)?(?:parameter\s+['"`]?([^'"`\s\n]+)['"`]?|URI).*might.*be.*injectable/gi,
-        /URI.*parameter.*['"`]?([^'"`\s\n]+)['"`]?.*might.*be.*injectable/gi,
-        /\[.*\]\s*payload:\s*(.*)/gi,
-        /\[.*\]\s*title:\s*(.*SQL.*injection.*)/gi,
-        /back-end\s+DBMS:\s*(.*)/gi,
-        /Type:\s*(.*(?:boolean|time|error|union|stacked).*)/gi,
-        /Title:\s*(.*(?:SQL|injection).*)/gi,
-        /Payload:\s*(.*(?:SELECT|UNION|AND|OR|'|"|;).*)/gi,
         /sqlmap.*identified.*the.*following.*injection.*point/gi,
         /injectable\s+parameter.*found/gi,
         /injection\s+point.*found/gi,
-        /\d+\s+injection\s+point.*found/gi,
-        /target.*appears.*to.*be.*(?:MySQL|PostgreSQL|Oracle|MSSQL|SQLite)/gi,
-        /web\s+server\s+operating\s+system/gi,
-        /web\s+application\s+technology/gi,
-        /it\s+looks\s+like\s+the\s+back-end\s+DBMS\s+is/gi
+        /\d+\s+injection\s+point.*found/gi
       ];
 
-      // Check for direct vulnerability matches
+      // Helper to upsert/merge findings (deduplicate)
+      const addOrMerge = (arr, next) => {
+        const normType = (t => {
+          const map = {
+            'POST SQL Injection': 'SQL Injection',
+            'GET SQL Injection': 'SQL Injection',
+            'Generic Injectable Parameter': 'SQL Injection',
+            'Potential SQL Injection': 'SQL Injection'
+          };
+          return map[t] || t;
+        })(next.type || 'SQL Injection');
+        const keyParam = next.parameter || 'Unknown';
+        const idx = arr.findIndex(f => (f.type === normType) && ((f.parameter || 'Unknown') === keyParam));
+        if (idx === -1) {
+          next.type = normType;
+          arr.push(next);
+          return;
+        }
+        const cur = arr[idx];
+        // Keep stronger confidence
+        if ((next.confidenceScore || 0) > (cur.confidenceScore || 0)) {
+          cur.confidenceScore = next.confidenceScore;
+          cur.confidenceLabel = next.confidenceLabel;
+          cur.why = next.why || cur.why;
+        }
+        // Prefer known parameter over Unknown
+        if ((!cur.parameter || cur.parameter === 'Unknown') && keyParam !== 'Unknown') {
+          cur.parameter = keyParam;
+        }
+        // Merge evidence and signals
+        if (Array.isArray(next.evidence)) {
+          const merged = [...(cur.evidence || []), ...next.evidence];
+          cur.evidence = merged.filter((e, i, self) => i === self.findIndex(x => x.line === e.line && x.content === e.content)).slice(0, 20);
+        }
+        if (Array.isArray(next.signals)) {
+          const sig = new Set([...(cur.signals || []), ...next.signals]);
+          cur.signals = Array.from(sig);
+        }
+        // Upgrade impact/description if next mentions a concrete technique
+        if (/error-?based/i.test(next.description || '') && !/error-?based/i.test(cur.description || '')) {
+          cur.description = next.description;
+        }
+        if (next.impact && (!cur.impact || cur.impact === 'Potential security risk')) {
+          cur.impact = next.impact;
+        }
+      };
+
+      // Create condensed findings from success patterns
       for (const pattern of sqlmapSuccessPatterns) {
         const matches = output.match(new RegExp(pattern.source, 'gi'));
-        if (matches) {
-          for (const match of matches) {
-            const paramMatch = match.match(pattern);
-            if (paramMatch) {
-              const vulnInfo = this.vulnerabilityDatabase['SQL Injection'] || {
-                severity: 'High',
-                cvss: 7.5,
-                description: 'SQL injection vulnerability detected by SQLMap',
-                impact: 'Attacker may be able to access, modify, or delete database contents',
-                remediation: ['Use parameterized queries', 'Implement input validation', 'Apply least privilege principle']
-              };
+        if (!matches) continue;
+        for (const match of matches) {
+          const paramMatch = match.match(pattern) || [];
+          const vulnInfo = this.vulnerabilityDatabase['SQL Injection'] || {
+            severity: 'High',
+            cvss: 7.5,
+            description: 'SQL injection vulnerability detected by SQLMap',
+            impact: 'Attacker may be able to access, modify, or delete database contents',
+            remediation: ['Use parameterized queries', 'Implement input validation', 'Apply least privilege principle']
+          };
+          const paramName = (paramMatch[1] || paramMatch[2] || '').trim() || (parameters[0] || 'Unknown');
+          const strongSignal = /\bis\s+[^\n]*?(?:vulnerable|injectable)\b/i.test(match) || /sqlmap\s+identified\s+the\s+following\s+injection\s+point/i.test(output);
+          const baseScore = strongSignal ? 0.6 : 0.4;
+          const enrichedDescription = dbmsInfo
+            ? `${vulnInfo.description}: ${match.trim()} (DBMS: ${dbmsInfo})`
+            : `${vulnInfo.description}: ${match.trim()}`;
+          const techniqueImpact = (/error-?based/i.test(output) || /EXTRACTVALUE|UPDATEXML/i.test(output))
+            ? (this.vulnerabilityDatabase['Error-based SQL injection']?.impact || 'Error-based SQLi detected. Likely DBMS/version disclosure, schema enumeration via errors, and potential data exfiltration.')
+            : vulnInfo.impact;
 
-              const paramName = (paramMatch[1] || paramMatch[2] || '').trim() || (parameters[0] || 'Unknown');
-              const strongSignal = /\bis\s+[^\n]*?(?:vulnerable|injectable)\b/i.test(match) || /sqlmap\s+identified\s+the\s+following\s+injection\s+point/i.test(output);
-              const baseScore = strongSignal ? 0.6 : 0.4;
-              const enrichedDescription = dbmsInfo
-                ? `${vulnInfo.description}: ${match.trim()} (DBMS: ${dbmsInfo})`
-                : `${vulnInfo.description}: ${match.trim()}`;
-              const enrichedImpact = (/error-?based/i.test(output) || /EXTRACTVALUE|UPDATEXML/i.test(output))
-                ? 'Error-based SQLi detected. Likely DBMS/version disclosure, schema enumeration via errors, and potential data exfiltration.'
-                : vulnInfo.impact;
-
-              vulnerabilities.push({
-                id: uuidv4(),
-                type: 'SQL Injection',
-                parameter: paramName,
-                severity: vulnInfo.severity,
-                cvss: vulnInfo.cvss,
-                description: enrichedDescription,
-                impact: enrichedImpact,
-                remediation: vulnInfo.remediation,
-                confidenceLabel: strongSignal ? 'Likely' : 'Suspected',
-                confidenceScore: baseScore,
-                signals: [strongSignal ? 'explicit-tool-output' : 'heuristic-output'],
-                why: strongSignal ? 'Tool output explicitly reports an injectable/vulnerable parameter.' : 'Heuristic patterns in scan output indicate possible injection.',
-                evidence: this.extractEvidence(output, 'SQL Injection'),
-                discoveredAt: new Date().toISOString()
-              });
-            }
-          }
+          addOrMerge(vulnerabilities, {
+            id: uuidv4(),
+            type: 'SQL Injection',
+            parameter: paramName,
+            severity: vulnInfo.severity,
+            cvss: vulnInfo.cvss,
+            description: enrichedDescription,
+            impact: techniqueImpact,
+            remediation: vulnInfo.remediation,
+            confidenceLabel: strongSignal ? 'Likely' : 'Suspected',
+            confidenceScore: baseScore,
+            signals: [strongSignal ? 'explicit-tool-output' : 'heuristic-output'],
+            why: strongSignal ? 'Tool output explicitly reports an injectable/vulnerable parameter.' : 'Heuristic patterns in scan output indicate possible injection.',
+            evidence: this.extractEvidence(output, 'SQL Injection'),
+            discoveredAt: new Date().toISOString()
+          });
         }
       }
 
@@ -395,7 +427,7 @@ class ReportGenerator {
       for (const [vulnType, pattern] of Object.entries(vulnPatterns)) {
         if (pattern.test(output)) {
           // Check if we already found this type
-          const alreadyFound = vulnerabilities.some(v => v.type === vulnType);
+          const alreadyFound = vulnerabilities.some(v => v.type === (vulnType === 'POST SQL Injection' || vulnType === 'GET SQL Injection' || vulnType === 'Generic Injectable Parameter' || vulnType === 'Potential SQL Injection' ? 'SQL Injection' : vulnType));
           if (!alreadyFound) {
             const vulnInfo = this.vulnerabilityDatabase[vulnType] || {
               severity: 'Medium',
@@ -405,7 +437,7 @@ class ReportGenerator {
               remediation: ['Implement proper input validation', 'Use parameterized queries']
             };
 
-            vulnerabilities.push({
+            addOrMerge(vulnerabilities, {
               id: uuidv4(),
               type: vulnType,
               parameter: parameters.length > 0 ? parameters[0] : 'Unknown',
@@ -426,6 +458,31 @@ class ReportGenerator {
           }
         }
       }
+
+      // If we inferred exactly one parameter, apply it to Unknown entries
+      if (parameters.length === 1) {
+        for (const v of vulnerabilities) {
+          if (!v.parameter || v.parameter === 'Unknown') {
+            v.parameter = parameters[0];
+          }
+        }
+      }
+
+      // Prune noisy non-vuln entries accidentally captured (e.g., purely informational tech banners)
+      const looksInformational = (v) => {
+        if (v.type !== 'SQL Injection') return false;
+        if (Array.isArray(v.signals) && v.signals.includes('explicit-tool-output')) return false;
+        const ev = (v.evidence || []).map(e => (e.content || ''));
+        const joined = ev.join('\n');
+        const hasRealCue = /(injectable|vulnerable|injection point|Type:|Title:|Payload:)/i.test(joined);
+        if (hasRealCue) return false;
+        // Drop entries whose evidence only mentions tech banners
+        return /(web\s+server\s+operating\s+system|web\s+application\s+technology)/i.test(joined);
+      };
+      const cleaned = vulnerabilities.filter(v => !looksInformational(v));
+      // Replace the array with cleaned results
+      vulnerabilities.length = 0;
+      vulnerabilities.push(...cleaned);
 
       // If no specific vulnerabilities found but scan completed successfully, check for generic indicators
       if (vulnerabilities.length === 0 && scanData.status === 'completed' && scanData.exit_code === 0) {
