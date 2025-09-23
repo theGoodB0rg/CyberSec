@@ -259,6 +259,166 @@ app.get('/api/scans', async (req, res) => {
   }
 });
 
+// SQLMap profiles (server-defined) for client display
+app.get('/api/sqlmap/profiles', async (req, res) => {
+  try {
+    const profiles = sqlmapIntegration.scanProfiles || {};
+    // Normalize to an array for easier client rendering
+    const list = Object.entries(profiles).map(([key, value]) => ({ key, ...value }));
+    res.json(list);
+  } catch (e) {
+    Logger.error('Failed to fetch sqlmap profiles', e);
+    res.status(500).json({ error: 'Failed to fetch profiles' });
+  }
+});
+
+// Server-side validation of flags/profile (no sqlmap spawn)
+app.post('/api/sqlmap/validate', async (req, res) => {
+  try {
+    const { target = '', profile = 'basic', customFlags = '', options = {} } = req.body || {};
+    const result = { ok: true, disallowed: [], warnings: [], normalizedArgs: [], commandPreview: '', description: '', impact: { speed: 'medium', stealth: 'medium', exfil: 'low' } };
+
+    // Validate/normalize flags using server whitelist
+    const profileObj = sqlmapIntegration.scanProfiles[profile] || sqlmapIntegration.scanProfiles.basic;
+    const custom = sqlmapIntegration.parseCustomFlags(typeof customFlags === 'string' ? customFlags : '');
+    const normalized = [
+      '-u', target || 'http://example.com',
+      ...(profileObj?.flags || []),
+      ...custom
+    ];
+
+    // Collect disallowed (client may send flags that were dropped)
+    if (customFlags) {
+      const tokens = String(customFlags).trim().split(/\s+/);
+      for (const t of tokens) {
+        if (t.startsWith('--')) {
+          const name = t.split('=')[0];
+          // If not present in normalized and appears to be a flag, consider disallowed
+          if (!normalized.find(x => x === name || x.startsWith(name + '='))) {
+            result.disallowed.push(name);
+          }
+        }
+      }
+    }
+
+    // Basic numeric sanity checks
+    const findNum = (prefix) => {
+      const tok = normalized.find(x => x.startsWith(prefix));
+      if (!tok) return null;
+      const val = Number(tok.split('=')[1]);
+      return Number.isFinite(val) ? val : null;
+    };
+    const level = findNum('--level=') ?? 2;
+    const risk = findNum('--risk=') ?? 2;
+    const threads = findNum('--threads=') ?? 1;
+    if (level < 1 || level > 5) result.warnings.push('Level should be between 1 and 5.');
+    if (risk < 1 || risk > 3) result.warnings.push('Risk should be between 1 and 3.');
+    if (threads > 5) result.warnings.push('High threads can be noisy and unstable.');
+
+    // Impact heuristics
+    const hasDump = normalized.includes('--dump') || normalized.includes('--dump-all');
+    const hasTamper = normalized.some(x => x.startsWith('--tamper='));
+    const hasDelay = normalized.some(x => x.startsWith('--delay='));
+    result.impact = {
+      speed: threads >= 3 || level >= 4 ? 'high' : level <= 2 ? 'low' : 'medium',
+      stealth: hasTamper || hasDelay ? 'higher' : threads >= 3 ? 'lower' : 'medium',
+      exfil: hasDump ? 'high' : 'low'
+    };
+
+    // Command preview (no output-dir/session flags)
+    result.normalizedArgs = normalized;
+    result.commandPreview = `${sqlmapIntegration.sqlmapPath} ${normalized.join(' ')}`.trim();
+    result.description = `Profile '${profileObj?.name || profile}' with ${hasTamper ? 'tamper scripts' : 'no tamper'}, level ${level}, risk ${risk}, ${threads} thread(s)${hasDump ? ' and data extraction' : ''}.`;
+    result.ok = result.disallowed.length === 0;
+    res.json(result);
+  } catch (e) {
+    Logger.warn('SQLMap validate failed', { error: e.message });
+    res.status(400).json({ error: 'Validation failed', details: e.message });
+  }
+});
+
+// User scan settings
+app.get('/api/user/scan-settings', async (req, res) => {
+  try {
+    const settings = await database.getUserSettings(req.user.id);
+    res.json(settings);
+  } catch (e) {
+    Logger.error('Get user settings failed', e);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+app.put('/api/user/scan-settings', async (req, res) => {
+  try {
+    const { default_profile = 'basic', defaults = {}, last_used_profile = null } = req.body || {};
+    // Basic validation for numeric ranges to protect DB
+    const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+    if (defaults && typeof defaults === 'object') {
+      if (defaults.level != null) defaults.level = clamp(Number(defaults.level) || 1, 1, 5);
+      if (defaults.risk != null) defaults.risk = clamp(Number(defaults.risk) || 1, 1, 3);
+      if (defaults.threads != null) defaults.threads = clamp(Number(defaults.threads) || 1, 1, 10);
+    }
+    await database.upsertUserSettings(req.user.id, { default_profile, defaults, last_used_profile });
+    const fresh = await database.getUserSettings(req.user.id);
+    res.json(fresh);
+  } catch (e) {
+    Logger.error('Update user settings failed', e);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// User custom profiles CRUD
+app.get('/api/user/profiles', async (req, res) => {
+  try {
+    const profiles = await database.getUserProfiles(req.user.id);
+    res.json(profiles);
+  } catch (e) {
+    Logger.error('List user profiles failed', e);
+    res.status(500).json({ error: 'Failed to list profiles' });
+  }
+});
+
+app.post('/api/user/profiles', async (req, res) => {
+  try {
+    const { name, description = '', flags = [] } = req.body || {};
+    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Profile name is required' });
+    // Validate flags via server whitelist
+    const normalized = Array.isArray(flags) ? sqlmapIntegration.parseCustomFlags(flags.join(' ')) : [];
+    const id = await database.createUserProfile(req.user.id, { name, description, flags: normalized, is_custom: 1 });
+    const profile = await database.getUserProfileById(id, req.user.id);
+    res.status(201).json(profile);
+  } catch (e) {
+    Logger.error('Create user profile failed', e);
+    const status = /UNIQUE/i.test(e.message) ? 409 : 500;
+    res.status(status).json({ error: 'Failed to create profile', details: e.message });
+  }
+});
+
+app.put('/api/user/profiles/:id', async (req, res) => {
+  try {
+    const { name, description, flags } = req.body || {};
+    let normalizedFlags = undefined;
+    if (Array.isArray(flags)) normalizedFlags = sqlmapIntegration.parseCustomFlags(flags.join(' '));
+    const ok = await database.updateUserProfile(req.params.id, req.user.id, { name, description, flags: normalizedFlags });
+    if (!ok) return res.status(404).json({ error: 'Profile not found' });
+    const fresh = await database.getUserProfileById(req.params.id, req.user.id);
+    res.json(fresh);
+  } catch (e) {
+    Logger.error('Update user profile failed', e);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+app.delete('/api/user/profiles/:id', async (req, res) => {
+  try {
+    const ok = await database.deleteUserProfile(req.params.id, req.user.id);
+    if (!ok) return res.status(404).json({ error: 'Profile not found' });
+    res.json({ ok: true });
+  } catch (e) {
+    Logger.error('Delete user profile failed', e);
+    res.status(500).json({ error: 'Failed to delete profile' });
+  }
+});
 // Get a specific scan (ownership enforced)
 app.get('/api/scans/:id', async (req, res) => {
   try {
@@ -278,7 +438,7 @@ app.get('/api/scans/:id', async (req, res) => {
 // HTTP initiation endpoint for scans (mirrors WS behavior)
 app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res) => {
   try {
-    const { target, options = {}, scanProfile = 'basic' } = req.body || {};
+    const { target, options = {}, scanProfile = 'basic', userProfileId = null, userProfileName = null } = req.body || {};
 
     // Validate input
     if (!target || !SecurityMiddleware.isValidURL(target)) {
@@ -351,15 +511,39 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
   // Prepare auth context (cookie/header/login)
   const { preparedOptions, authMeta } = await prepareAuthContext(options, target, userId);
 
+  // If user specified a saved profile, merge its flags as customFlags and force profile 'custom'
+  let effectiveProfile = scanProfile;
+  let mergedOptions = { ...preparedOptions };
+  if (userProfileId || userProfileName) {
+    try {
+      let profile = null;
+      if (userProfileId) {
+        profile = await database.getUserProfileById(userProfileId, userId);
+      }
+      // Optional: name-based lookup for convenience
+      if (!profile && userProfileName) {
+        const profiles = await database.getUserProfiles(userId);
+        profile = profiles.find(p => (p.name || '').toLowerCase() === String(userProfileName).toLowerCase()) || null;
+      }
+      if (profile && Array.isArray(profile.flags) && profile.flags.length) {
+        effectiveProfile = 'custom';
+        const joined = profile.flags.join(' ');
+        mergedOptions.customFlags = mergedOptions.customFlags ? `${mergedOptions.customFlags} ${joined}` : joined;
+      }
+    } catch (e) {
+      Logger.warn('Failed to apply user profile flags', { error: e.message });
+    }
+  }
+
   // Start scan
-  const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, preparedOptions, scanProfile, userId);
+  const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId);
 
       // Record scan
       const startTimeIso = new Date().toISOString();
       const scanId = await database.createScan({
         target,
         options: sanitizeOptionsForStorage({ ...preparedOptions, auth: { ...(preparedOptions.auth || {}), type: authMeta.mode } }),
-        scanProfile,
+        scanProfile: effectiveProfile,
         user_id: userId,
         org_id: orgId,
         output_dir: outputDir,
@@ -373,8 +557,11 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
         user_id: userId,
         org_id: orgId,
         event_type: 'started',
-        metadata: { target, scanProfile, options: preparedOptions, auth: authMeta }
+        metadata: { target, scanProfile: effectiveProfile, options: mergedOptions, auth: authMeta }
       }).catch(()=>{});
+
+      // Remember last used profile for this user
+      database.setLastUsedProfile(userId, effectiveProfile).catch(()=>{});
 
       // Increment usage started counter
       database.incrementUsageOnStart(userId, period).catch(()=>{});
@@ -1128,7 +1315,7 @@ io.on('connection', (socket) => {
   // Handle SQLMap scan initiation
   socket.on('start-sqlmap-scan', async (data) => {
   try {
-  const { target, options, scanProfile } = data;
+  const { target, options, scanProfile, userProfileId = null, userProfileName = null } = data;
       
       // Validate input
       if (!target || !SecurityMiddleware.isValidURL(target)) {
@@ -1216,15 +1403,38 @@ io.on('connection', (socket) => {
     // Prepare auth context (cookie/header/login)
     const { preparedOptions, authMeta } = await prepareAuthContext(options || {}, target, userId);
 
+    // If user specified a saved profile, merge its flags as customFlags and force profile 'custom'
+    let effectiveProfile = scanProfile || 'basic';
+    let mergedOptions = { ...preparedOptions };
+    try {
+      if (userProfileId || userProfileName) {
+        let profile = null;
+        if (userProfileId) {
+          profile = await database.getUserProfileById(userProfileId, userId);
+        }
+        if (!profile && userProfileName) {
+          const profiles = await database.getUserProfiles(userId);
+          profile = profiles.find(p => (p.name || '').toLowerCase() === String(userProfileName).toLowerCase()) || null;
+        }
+        if (profile && Array.isArray(profile.flags) && profile.flags.length) {
+          effectiveProfile = 'custom';
+          const joined = profile.flags.join(' ');
+          mergedOptions.customFlags = mergedOptions.customFlags ? `${mergedOptions.customFlags} ${joined}` : joined;
+        }
+      }
+    } catch (e) {
+      Logger.warn('Failed to apply user profile flags (WS)', { error: e.message });
+    }
+
     // Start SQLMap scan (creates per-user output directory)
-    const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, preparedOptions, scanProfile, userId);
+    const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId);
 
       // Create scan session and record output directory
       const startTimeIso = new Date().toISOString();
       const scanId = await database.createScan({
         target,
-        options: sanitizeOptionsForStorage({ ...preparedOptions, auth: { ...(preparedOptions.auth || {}), type: authMeta.mode } }),
-        scanProfile,
+        options: sanitizeOptionsForStorage({ ...mergedOptions, auth: { ...(mergedOptions.auth || {}), type: authMeta.mode } }),
+        scanProfile: effectiveProfile,
         user_id: userId,
         org_id: orgId,
         output_dir: outputDir,
@@ -1239,11 +1449,14 @@ io.on('connection', (socket) => {
           user_id: userId,
           org_id: orgId,
           event_type: 'started',
-          metadata: { target, scanProfile, options: preparedOptions, auth: authMeta }
+          metadata: { target, scanProfile: effectiveProfile, options: mergedOptions, auth: authMeta }
         });
       } catch (e) {
         Logger.warn('Failed to log scan start event', { error: e.message, scanId });
       }
+
+      // Remember last used profile for this user
+      try { await database.setLastUsedProfile(userId, effectiveProfile); } catch(_) {}
 
       // Increment usage started counter
       try { await database.incrementUsageOnStart(userId, period); } catch (e) { Logger.warn('Failed to increment usage on start', { error: e.message }); }
@@ -1253,7 +1466,7 @@ io.on('connection', (socket) => {
         process: proc,
         outputDir: outputDir,
         target,
-        scanProfile,
+        scanProfile: effectiveProfile,
         startTime: new Date(),
         userId,
         orgId
@@ -1386,7 +1599,7 @@ io.on('connection', (socket) => {
       socket.scanProcess = proc;
       socket.scanId = scanId;
 
-  socket.emit('scan-started', { scanId, target, scanProfile, startTime: startTimeIso });
+  socket.emit('scan-started', { scanId, target, scanProfile: effectiveProfile, startTime: startTimeIso });
   releaseLock();
 
     } catch (error) {
@@ -1513,6 +1726,9 @@ io.on('connection', (socket) => {
           event_type: 'restarted',
           metadata: { target, scanProfile, via: 'ws', fromScanId: payload.scanId || null, options: preparedOptions, auth: authMeta }
         }).catch(()=>{});
+
+        // Remember last used profile on restart as well
+        database.setLastUsedProfile(userId, scanProfile).catch(()=>{});
 
         // Usage increment
         database.incrementUsageOnStart(userId, period).catch(()=>{});

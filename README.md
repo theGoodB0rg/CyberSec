@@ -12,6 +12,7 @@ A practical, developer-friendly web app for running focused SQL injection assess
 - Structured results parsing (CSV dumps, session DB, traffic logs)
 - Report generation with evidence, risk summary, and multi‑format export (JSON/HTML/PDF)
 - Lightweight recon/parameter discovery to prioritize likely injection points
+ - Per‑user scan settings and reusable profiles (save, load, set default; last‑used profile remembered)
 
 ### Security & Multi‑Tenancy
 - JWT auth (REST + Socket.io) with per‑user/org scoping
@@ -23,6 +24,7 @@ A practical, developer-friendly web app for running focused SQL injection assess
 ### UX
 - Modern React + Tailwind UI (Dashboard, Targets, Reports, Report Details, Terminal, Usage, Settings)
 - Dark theme, responsive layout, scan history and details
+ - Settings page with collapsible sections: My Defaults, Custom Builder (live server validation), Preconfigured Types, Saved Profiles
 
 ### Technical
 - Node/Express + Socket.io backend; SQLite persistence with indices/migrations
@@ -138,6 +140,41 @@ sqlmap -u <target> --batch --random-agent --dbs --tables --columns
 #### Data Extraction
 ```bash
 sqlmap -u <target> --batch --random-agent --dump --exclude-sysdbs
+```
+
+### Custom Builder & Validation
+
+The Settings page includes a Custom Builder powered by a server‑side validator. It safely parses and normalizes allowed flags (no sqlmap spawn) and returns:
+
+- ok, disallowed, warnings
+- normalizedArgs (flags that will be applied)
+- commandPreview (what would run)
+- description and impact (speed/stealth/exfil heuristics)
+
+API:
+```http
+POST /api/sqlmap/validate
+Body: { target?: string, profile: string, customFlags?: string, options?: object }
+```
+The UI shows syntax feedback and blocks saving disallowed flags.
+
+### User Settings & Profiles
+
+- Per‑user settings: default_profile, defaults (level/risk/threads/tamper), last_used_profile
+- Reusable profiles (per user): name, description, flags[]; unique by name
+- The Terminal auto‑selects your last_used_profile (fallback to default_profile) on load
+
+APIs:
+```http
+GET  /api/user/scan-settings
+PUT  /api/user/scan-settings         # { default_profile, defaults, last_used_profile? }
+
+GET  /api/user/profiles              # list
+POST /api/user/profiles              # { name, description?, flags[] }
+PUT  /api/user/profiles/:id          # { name?, description?, flags? }
+DEL  /api/user/profiles/:id
+
+GET  /api/sqlmap/profiles            # server preconfigured profiles (list for UI)
 ```
 
 ### Terminal Commands (whitelisted)
@@ -334,7 +371,8 @@ GET /api/scans/:id/events # audit/event stream for a scan (ownership enforced)
 ```
 
 ### WebSocket Events
-- `start-sqlmap-scan`  { target, options, scanProfile }
+- `start-sqlmap-scan`  { target, options, scanProfile, userProfileId?, userProfileName? }
+-  • If a saved profile is provided, the server merges its flags and uses `custom` as the effective profile; it remembers it as `last_used_profile`.
 - `terminate-scan`     { scanId? }
 - `execute-command`    { command, args }
 - `scan-output`        { scanId, type, output }
@@ -357,6 +395,7 @@ GET /api/scans/:id/events # audit/event stream for a scan (ownership enforced)
 ### Process Security
 - Per‑user output directories in OS temp; daily cleanup by retention policy
 - Background scans continue on socket disconnect; server restart marks running as interrupted
+ - Server‑side flag whitelist/normalization on `/api/sqlmap/validate` and safe merging of saved profile flags when starting scans
 
 ### Data Protection
 - Sensitive data is masked in reports
@@ -367,6 +406,7 @@ GET /api/scans/:id/events # audit/event stream for a scan (ownership enforced)
 - Lint backend: `npm run lint`
 - Lint client: `npm run client:lint`
 - Build all: `npm run build`
+ - Validate flags (no sqlmap spawn): POST `/api/sqlmap/validate`
 
 ## 📱 Mobile Support
 

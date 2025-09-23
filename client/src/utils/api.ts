@@ -84,3 +84,55 @@ export async function verifyFinding(reportId: string, findingId: string): Promis
     body: JSON.stringify({ reportId })
   })
 }
+
+// User settings & profiles
+export type UserScanSettings = {
+  user_id: string
+  default_profile: string
+  defaults: any
+  last_used_profile: string | null
+  updated_at: string | null
+}
+
+export async function getUserScanSettings(): Promise<UserScanSettings> {
+  return apiFetch<UserScanSettings>(`/api/user/scan-settings`)
+}
+
+export async function updateUserScanSettings(payload: Partial<Pick<UserScanSettings, 'default_profile' | 'defaults' | 'last_used_profile'>>): Promise<UserScanSettings> {
+  return apiFetch<UserScanSettings>(`/api/user/scan-settings`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+export type ServerProfile = { key: string, name: string, description: string, flags: string[] }
+export async function getServerSqlmapProfiles(): Promise<ServerProfile[]> {
+  return apiFetch<ServerProfile[]>(`/api/sqlmap/profiles`)
+}
+
+export type UserProfile = { id: string, user_id: string, name: string, description: string, flags: string[], is_custom: boolean, created_at: string, updated_at: string }
+export async function listUserProfiles(): Promise<UserProfile[]> {
+  return apiFetch<UserProfile[]>(`/api/user/profiles`)
+}
+
+export async function createUserProfile(input: { name: string, description?: string, flags: string[] }): Promise<UserProfile> {
+  return apiFetch<UserProfile>(`/api/user/profiles`, { method: 'POST', body: JSON.stringify(input) })
+}
+
+export async function updateUserProfile(id: string, input: { name?: string, description?: string, flags?: string[] }): Promise<UserProfile> {
+  return apiFetch<UserProfile>(`/api/user/profiles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) })
+}
+
+export async function deleteUserProfile(id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/user/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export type SqlmapValidateResult = {
+  ok: boolean
+  disallowed: string[]
+  warnings: string[]
+  normalizedArgs: string[]
+  commandPreview: string
+  description: string
+  impact: { speed: 'low' | 'medium' | 'high'; stealth: 'lower' | 'medium' | 'higher'; exfil: 'low' | 'high' }
+}
+export async function validateSqlmap(input: { target?: string, profile: string, customFlags?: string, options?: any }): Promise<SqlmapValidateResult> {
+  return apiFetch<SqlmapValidateResult>(`/api/sqlmap/validate`, { method: 'POST', body: JSON.stringify(input) })
+}

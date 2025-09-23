@@ -7,7 +7,7 @@ import { useAppStore } from '../store/appStore'
 import { validateFlagsString, wafPreset } from '../utils/sqlmapFlags'
 import toast from 'react-hot-toast'
 import 'xterm/css/xterm.css'
-import { apiFetch } from '../utils/api'
+import { apiFetch, getUserScanSettings } from '../utils/api'
 
 const SCAN_PROFILES = [
   { value: 'basic', label: 'Basic Scan', description: 'Quick vulnerability detection' },
@@ -96,6 +96,22 @@ export default function Terminal() {
       window.removeEventListener('resize', handleResize)
       // Do not dispose of the terminal on unmount to preserve state
     }
+  }, [])
+
+  // On mount, preload user's last used or default profile
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await getUserScanSettings().catch(() => null)
+        if (settings) {
+          const next = settings.last_used_profile || settings.default_profile || 'basic'
+          if (next && next !== selectedProfile) {
+            setTerminalProfile(next)
+          }
+        }
+      } catch (_) {}
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Socket event handlers

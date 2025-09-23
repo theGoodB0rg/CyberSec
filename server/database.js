@@ -138,6 +138,33 @@ class Database {
       )
     `;
 
+    // Per-user settings table
+    const createUserSettingsTable = `
+      CREATE TABLE IF NOT EXISTS user_settings (
+        id TEXT PRIMARY KEY,
+        user_id TEXT UNIQUE NOT NULL,
+        default_profile TEXT DEFAULT 'basic',
+        defaults_json TEXT, -- JSON blob: { level, risk, threads, delay, timeout, tamper[], userAgent?, headers?, proxy? }
+        last_used_profile TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    // Per-user custom profiles table
+    const createUserProfilesTable = `
+      CREATE TABLE IF NOT EXISTS user_profiles (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        flags_json TEXT, -- JSON array of normalized flags (e.g., ["--level=2","--tamper=space2comment"])
+        is_custom INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+      )
+    `;
+
     const createJobsTable = `
       CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
@@ -207,6 +234,8 @@ class Database {
       this.db.run(createScanEventsTable);
   this.db.run(createTelemetryTable);
   this.db.run(createJobsTable);
+      this.db.run(createUserSettingsTable);
+      this.db.run(createUserProfilesTable);
       // Migration: ensure jobs.created_by_admin exists
       this.db.run(`ALTER TABLE jobs ADD COLUMN created_by_admin INTEGER DEFAULT 0`, (err) => {
         if (err && !/duplicate column/i.test(err.message)) {
@@ -229,6 +258,7 @@ class Database {
   this.db.run(`CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id, status, run_at)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_telemetry_type_time ON telemetry_events(event_type, at)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_telemetry_user_time ON telemetry_events(user_id, at)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles(user_id, updated_at DESC)`);
 
       // Attempt to add new columns if upgrading existing recon_parameters
       const alterCols = [
@@ -1316,6 +1346,151 @@ class Database {
       });
 
       stmt.finalize();
+    });
+  }
+
+  // =====================
+  // User Settings & Profiles
+  // =====================
+
+  async getUserSettings(userId) {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT user_id, default_profile, defaults_json, last_used_profile, updated_at FROM user_settings WHERE user_id = ?`;
+      this.db.get(sql, [userId], (err, row) => {
+        if (err) return reject(err);
+        if (!row) {
+          return resolve({ user_id: userId, default_profile: 'basic', defaults: {}, last_used_profile: null, updated_at: null });
+        }
+        resolve({
+          user_id: row.user_id,
+          default_profile: row.default_profile || 'basic',
+          defaults: this.safeJson(row.defaults_json, {}),
+          last_used_profile: row.last_used_profile || null,
+          updated_at: row.updated_at
+        });
+      });
+    });
+  }
+
+  async upsertUserSettings(userId, { default_profile = 'basic', defaults = {}, last_used_profile = null }) {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      const id = uuidv4();
+      const payload = JSON.stringify(defaults || {});
+      const stmt = this.db.prepare(`
+        INSERT INTO user_settings (id, user_id, default_profile, defaults_json, last_used_profile, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          default_profile = excluded.default_profile,
+          defaults_json = excluded.defaults_json,
+          last_used_profile = COALESCE(excluded.last_used_profile, user_settings.last_used_profile),
+          updated_at = excluded.updated_at
+      `);
+      stmt.run([id, userId, String(default_profile || 'basic'), payload, last_used_profile, now], function(err) {
+        if (err) return reject(err);
+        resolve(true);
+      });
+      stmt.finalize();
+    });
+  }
+
+  async setLastUsedProfile(userId, profileName) {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO user_settings (id, user_id, last_used_profile, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET last_used_profile = excluded.last_used_profile, updated_at = excluded.updated_at
+      `);
+      stmt.run([uuidv4(), userId, profileName || null, now], function(err) {
+        if (err) return reject(err);
+        resolve(true);
+      });
+      stmt.finalize();
+    });
+  }
+
+  async getUserProfiles(userId) {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT id, user_id, name, description, flags_json, is_custom, created_at, updated_at FROM user_profiles WHERE user_id = ? ORDER BY updated_at DESC`;
+      this.db.all(sql, [userId], (err, rows) => {
+        if (err) return reject(err);
+        const profiles = (rows || []).map(r => ({
+          id: r.id,
+          user_id: r.user_id,
+          name: r.name,
+          description: r.description || '',
+          flags: this.safeJson(r.flags_json, []),
+          is_custom: !!r.is_custom,
+          created_at: r.created_at,
+          updated_at: r.updated_at
+        }));
+        resolve(profiles);
+      });
+    });
+  }
+
+  async getUserProfileById(id, userId) {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT id, user_id, name, description, flags_json, is_custom, created_at, updated_at FROM user_profiles WHERE id = ? AND user_id = ?`;
+      this.db.get(sql, [id, userId], (err, row) => {
+        if (err) return reject(err);
+        if (!row) return resolve(null);
+        resolve({
+          id: row.id,
+          user_id: row.user_id,
+          name: row.name,
+          description: row.description || '',
+          flags: this.safeJson(row.flags_json, []),
+          is_custom: !!row.is_custom,
+          created_at: row.created_at,
+          updated_at: row.updated_at
+        });
+      });
+    });
+  }
+
+  async createUserProfile(userId, { id = uuidv4(), name, description = '', flags = [], is_custom = 1 }) {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      const payload = JSON.stringify(Array.isArray(flags) ? flags : []);
+      const stmt = this.db.prepare(`
+        INSERT INTO user_profiles (id, user_id, name, description, flags_json, is_custom, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run([id, userId, name, description, payload, is_custom ? 1 : 0, now, now], function(err) {
+        if (err) return reject(err);
+        resolve(id);
+      });
+      stmt.finalize();
+    });
+  }
+
+  async updateUserProfile(id, userId, { name, description, flags }) {
+    return new Promise((resolve, reject) => {
+      const fields = [];
+      const params = [];
+      if (typeof name === 'string') { fields.push('name = ?'); params.push(name); }
+      if (typeof description === 'string') { fields.push('description = ?'); params.push(description); }
+      if (Array.isArray(flags)) { fields.push('flags_json = ?'); params.push(JSON.stringify(flags)); }
+      if (!fields.length) return resolve(false);
+      fields.push('updated_at = ?'); params.push(new Date().toISOString());
+      params.push(id, userId);
+      const sql = `UPDATE user_profiles SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`;
+      this.db.run(sql, params, function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
+    });
+  }
+
+  async deleteUserProfile(id, userId) {
+    return new Promise((resolve, reject) => {
+      const sql = `DELETE FROM user_profiles WHERE id = ? AND user_id = ?`;
+      this.db.run(sql, [id, userId], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
     });
   }
 
