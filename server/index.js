@@ -1534,12 +1534,30 @@ io.on('connection', (socket) => {
 
   // Handle scan termination (Ctrl+C functionality)
   socket.on('terminate-scan', (payload = {}) => {
-    const reqScanId = payload.scanId || socket.scanId;
-    const procInfo = scanProcesses.get(reqScanId);
+    // Be robust to non-object payloads or undefined
+    const safePayload = (payload && typeof payload === 'object') ? payload : {};
+    let reqScanId = safePayload.scanId || socket.scanId;
+
+    // If scanId wasn't provided and none is bound to the socket, try to infer
+    // the most recent running scan for this user
+    let procInfo = reqScanId ? scanProcesses.get(reqScanId) : undefined;
     if (!procInfo) {
+      const userId = socket.user?.id;
+      if (userId) {
+        const entries = Array.from(scanProcesses.entries()).filter(([, p]) => p.userId === userId);
+        if (entries.length) {
+          entries.sort((a, b) => new Date(b[1].startTime).getTime() - new Date(a[1].startTime).getTime());
+          reqScanId = entries[0][0];
+          procInfo = entries[0][1];
+        }
+      }
+    }
+
+    if (!procInfo || !reqScanId) {
       socket.emit('scan-error', { message: 'Scan not found or already finished.' });
       return;
     }
+
     const isAdmin = socket.user?.role === 'admin';
     const sameUser = procInfo.userId === (socket.user?.id || '');
     const sameOrg = socket.user?.orgId && procInfo.orgId && socket.user.orgId === procInfo.orgId;
@@ -1549,6 +1567,7 @@ io.on('connection', (socket) => {
       socket.emit('scan-error', { message: 'You do not have permission to terminate this scan.' });
       return;
     }
+
     try {
       const pid = procInfo.process?.pid;
       if (pid) {
@@ -1558,7 +1577,7 @@ io.on('connection', (socket) => {
         procInfo.process?.kill?.('SIGTERM');
       }
       socket.emit('scan-terminated', { scanId: reqScanId });
-      database.updateScan(reqScanId, { 
+      database.updateScan(reqScanId, {
         status: 'terminated',
         end_time: new Date().toISOString()
       });

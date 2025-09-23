@@ -47,13 +47,14 @@ export default function Terminal() {
   const [jobs, setJobs] = useState<any[]>([])
   const [loadingJobs, setLoadingJobs] = useState(false)
   
-  const { on, off, startScan: sendStartScan, terminateScan } = useScanSocket()
+  const { on, off, startScan: sendStartScan, terminateScan, restartScan: emitRestart } = useScanSocket()
   const { addScan, updateScan, isConnected, upsertScanFromEvent } = useAppStore()
 
   // Initialize terminal
   const lastStartedTargetRef = useRef<string>('')
   const lastStartedOptionsRef = useRef<any>({})
   const lastStartedProfileRef = useRef<string>('basic')
+  const lastScanIdRef = useRef<string>('')
 
   useEffect(() => {
     if (terminalRef.current && !xtermRef.current) {
@@ -108,6 +109,7 @@ export default function Terminal() {
     }
 
     const handleScanStarted = (data: { scanId: string }) => {
+      lastScanIdRef.current = data.scanId
       const now = new Date().toISOString()
       addScan({
         id: data.scanId,
@@ -324,7 +326,7 @@ export default function Terminal() {
 
   const stopScan = () => {
     if (isScanning) {
-      terminateScan()
+      terminateScan(lastScanIdRef.current)
       toast('Scan termination signal sent.', {
         icon: '🛑',
       })
@@ -346,7 +348,7 @@ export default function Terminal() {
 
     // If a scan is currently running, send terminate first
     if (isScanning) {
-      terminateScan()
+      terminateScan(lastScanIdRef.current)
       if (xtermRef.current) {
         xtermRef.current.writeln('')
         xtermRef.current.writeln('\x1b[1;33m! Terminating current scan before restart...\x1b[0m')
@@ -371,7 +373,12 @@ export default function Terminal() {
       xtermRef.current.writeln(`\x1b[1;36m↻ Restarting ${lastProfile} scan for: ${lastTarget}\x1b[0m`)
       xtermRef.current.writeln('')
     }
-    sendStartScan(lastTarget, lastOptions, lastProfile)
+    // Prefer server-side restart endpoint if we had a prior scanId
+    if (lastScanIdRef.current) {
+      emitRestart(lastScanIdRef.current, { target: lastTarget, options: lastOptions, scanProfile: lastProfile })
+    } else {
+      sendStartScan(lastTarget, lastOptions, lastProfile)
+    }
   }
 
   const clearTerminal = () => {

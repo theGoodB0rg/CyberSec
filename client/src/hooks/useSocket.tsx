@@ -243,8 +243,9 @@ export const useScanSocket = () => {
     emit('start-sqlmap-scan', { target, options, scanProfile })
   }
 
-  const terminateScan = () => {
-    emit('terminate-scan')
+  const terminateScan = (scanId?: string) => {
+    if (scanId) emit('terminate-scan', { scanId })
+    else emit('terminate-scan')
   }
 
   // Optional: server may handle restart specifically; client can also just call startScan again
