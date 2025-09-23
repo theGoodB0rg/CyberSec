@@ -622,6 +622,57 @@ class ReportGenerator {
     return 'Informational';
   }
 
+  // Determine an overall verdict based on findings and extracted data
+  determineOverallVerdict(vulnerabilities, extractedData) {
+    try {
+      const findings = Array.isArray(vulnerabilities?.findings) ? vulnerabilities.findings : [];
+      const hasDataExtraction = !!(
+        (extractedData?.databases && extractedData.databases.length) ||
+        (extractedData?.users && extractedData.users.length) ||
+        (extractedData?.tables && extractedData.tables.length) ||
+        (extractedData?.systemInfo && extractedData.systemInfo.dbms && extractedData.systemInfo.dbms.length)
+      );
+
+      const anyConfirmed = findings.some(f => (f.status?.toLowerCase?.() === 'confirmed') || (f.confidenceLabel === 'Confirmed'));
+      const anySuspected = findings.some(f => (f.status?.toLowerCase?.() === 'suspected') || (f.confidenceLabel === 'Likely' || f.confidenceLabel === 'Suspected'));
+
+      // Prefer technique-specific status if present
+      const affectedParameters = findings
+        .map(f => ({ param: f.parameter || 'Unknown', type: f.type || 'SQL Injection' }))
+        .filter((v, i, self) => i === self.findIndex(x => x.param === v.param && x.type === v.type));
+
+      if (hasDataExtraction && anyConfirmed) {
+        return {
+          level: 'Exploited',
+          rationale: 'At least one injection technique was confirmed and actual data/metadata was extracted from the target.',
+          affectedParameters
+        };
+      }
+      if (anyConfirmed) {
+        return {
+          level: 'Confirmed',
+          rationale: 'One or more injection techniques were confirmed, but no data extraction was recorded.',
+          affectedParameters
+        };
+      }
+      if (anySuspected) {
+        return {
+          level: 'Suspected',
+          rationale: 'Signals suggest possible injection but lack definitive proof or data extraction.',
+          affectedParameters
+        };
+      }
+      return {
+        level: 'Inconclusive',
+        rationale: 'No techniques were confirmed; testing did not yield decisive evidence.',
+        affectedParameters
+      };
+    } catch (e) {
+      Logger.warn('determineOverallVerdict failed; defaulting to Inconclusive', e?.message);
+      return { level: 'Inconclusive', rationale: 'Unable to compute verdict', affectedParameters: [] };
+    }
+  }
+
   extractEvidence(output, vulnType) {
     const evidence = [];
     const lines = output.split('\n');
@@ -866,6 +917,7 @@ class ReportGenerator {
         csvFiles: [],
         ...reportData.extractedData || reportData.extracted_data || {}
       },
+      outputFiles: reportData.outputFiles || (reportData.sqlmapResults && reportData.sqlmapResults.files) || null,
       recommendations: reportData.recommendations || [],
       metadata: {
         generatedAt: new Date().toISOString(),
@@ -1436,7 +1488,7 @@ class ReportGenerator {
       
       const {
         title, target, command, vulnerabilities, extractedData,
-        recommendations, scanDuration, metadata
+        recommendations, scanDuration, metadata, outputFiles
       } = sanitizedData;
 
       const humanizeDuration = (ms) => {
@@ -1461,6 +1513,9 @@ class ReportGenerator {
         'Informational': '#3498db'
       }[riskLevel] || '#95a5a6';
 
+    // Derive an overall verdict for user-friendly summary
+    const overallVerdict = this.determineOverallVerdict(vulnerabilities, extractedData);
+
     const getSeverityColor = (severity) => {
       switch(severity.toLowerCase()) {
         case 'critical': return '#e74c3c';
@@ -1471,40 +1526,90 @@ class ReportGenerator {
       }
     };
 
-    const vulnerabilitiesHTML = (vulnerabilities.findings || []).map(vuln => `
+    // Helpers for UI rendering
+    const deriveStatus = (v) => {
+      if (v.status) return v.status;
+      if (v.confidenceLabel === 'Confirmed') return 'confirmed';
+      if (v.confidenceLabel === 'Likely' || v.confidenceLabel === 'Suspected') return 'suspected';
+      return 'tested';
+    };
+    const getParamMethodFromEvidence = (evidence = []) => {
+      try {
+        const line = evidence.find(ev => /Parameter:\s*[^\s(]+\s*\((GET|POST|PUT|DELETE)\)/i.test(ev.content));
+        if (!line) return null;
+        const m = line.content.match(/Parameter:\s*([^\s(]+)\s*\((GET|POST|PUT|DELETE)\)/i);
+        if (!m) return null;
+        return { name: m[1], method: m[2] };
+      } catch { return null; }
+    };
+    const getPayloadFromEvidence = (evidence = []) => {
+      const row = evidence.find(ev => /Payload:/i.test(ev.content));
+      if (!row) return null;
+      const raw = row.content.replace(/^.*?Payload:\s*/i, '');
+      const max = 400;
+      return raw.length > max ? raw.slice(0, max) + ' …' : raw;
+    };
+
+    // Techniques summary table
+    const techniquesRows = (vulnerabilities.findings || []).map(v => {
+      const st = deriveStatus(v);
+      const pm = getParamMethodFromEvidence(v.evidence) || { name: v.parameter || 'N/A', method: '' };
+      return `
+        <tr>
+          <td>${v.type || 'SQL Injection'}</td>
+          <td><code>${pm.name || 'N/A'}</code>${pm.method ? ` <span class="badge">${pm.method}</span>` : ''}</td>
+          <td><span class="status ${st}">${st}</span></td>
+          <td>${(v.confidenceLabel || 'Unknown')}${typeof v.confidenceScore === 'number' ? ` (${(v.confidenceScore*100).toFixed(0)}%)` : ''}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const vulnerabilitiesHTML = (vulnerabilities.findings || []).map(vuln => {
+      const payload = getPayloadFromEvidence(vuln.evidence);
+      const st = deriveStatus(vuln);
+      const pm = getParamMethodFromEvidence(vuln.evidence);
+      const paramLabel = pm?.name || vuln.parameter || 'N/A';
+      const methodLabel = pm?.method ? ` (${pm.method})` : '';
+      return `
       <div class="vulnerability-card">
         <div class="vulnerability-header" style="border-left-color: ${getSeverityColor(vuln.severity)};">
           <h4>${vuln.type}</h4>
           <span class="severity" style="background-color: ${getSeverityColor(vuln.severity)};">${vuln.severity}</span>
         </div>
         <div class="vulnerability-body">
-          <p><strong>Parameter:</strong> <code>${vuln.parameter || 'N/A'}</code></p>
+          <p><strong>Parameter:</strong> <code>${paramLabel}</code>${methodLabel}</p>
+          <p><strong>Status:</strong> <span class="status ${st}">${st}</span> · <strong>Confidence:</strong> ${vuln.confidenceLabel || 'Unknown'}${typeof vuln.confidenceScore === 'number' ? ` (${(vuln.confidenceScore*100).toFixed(0)}%)` : ''}</p>
           <p><strong>Description:</strong> ${vuln.description}</p>
           <p><strong>Impact:</strong> ${vuln.impact || 'Not specified'}</p>
+          ${payload ? `<details class="details"><summary>Show payload (sanitized)</summary><pre class="payload"><code>${payload}</code></pre></details>` : ''}
+          ${(vuln.evidence && vuln.evidence.length) ? `<details class="details"><summary>Show evidence</summary>${vuln.evidence.slice(0,12).map(ev => `<div class="evidence-row"><span class="line">L${ev.line}</span><code>${ev.content}</code></div>`).join('')}</details>` : ''}
           <h5>Remediation</h5>
           <ul>
             ${(vuln.remediation || []).map(rec => `<li>${rec}</li>`).join('')}
           </ul>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
 
     return `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>${title}</title>
         <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
         <style>
-          body { font-family: 'Roboto', sans-serif; margin: 0; padding: 0; background-color: ${pdfStyling ? '#fff' : '#f4f7f9'}; color: #333; }
-          .report-container { max-width: 1000px; margin: ${pdfStyling ? '0 auto' : '20px auto'}; background: #fff; border-radius: ${pdfStyling ? '0' : '8px'}; box-shadow: ${pdfStyling ? 'none' : '0 4px 15px rgba(0,0,0,0.1)'}; overflow: hidden; }
+          :root { --bg:#f4f7f9; --fg:#333; --muted:#7f8c8d; --panel:#ffffff; --primary:#2c3e50; --accent:#3498db; --ok:#2ecc71; --warn:#f1c40f; --high:#e67e22; --crit:#e74c3c; --info:#3498db; }
+          * { box-sizing: border-box; }
+          body { font-family: 'Roboto', sans-serif; margin: 0; padding: 0; background-color: ${pdfStyling ? '#fff' : 'var(--bg)'}; color: var(--fg); }
+          .report-container { max-width: 1100px; margin: ${pdfStyling ? '0 auto' : '20px auto'}; background: var(--panel); border-radius: ${pdfStyling ? '0' : '12px'}; box-shadow: ${pdfStyling ? 'none' : '0 8px 24px rgba(0,0,0,0.08)'}; overflow: hidden; }
           .report-header { background: #2c3e50; color: #fff; padding: 40px; text-align: center; }
           .report-header h1 { margin: 0; font-size: 2.8em; }
           .report-header p { margin: 5px 0 0; font-size: 1.2em; color: #bdc3c7; }
-          .main-content { padding: 30px; }
-          .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-          .summary-item { background: #ecf0f1; padding: 20px; border-radius: 8px; text-align: center; }
+          .main-content { padding: 24px; }
+          .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+          .summary-item { background: #ecf0f1; padding: 18px; border-radius: 10px; text-align: center; }
           .summary-item h3 { margin: 0 0 10px; color: #2980b9; font-size: 1.1em; }
           .summary-item p, .summary-item .score { font-weight: 700; font-size: 1.8em; color: #2c3e50; }
           .risk-score .score, .risk-score .level { color: ${riskColor}; }
@@ -1520,6 +1625,30 @@ class ReportGenerator {
           code { background: #e8e8e8; padding: 3px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.95em; }
           .report-footer { text-align: center; padding: 20px; font-size: 0.9em; color: #7f8c8d; background: #ecf0f1; }
           ${pdfStyling ? '.pdf-fallback-notice { background: #fffbe6; border: 1px solid #ffd700; border-radius: 5px; padding: 15px; margin: 20px 0; text-align: center; color: #b7950b; } @media print { .pdf-fallback-notice { display: none; } }' : ''}
+
+          /* New UI additions */
+          .verdict { display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:#ecf0f1; padding:16px; border-radius:10px; }
+          .badge { display:inline-block; background:#dde6ee; color:#2c3e50; padding:2px 8px; border-radius:999px; font-size:12px; margin-left:6px; }
+          .status { text-transform: capitalize; padding:2px 8px; border-radius:999px; font-size:12px; }
+          .status.confirmed { background:#eaf7ff; color:#0b6bab; }
+          .status.suspected { background:#fff7e6; color:#a66a00; }
+          .status.tested { background:#f0f0f0; color:#555; }
+          .status.exploited { background:#ffecec; color:#a30000; }
+          .tech-table { width:100%; border-collapse: collapse; }
+          .tech-table th, .tech-table td { border-bottom:1px solid #eee; padding:10px; text-align:left; }
+          .tech-table th { background:#f8fafc; font-weight:600; }
+          .table-wrap { overflow:auto; border:1px solid #eee; border-radius:8px; }
+          .details summary { cursor:pointer; color:#2c3e50; font-weight:600; margin:8px 0; }
+          .payload { background:#f7f7f7; padding:12px; border-radius:8px; overflow:auto; }
+          .evidence-row { display:flex; gap:10px; align-items:flex-start; padding:6px 0; border-bottom:1px dashed #eee; }
+          .evidence-row .line { color:#7f8c8d; min-width:40px; font-family:monospace; }
+
+          /* Responsive tweaks */
+          @media (max-width: 640px) {
+            .report-header h1 { font-size: 2em; }
+            .summary-item p, .summary-item .score { font-size: 1.4em; }
+            .section h2 { font-size: 1.5em; }
+          }
         </style>
       </head>
       <body>
@@ -1552,6 +1681,30 @@ class ReportGenerator {
               <div class="summary-item">
                 <h3>Scan Duration</h3>
                 <p>${scanDurationText}</p>
+              </div>
+            </div>
+
+            <div class="section">
+              <h2>Overall verdict</h2>
+              <div class="verdict">
+                <strong>Verdict:</strong> <span class="status ${overallVerdict.level.toLowerCase()}">${overallVerdict.level}</span>
+                <span class="badge">evidence-driven</span>
+                <div style="flex-basis:100%;height:0"></div>
+                <div>${overallVerdict.rationale}</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <h2>Techniques summary</h2>
+              <div class="table-wrap">
+                <table class="tech-table" role="table" aria-label="Techniques summary">
+                  <thead>
+                    <tr><th>Technique</th><th>Parameter</th><th>Status</th><th>Confidence</th></tr>
+                  </thead>
+                  <tbody>
+                    ${techniquesRows || '<tr><td colspan="4">No techniques recorded.</td></tr>'}
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -1610,6 +1763,17 @@ class ReportGenerator {
                 return parts.join('');
               })()}
             </div>
+
+            ${outputFiles ? `
+            <div class="section">
+              <h2>Artifacts</h2>
+              <ul>
+                ${outputFiles.session ? `<li>Session: <code>${outputFiles.session}</code></li>` : ''}
+                ${outputFiles.traffic ? `<li>Traffic log: <code>${outputFiles.traffic}</code></li>` : ''}
+                ${outputFiles.results ? `<li>Results CSV: <code>${outputFiles.results}</code></li>` : ''}
+              </ul>
+            </div>
+            ` : ''}
 
             <div class="section">
               <h2>Scan Command</h2>
