@@ -23,7 +23,8 @@
     "test": "jest",
     "lint": "eslint server/**/*.js",
     "format": "prettier --write server/**/*.js",
-    "smoke:pdf": "node scripts/smoke-pdf.js"
+    "smoke:pdf": "node scripts/smoke-pdf.js",
+    "smoke:scan": "node scripts/smoke-scan.js"
   },
   "keywords": [
     "cybersecurity",

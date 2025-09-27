@@ -162,6 +162,17 @@ class ReportGenerator {
         }
       };
 
+      try {
+        const overallVerdict = this.determineOverallVerdict(reportData.vulnerabilities, reportData.extractedData);
+        reportData.metadata = {
+          ...reportData.metadata,
+          overallVerdict,
+          affectedParameters: overallVerdict?.affectedParameters || []
+        };
+      } catch (e) {
+        Logger.warn('Unable to compute overall verdict for metadata', e?.message);
+      }
+
       // If we have structured SQLMap results, merge them
       if (sqlmapResults) {
         reportData.sqlmapResults = sqlmapResults;
@@ -222,6 +233,83 @@ class ReportGenerator {
   async analyzeVulnerabilities(scanData, sqlmapResults = null) {
     const vulnerabilities = [];
     const output = scanData.output || '';
+
+    const parseParamMethod = (text) => {
+      if (!text) return null;
+      let match = text.match(/Parameter:\s*([^\s(]+)\s*\((GET|POST|PUT|DELETE)\)/i);
+      if (match) {
+        return { name: match[1], method: match[2].toUpperCase() };
+      }
+      match = text.match(/(GET|POST|PUT|DELETE)\s+parameter\s+['"`]([^'"`\s]+)['"`]/i);
+      if (match) {
+        return { name: match[2], method: match[1].toUpperCase() };
+      }
+      match = text.match(/parameter\s+['"`]([^'"`\s]+)['"`]\s+(?:is|appears|might)\s+[^\n]*?(?:injectable|vulnerable)/i);
+      if (match) {
+        return { name: match[1] };
+      }
+      return null;
+    };
+
+    const applyEvidenceContext = (vuln) => {
+      if (!vuln) return;
+      const evidenceTexts = Array.isArray(vuln.evidence)
+        ? vuln.evidence.map(ev => ev?.content || '')
+        : [];
+      if (vuln.description) evidenceTexts.push(vuln.description);
+      evidenceTexts.push(vuln.why || '');
+
+      let resolved = null;
+      for (const text of evidenceTexts) {
+        const info = parseParamMethod(text);
+        if (info) {
+          resolved = info;
+          if (info.method) break; // Prefer line that includes method
+        }
+      }
+
+      if (resolved) {
+        if (resolved.name) {
+          vuln.parameter = resolved.name;
+        }
+        if (resolved.method) {
+          vuln.httpMethod = resolved.method;
+        }
+      }
+    };
+    const normalizeConfidence = (vuln) => {
+      if (typeof vuln.confidenceScore === 'number' && (vuln.confidenceScore < 0 || vuln.confidenceScore > 1)) {
+        vuln.confidenceScore = Math.max(0, Math.min(1, vuln.confidenceScore));
+      }
+      if (!vuln.confidenceLabel) {
+        const score = typeof vuln.confidenceScore === 'number' ? vuln.confidenceScore : null;
+        if (score != null) {
+          if (score >= 0.85) vuln.confidenceLabel = 'Confirmed';
+          else if (score >= 0.6) vuln.confidenceLabel = 'Likely';
+          else if (score >= 0.4) vuln.confidenceLabel = 'Suspected';
+          else vuln.confidenceLabel = 'Tested';
+        }
+      }
+      if (!vuln.confidenceScore && vuln.confidenceLabel) {
+        const label = vuln.confidenceLabel.toLowerCase();
+        if (label === 'confirmed') vuln.confidenceScore = 0.9;
+        else if (label === 'likely') vuln.confidenceScore = 0.65;
+        else if (label === 'suspected') vuln.confidenceScore = 0.4;
+        else if (label === 'tested') vuln.confidenceScore = 0.2;
+      }
+    };
+    const deriveStatus = (vuln) => {
+      if (typeof vuln.status === 'string' && vuln.status.trim().length > 0) {
+        return vuln.status;
+      }
+      const label = (vuln.confidenceLabel || '').toLowerCase();
+      if (label === 'confirmed') return 'confirmed';
+      if (label === 'likely' || label === 'suspected') return 'suspected';
+      if (Array.isArray(vuln.signals) && vuln.signals.includes('explicit-tool-output')) return 'confirmed';
+      if (typeof vuln.confidenceScore === 'number' && vuln.confidenceScore >= 0.85) return 'confirmed';
+      if (typeof vuln.confidenceScore === 'number' && vuln.confidenceScore >= 0.4) return 'suspected';
+      return 'tested';
+    };
 
     // If we have structured SQLMap results, use them first
     if (sqlmapResults && sqlmapResults.findings) {
@@ -403,7 +491,7 @@ class ReportGenerator {
           };
           const paramName = (paramMatch[1] || paramMatch[2] || '').trim() || (parameters[0] || 'Unknown');
           const strongSignal = /\bis\s+[^\n]*?(?:vulnerable|injectable)\b/i.test(match) || /sqlmap\s+identified\s+the\s+following\s+injection\s+point/i.test(output);
-          const baseScore = strongSignal ? 0.6 : 0.4;
+          const baseScore = strongSignal ? 0.95 : 0.4;
           const enrichedDescription = dbmsInfo
             ? `${vulnInfo.description}: ${match.trim()} (DBMS: ${dbmsInfo})`
             : `${vulnInfo.description}: ${match.trim()}`;
@@ -420,7 +508,7 @@ class ReportGenerator {
             description: enrichedDescription,
             impact: techniqueImpact,
             remediation: vulnInfo.remediation,
-            confidenceLabel: strongSignal ? 'Likely' : 'Suspected',
+            confidenceLabel: strongSignal ? 'Confirmed' : 'Suspected',
             confidenceScore: baseScore,
             signals: [strongSignal ? 'explicit-tool-output' : 'heuristic-output'],
             why: strongSignal ? 'Tool output explicitly reports an injectable/vulnerable parameter.' : 'Heuristic patterns in scan output indicate possible injection.',
@@ -490,6 +578,11 @@ class ReportGenerator {
       // Replace the array with cleaned results
       vulnerabilities.length = 0;
       vulnerabilities.push(...cleaned);
+
+      // Harmonize parameter/method based on evidence/descriptions
+      for (const vuln of vulnerabilities) {
+        applyEvidenceContext(vuln);
+      }
 
       // If no specific vulnerabilities found but scan completed successfully, check for generic indicators
       if (vulnerabilities.length === 0 && scanData.status === 'completed' && scanData.exit_code === 0) {
@@ -578,6 +671,13 @@ class ReportGenerator {
       }
       
       Logger.info(`Found ${vulnerabilities.length} vulnerabilities after parsing`);
+    }
+
+    // Ensure parameter/method context for all findings
+    for (const vuln of vulnerabilities) {
+      applyEvidenceContext(vuln);
+      normalizeConfidence(vuln);
+      vuln.status = deriveStatus(vuln);
     }
 
     // Calculate risk score
@@ -828,6 +928,16 @@ class ReportGenerator {
             .map(item => item.trim().replace(/['"]/g, ''))
             .filter(item => item);
         }
+      }
+
+      // Also try to capture DBMS banner or name lines from plain output
+      const dbmsBanner = output.match(/back-?end\s+DBMS:?\s*([^\n]+)/i);
+      if (dbmsBanner && dbmsBanner[1]) {
+        const val = dbmsBanner[1].trim();
+        if (!extractedData.systemInfo.dbms) extractedData.systemInfo.dbms = [];
+        const arr = Array.isArray(extractedData.systemInfo.dbms) ? extractedData.systemInfo.dbms : [extractedData.systemInfo.dbms];
+        if (!arr.includes(val)) arr.push(val);
+        extractedData.systemInfo.dbms = arr;
       }
     }
 
@@ -1543,19 +1653,37 @@ class ReportGenerator {
     };
 
     // Helpers for UI rendering
+    // Derive status with evidence-driven upgrade to "confirmed"
     const deriveStatus = (v) => {
+      const evText = Array.isArray(v.evidence) ? v.evidence.map(e => e.content || '').join('\n') : '';
+      const hasInjectableCue = /(GET|POST|PUT|DELETE)\s+parameter\s+['"`][^'"`\s]+['"`]\s+is\s+[^\n]*?injectable/i.test(evText);
+      const hasInjectionPointsCue = /sqlmap\s+identified\s+the\s+following\s+injection\s+point/i.test(evText);
+      const hasTriad = /Parameter:\s*[^\s(]+\s*\((GET|POST|PUT|DELETE)\)/i.test(evText) && /(Type:|Title:|Payload:)/i.test(evText);
+      const evidenceConfirmed = hasInjectableCue || hasInjectionPointsCue || hasTriad;
+
       if (v.status) return v.status;
+      if (evidenceConfirmed) return 'confirmed';
       if (v.confidenceLabel === 'Confirmed') return 'confirmed';
       if (v.confidenceLabel === 'Likely' || v.confidenceLabel === 'Suspected') return 'suspected';
       return 'tested';
     };
+
+    // Extract parameter and method from common sqlmap evidence lines
     const getParamMethodFromEvidence = (evidence = []) => {
       try {
-        const line = evidence.find(ev => /Parameter:\s*[^\s(]+\s*\((GET|POST|PUT|DELETE)\)/i.test(ev.content));
-        if (!line) return null;
-        const m = line.content.match(/Parameter:\s*([^\s(]+)\s*\((GET|POST|PUT|DELETE)\)/i);
-        if (!m) return null;
-        return { name: m[1], method: m[2] };
+        // Preferred: "Parameter: name (METHOD)"
+        let line = evidence.find(ev => /Parameter:\s*[^\s(]+\s*\((GET|POST|PUT|DELETE)\)/i.test(ev.content));
+        if (line) {
+          const m = line.content.match(/Parameter:\s*([^\s(]+)\s*\((GET|POST|PUT|DELETE)\)/i);
+          if (m) return { name: m[1], method: m[2] };
+        }
+        // Also support: "POST parameter 'name' is ... injectable"
+        line = evidence.find(ev => /(GET|POST|PUT|DELETE)\s+parameter\s+['"`]([^'"`\s]+)['"`]\s+is\s+[^\n]*?injectable/i.test(ev.content));
+        if (line) {
+          const m = line.content.match(/(GET|POST|PUT|DELETE)\s+parameter\s+['"`]([^'"`\s]+)['"`]\s+is\s+[^\n]*?injectable/i);
+          if (m) return { name: m[2], method: m[1] };
+        }
+        return null;
       } catch { return null; }
     };
     const getPayloadFromEvidence = (evidence = []) => {
@@ -1586,6 +1714,17 @@ class ReportGenerator {
       const pm = getParamMethodFromEvidence(vuln.evidence);
       const paramLabel = pm?.name || vuln.parameter || 'N/A';
       const methodLabel = pm?.method ? ` (${pm.method})` : '';
+      // Simple, non-technical confidence explanation
+      const confidenceWhy = (() => {
+        const evText = Array.isArray(vuln.evidence) ? vuln.evidence.map(e => e.content || '').join('\n') : '';
+        if (/(GET|POST|PUT|DELETE)\s+parameter\s+['"`][^'"`\s]+['"`]\s+is\s+[^\n]*?injectable/i.test(evText) || /sqlmap\s+identified\s+the\s+following\s+injection\s+point/i.test(evText)) {
+          return 'Tool explicitly proved this input can be controlled to affect the database.';
+        }
+        if (/(Type:|Title:|Payload:)/i.test(evText)) {
+          return 'Tool showed the technique details and a working test value (payload).';
+        }
+        return 'Tool saw signs that look like injection, but did not fully prove it.';
+      })();
       return `
       <div class="vulnerability-card">
         <div class="vulnerability-header" style="border-left-color: ${getSeverityColor(vuln.severity)};">
@@ -1597,6 +1736,7 @@ class ReportGenerator {
           <p><strong>Status:</strong> <span class="status ${st}">${st}</span> · <strong>Confidence:</strong> ${vuln.confidenceLabel || 'Unknown'}${typeof vuln.confidenceScore === 'number' ? ` (${(vuln.confidenceScore*100).toFixed(0)}%)` : ''}</p>
           <p><strong>Description:</strong> ${vuln.description}</p>
           <p><strong>Impact:</strong> ${vuln.impact || 'Not specified'}</p>
+          <p><strong>Why this is shown:</strong> ${vuln.why || confidenceWhy}</p>
           ${payload ? `<details class="details"><summary>Show payload (sanitized)</summary><pre class="payload"><code>${payload}</code></pre></details>` : ''}
           ${(vuln.evidence && vuln.evidence.length) ? `<details class="details"><summary>Show evidence</summary>${vuln.evidence.slice(0,12).map(ev => `<div class="evidence-row"><span class="line">L${ev.line}</span><code>${ev.content}</code></div>`).join('')}</details>` : ''}
           <h5>Remediation</h5>
@@ -1732,7 +1872,9 @@ class ReportGenerator {
             <div class="section">
               <h2>General Recommendations</h2>
               <ul>
-                ${(recommendations.general || []).map(rec => `<li>${rec}</li>`).join('')}
+                ${Array.isArray(recommendations) && recommendations.length
+                  ? recommendations.map(r => `<li><strong>${r.title || 'Recommendation'}:</strong> ${r.description || ''}</li>`).join('')
+                  : '<li>No recommendations available.</li>'}
               </ul>
             </div>
 
