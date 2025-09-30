@@ -13,6 +13,7 @@ import {
 import { useAppStore } from '../store/appStore'
 import clsx from 'clsx'
 import { apiFetch } from '@/utils/api'
+import { parseServerDate } from '@/utils/dates'
 
 export default function Dashboard() {
   const { 
@@ -67,12 +68,10 @@ export default function Dashboard() {
   })()
 
   // Format time ago
-  const formatTimeAgo = (dateString: string) => {
-    if (!dateString) return 'Unknown'
-    
-    const date = new Date(dateString)
-    if (isNaN(date.getTime())) return 'Unknown'
-    
+  const formatTimeAgo = (input: string | Date | null | undefined) => {
+    const date = input instanceof Date ? input : parseServerDate(input ?? undefined)
+    if (!date) return 'Unknown'
+
     const now = new Date()
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
     
@@ -84,19 +83,26 @@ export default function Dashboard() {
   }
 
   // Get recent scans (last 5)
+  const getScanTimestamp = (scan: typeof scans[number]) => {
+    const time = scan.endTime || scan.updatedAt || scan.createdAt
+    return parseServerDate(time)
+  }
+
   const recentScans = scans
     .slice()
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .sort((a, b) => (getScanTimestamp(b)?.getTime() || 0) - (getScanTimestamp(a)?.getTime() || 0))
     .slice(0, 5)
     .map(scan => {
       // Find corresponding report for vulnerability count
       const report = reports.find(r => r.scanId === scan.id)
+      const timestamp = getScanTimestamp(scan)
       return {
         id: scan.id,
         target: scan.target,
         status: scan.status,
         vulnerabilities: report?.vulnerabilities?.total || 0,
-        time: formatTimeAgo(scan.createdAt)
+        time: formatTimeAgo(timestamp),
+        timestamp
       }
     })
 

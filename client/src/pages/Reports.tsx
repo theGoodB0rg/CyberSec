@@ -14,6 +14,7 @@ import {
 import clsx from 'clsx'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import { parseServerDate } from '@/utils/dates'
 
 const FILTER_OPTIONS = [
   { value: 'all', label: 'All Reports' },
@@ -313,9 +314,10 @@ export default function Reports() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
                         <div className="flex items-center">
                           <CalendarIcon className="h-4 w-4 mr-1 text-gray-400" />
-                          {report.created_at && !isNaN(new Date(report.created_at).getTime())
-                            ? format(new Date(report.created_at), 'MMM dd, HH:mm')
-                            : 'Unknown'}
+                          {(() => {
+                            const createdAtDate = parseServerDate(report.created_at)
+                            return createdAtDate ? format(createdAtDate, 'MMM dd, HH:mm') : 'Unknown'
+                          })()}
                         </div>
                       </td>
                       
