@@ -2370,9 +2370,9 @@ class ReportGenerator {
           .report-header p { margin: 5px 0 0; font-size: 1.2em; color: #bdc3c7; }
           .main-content { padding: 24px; }
           .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
-          .summary-item { background: #ecf0f1; padding: 18px; border-radius: 10px; text-align: center; }
-          .summary-item h3 { margin: 0 0 10px; color: #2980b9; font-size: 1.1em; }
-          .summary-item p, .summary-item .score { font-weight: 700; font-size: 1.8em; color: #2c3e50; }
+          .summary-item { background: #ecf0f1; padding: 18px; border-radius: 10px; text-align: center; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:8px; min-height:120px; }
+          .summary-item h3 { margin: 0; color: #2980b9; font-size: 1.05em; word-break: break-word; overflow-wrap:anywhere; max-width:100%; }
+          .summary-item p, .summary-item .score { font-weight: 700; font-size: 1.6em; color: #2c3e50; margin:0; word-break: break-word; overflow-wrap:anywhere; line-height:1.2; max-width:100%; }
           .risk-score .score, .risk-score .level { color: ${riskColor}; }
           .section { margin-bottom: 30px; }
           .section h2 { font-size: 2em; color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; margin-bottom: 20px; }
@@ -2383,7 +2383,7 @@ class ReportGenerator {
           .severity { color: #fff; padding: 5px 12px; border-radius: 15px; font-weight: 700; font-size: 0.9em; }
           ul { padding-left: 20px; }
           li { margin-bottom: 8px; }
-          code { background: #e8e8e8; padding: 3px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.95em; }
+          code { background: #e8e8e8; padding: 3px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.95em; word-break: break-word; overflow-wrap:anywhere; max-width:100%; display:inline-block; }
           .report-footer { text-align: center; padding: 20px; font-size: 0.9em; color: #7f8c8d; background: #ecf0f1; }
           ${pdfStyling ? '.pdf-fallback-notice { background: #fffbe6; border: 1px solid #ffd700; border-radius: 5px; padding: 15px; margin: 20px 0; text-align: center; color: #b7950b; } @media print { .pdf-fallback-notice { display: none; } }' : ''}
 
@@ -2422,10 +2422,17 @@ class ReportGenerator {
           .evidence-row .line { color:#7f8c8d; min-width:40px; font-family:monospace; }
 
           /* Responsive tweaks */
+          @media (max-width: 768px) {
+            .summary-item { min-height:auto; padding:16px; }
+            .summary-item p, .summary-item .score { font-size: 1.35em; }
+          }
+
           @media (max-width: 640px) {
             .report-header h1 { font-size: 2em; }
-            .summary-item p, .summary-item .score { font-size: 1.4em; }
             .section h2 { font-size: 1.5em; }
+            .summary-grid { grid-template-columns: minmax(0, 1fr); }
+            .summary-item { align-items:flex-start; text-align:left; }
+            .summary-item p, .summary-item .score { font-size: 1.25em; }
           }
         </style>
       </head>
