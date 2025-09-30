@@ -18,6 +18,283 @@ class ReportGenerator {
     }
   }
 
+  stripSqlmapLogPrefixes(output = '') {
+    if (!output) return '';
+    const prefixPatterns = [
+      /^\[[0-9]{4}-[0-9]{2}-[0-9]{2}T[^\]]+\]\s*\[(?:stdout|stderr)\]\s*/i,
+      /^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]\s*\[[A-Z]+\]\s*/,
+      /^\[[A-Z]+\]\s*/
+    ];
+
+    return output
+      .split(/\r?\n/)
+      .map((line) => {
+        let cleaned = line;
+        for (const pattern of prefixPatterns) {
+          if (pattern.test(cleaned)) {
+            cleaned = cleaned.replace(pattern, '');
+            break;
+          }
+        }
+        return cleaned;
+      })
+      .join('\n');
+  }
+
+  mapSqlmapTechnique(raw) {
+    const text = (raw || '').toLowerCase();
+    if (text.includes('boolean')) return 'Boolean-based blind SQL injection';
+    if (text.includes('time-based')) return 'Time-based blind SQL injection';
+    if (text.includes('union')) return 'Union query SQL injection';
+    if (text.includes('stacked')) return 'Stacked queries';
+    if (text.includes('error')) return 'Error-based SQL injection';
+    return 'SQL Injection';
+  }
+
+  parseSqlmapSummary(rawOutput = '') {
+    const summary = {
+      confirmed: [],
+      attempted: [],
+      verdictLine: null,
+      rawSection: null
+    };
+
+    if (!rawOutput) {
+      return summary;
+    }
+
+    const cleanedOutput = this.stripSqlmapLogPrefixes(rawOutput);
+    const lines = cleanedOutput.split(/\r?\n/);
+
+    let inSummary = false;
+    let current = null;
+    const sectionLines = [];
+
+    const flushCurrent = () => {
+      if (!current) return;
+      current.raw = current.raw || [];
+      current.rawText = current.raw.join('\n');
+      current.method = (current.place || current.method || '').toUpperCase() || undefined;
+      current.parameter = current.parameter?.trim() || undefined;
+      current.title = current.title?.trim() || undefined;
+      current.type = current.type?.trim() || undefined;
+      current.payload = current.payload?.trim() || undefined;
+      current.techniqueName = this.mapSqlmapTechnique(current.type || current.title || '');
+      summary.confirmed.push(current);
+      current = null;
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine;
+      const trimmed = line.trim();
+
+      if (!inSummary && trimmed.toLowerCase().includes('sqlmap identified the following injection point')) {
+        inSummary = true;
+        summary.verdictLine = trimmed;
+        continue;
+      }
+
+      if (!inSummary) {
+        const attemptMatch = trimmed.match(/testing\s+'([^']+)'/i);
+        if (attemptMatch) {
+          summary.attempted.push({ technique: attemptMatch[1], line: trimmed });
+        }
+        continue;
+      }
+
+      sectionLines.push(line);
+
+      if (trimmed.startsWith('[*] ending') || trimmed.startsWith('[1] ending') || trimmed.startsWith('\x1b') || trimmed.startsWith('[INFO]')) {
+        // summary section is complete
+        break;
+      }
+
+      if (trimmed === '' || /^\*+$/.test(trimmed)) {
+        continue;
+      }
+
+      if (trimmed.startsWith('---')) {
+        flushCurrent();
+        continue;
+      }
+
+      if (trimmed.toLowerCase().startsWith('parameter:')) {
+        flushCurrent();
+  const paramMatch = trimmed.match(/Parameter:\s*([^(]+)(?:\(([^)]+)\))?$/i);
+        let parameter = null;
+        let place = null;
+        if (paramMatch) {
+          parameter = (paramMatch[1] || '').trim();
+          place = (paramMatch[2] || '').trim();
+        } else {
+          parameter = trimmed.replace(/^Parameter:/i, '').trim();
+        }
+        current = {
+          parameter,
+          place,
+          method: place,
+          raw: [line]
+        };
+        continue;
+      }
+
+      if (!current) {
+        continue;
+      }
+
+      current.raw.push(line);
+
+      if (trimmed.toLowerCase().startsWith('type:')) {
+        current.type = trimmed.replace(/^[Tt]ype:\s*/, '');
+      } else if (trimmed.toLowerCase().startsWith('title:')) {
+        current.title = trimmed.replace(/^[Tt]itle:\s*/, '');
+      } else if (trimmed.toLowerCase().startsWith('payload:')) {
+        current.payload = trimmed.replace(/^[Pp]ayload:\s*/, '');
+      } else if (trimmed.toLowerCase().startsWith('vector:')) {
+        current.vector = trimmed.replace(/^[Vv]ector:\s*/, '');
+      }
+    }
+
+    flushCurrent();
+
+    if (sectionLines.length > 0) {
+      summary.rawSection = sectionLines.join('\n').trim();
+    }
+
+    if (!summary.verdictLine) {
+      // Look for alternative verdict cues when no injection was found
+      const altVerdict = lines.find((line) => /all tested parameters|no injection point|not injectable/i.test(line));
+      if (altVerdict) {
+        summary.verdictLine = altVerdict.trim();
+      }
+    }
+
+    return summary;
+  }
+
+  parseSqlmapArtifacts(rawOutput = '') {
+    const artifacts = {
+      dbms: [],
+      banners: [],
+      currentUser: null,
+      currentDatabase: null,
+      hostname: null,
+      isDba: null,
+      webTechnology: [],
+      webServerOs: null,
+      os: null
+    };
+
+    if (!rawOutput) {
+      return artifacts;
+    }
+
+    const cleaned = this.stripSqlmapLogPrefixes(rawOutput);
+
+    const pushUnique = (arr, value) => {
+      if (!value) return;
+      if (!arr.includes(value)) arr.push(value);
+    };
+
+    const dbmsMatch = cleaned.match(/back-?end\s+DBMS:?\s*([^\n]+)/i);
+    if (dbmsMatch) {
+      pushUnique(artifacts.dbms, dbmsMatch[1].trim());
+    }
+
+    const bannerMatches = cleaned.match(/banner:\s*'([^']+)'/gi) || [];
+    for (const match of bannerMatches) {
+      const value = match.replace(/banner:\s*/i, '').replace(/'/g, '').trim();
+      pushUnique(artifacts.banners, value);
+    }
+
+    const currentDbMatch = cleaned.match(/current database:\s*'([^']+)'/i);
+    if (currentDbMatch) {
+      artifacts.currentDatabase = currentDbMatch[1];
+    }
+
+    const currentUserMatch = cleaned.match(/current user:\s*'([^']+)'/i);
+    if (currentUserMatch) {
+      artifacts.currentUser = currentUserMatch[1];
+    }
+
+    const hostnameMatch = cleaned.match(/server hostname:\s*'([^']+)'/i);
+    if (hostnameMatch) {
+      artifacts.hostname = hostnameMatch[1];
+    }
+
+    const webTechMatch = cleaned.match(/web application technology:\s*([^\n]+)/i);
+    if (webTechMatch) {
+      webTechMatch[1]
+        .split(/,\s*/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach((item) => pushUnique(artifacts.webTechnology, item));
+    }
+
+    const webServerOsMatch = cleaned.match(/web server operating system:\s*([^\n]+)/i);
+    if (webServerOsMatch) {
+      artifacts.webServerOs = webServerOsMatch[1].trim();
+    }
+
+    const dbmsOsMatch = cleaned.match(/back-end DBMS operating system:\s*([^\n]+)/i);
+    if (dbmsOsMatch) {
+      artifacts.os = dbmsOsMatch[1].trim();
+    }
+
+    const isDbaMatch = cleaned.match(/current user is DBA:\s*(yes|no)/i);
+    if (isDbaMatch) {
+      artifacts.isDba = isDbaMatch[1].toLowerCase() === 'yes';
+    }
+
+    return artifacts;
+  }
+
+  splitCsvLine(line = '') {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  }
+
+  parseSqlmapCsv(csvText = '') {
+    if (!csvText) return [];
+    const rows = csvText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (rows.length < 2) return [];
+
+    const header = this.splitCsvLine(rows[0]).map((h) => h.toLowerCase());
+    const records = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const cells = this.splitCsvLine(rows[i]);
+      if (cells.length === 0 || cells.every((cell) => !cell.trim())) continue;
+      const record = {};
+      header.forEach((key, index) => {
+        record[key] = cells[index] ? cells[index].trim() : '';
+      });
+      records.push(record);
+    }
+
+    return records;
+  }
+
   async validatePuppeteerSetup() {
     if (this.puppeteerChecked) return;
     
@@ -138,19 +415,66 @@ class ReportGenerator {
     };
   }
 
+  getSeverityCriteriaOverview() {
+    const criteria = {
+      critical: {
+        label: 'Critical',
+        summary: 'Stacked (multi-statement) SQL injection confirmed.',
+        detail: 'SQLMap proved the ability to append multiple SQL statements in a single request (e.g., statement terminators followed by INSERT/UPDATE/DELETE or DDL). Attackers can tamper with data, modify schema, or potentially reach file/command execution depending on DBMS privileges.',
+        techniques: [],
+        impacts: [
+          'Data tampering and destructive writes',
+          'Schema changes such as DROP/ALTER',
+          'Opportunity for file read/write or OS command execution'
+        ]
+      },
+      high: {
+        label: 'High',
+        summary: 'Single-statement SQL injection confirmed with data access.',
+        detail: 'SQLMap demonstrated control of a query that leaks data or metadata through boolean/time-based, error-based, union-based, or classic payloads. Attackers can read sensitive information and pivot into additional manual exploitation.',
+        techniques: [],
+        impacts: [
+          'Data disclosure and credential theft',
+          'Authentication bypass or privilege abuse',
+          'Database enumeration for follow-on attacks'
+        ]
+      }
+    };
+
+    for (const [technique, info] of Object.entries(this.vulnerabilityDatabase || {})) {
+      const severity = ((info && info.severity) || '').toLowerCase();
+      if (!severity) continue;
+      const key = severity;
+      if (!criteria[key]) {
+        criteria[key] = {
+          label: severity.charAt(0).toUpperCase() + severity.slice(1),
+          summary: '',
+          detail: '',
+          techniques: [],
+          impacts: []
+        };
+      }
+      criteria[key].techniques.push(technique);
+    }
+
+    return criteria;
+  }
+
   async generateReport(scanId, scanData, sqlmapResults = null) {
     try {
       Logger.info(`Generating report for scan: ${scanId}`);
 
       const reportId = uuidv4();
+      const vulnerabilityAnalysis = await this.analyzeVulnerabilities(scanData, sqlmapResults);
+      const extractedData = await this.analyzeExtractedData(scanData, sqlmapResults);
       const reportData = {
         id: reportId,
         scanId: scanId,
         title: this.generateReportTitle(scanData),
         target: scanData.target,
         command: this.reconstructCommand(scanData),
-        vulnerabilities: await this.analyzeVulnerabilities(scanData, sqlmapResults),
-        extractedData: await this.analyzeExtractedData(scanData, sqlmapResults),
+        vulnerabilities: vulnerabilityAnalysis,
+        extractedData,
         recommendations: await this.generateRecommendations(scanData),
         scanDuration: this.calculateScanDuration(scanData),
         status: scanData.status,
@@ -167,7 +491,9 @@ class ReportGenerator {
         reportData.metadata = {
           ...reportData.metadata,
           overallVerdict,
-          affectedParameters: overallVerdict?.affectedParameters || []
+          affectedParameters: overallVerdict?.affectedParameters || [],
+          sqlmapSummary: vulnerabilityAnalysis?.sqlmapSummary,
+          severityCriteria: this.getSeverityCriteriaOverview()
         };
       } catch (e) {
         Logger.warn('Unable to compute overall verdict for metadata', e?.message);
@@ -233,6 +559,18 @@ class ReportGenerator {
   async analyzeVulnerabilities(scanData, sqlmapResults = null) {
     const vulnerabilities = [];
     const output = scanData.output || '';
+    const summary = this.parseSqlmapSummary(output);
+
+    const makeKey = (type, parameter, method) => {
+      return [type || '', parameter || '', method || '']
+        .map((part) => part.toString().toLowerCase())
+        .join('|');
+    };
+    const registeredKeys = new Set();
+    const registerKey = (type, parameter, method) => {
+      registeredKeys.add(makeKey(type, parameter, method));
+    };
+    const hasKey = (type, parameter, method) => registeredKeys.has(makeKey(type, parameter, method));
 
     const parseParamMethod = (text) => {
       if (!text) return null;
@@ -311,6 +649,159 @@ class ReportGenerator {
       return 'tested';
     };
 
+    let csvRecords = [];
+    if (sqlmapResults?.csvData) {
+      try {
+        csvRecords = this.parseSqlmapCsv(sqlmapResults.csvData);
+      } catch (err) {
+        Logger.warn('Failed to parse SQLMap CSV data', err?.message || err);
+      }
+    }
+
+    if (summary.confirmed.length > 0) {
+      for (const confirmed of summary.confirmed) {
+        const techniqueKey = confirmed.techniqueName || this.mapSqlmapTechnique(confirmed.type || confirmed.title || '');
+        const vulnInfo = this.vulnerabilityDatabase[techniqueKey] ||
+          this.vulnerabilityDatabase['SQL Injection'] || {
+            severity: 'High',
+            cvss: 7.0,
+            description: 'SQLMap confirmed SQL injection vulnerability',
+            impact: 'Potential data exfiltration and database compromise',
+            remediation: ['Use parameterized queries', 'Implement strict input validation']
+          };
+
+        const parameter = confirmed.parameter || 'Unknown';
+        const method = confirmed.method || (confirmed.place ? confirmed.place.toUpperCase() : undefined);
+        if (hasKey(techniqueKey, parameter, method)) {
+          continue;
+        }
+
+        const evidence = [];
+        if (confirmed.rawText) {
+          evidence.push({
+            line: 0,
+            content: confirmed.rawText,
+            context: 'sqlmap-summary'
+          });
+        }
+        if (confirmed.payload) {
+          evidence.push({
+            line: evidence.length + 1,
+            content: confirmed.payload,
+            context: 'payload'
+          });
+        }
+
+        const vuln = {
+          id: uuidv4(),
+          type: techniqueKey,
+          parameter,
+          httpMethod: method,
+          severity: vulnInfo.severity,
+          cvss: vulnInfo.cvss,
+          description: confirmed.title || confirmed.type || vulnInfo.description,
+          impact: vulnInfo.impact,
+          remediation: vulnInfo.remediation,
+          confidenceLabel: 'Confirmed',
+          confidenceScore: 0.98,
+          status: 'confirmed',
+          signals: ['explicit-tool-output', 'sqlmap-summary'],
+          why: confirmed.title
+            ? `SQLMap confirmed injection: ${confirmed.title}`
+            : 'SQLMap confirmed the parameter as injectable.',
+          evidence: evidence.length > 0 ? evidence : undefined,
+          payload: confirmed.payload,
+          techniqueSummary: confirmed.type || confirmed.title || undefined,
+          sqlmapMetadata: {
+            place: confirmed.place,
+            method,
+            type: confirmed.type,
+            title: confirmed.title,
+            payload: confirmed.payload,
+            raw: confirmed.rawText
+          },
+          discoveredAt: new Date().toISOString()
+        };
+
+        vulnerabilities.push(vuln);
+        registerKey(techniqueKey, parameter, method);
+      }
+    }
+
+    if (csvRecords.length > 0) {
+      const csvHeaderLookup = (record, ...keys) => {
+        for (const key of keys) {
+          if (record[key] != null && record[key] !== '') return record[key];
+        }
+        return undefined;
+      };
+
+      for (const record of csvRecords) {
+        const place = csvHeaderLookup(record, 'place', 'method');
+        const parameter = csvHeaderLookup(record, 'parameter', 'columns', 'column');
+        const techniqueText = csvHeaderLookup(record, 'technique(s)', 'technique', 'title', 'type', 'notes', 'note(s)');
+        const payload = csvHeaderLookup(record, 'payload');
+        const notes = csvHeaderLookup(record, 'note(s)', 'notes');
+
+        const method = place && /GET|POST|PUT|DELETE/i.test(place) ? place.toUpperCase() : undefined;
+        const typeKey = this.mapSqlmapTechnique(techniqueText || notes || '');
+        const keyType = typeKey || 'SQL Injection';
+        const paramName = parameter || 'Unknown';
+
+        if (hasKey(keyType, paramName, method)) {
+          const existing = vulnerabilities.find((v) => makeKey(v.type, v.parameter, v.httpMethod) === makeKey(keyType, paramName, method));
+          if (existing) {
+            if (payload && !existing.payload) {
+              existing.payload = payload;
+            }
+            existing.sqlmapMetadata = {
+              ...(existing.sqlmapMetadata || {}),
+              csv: record,
+              technique: techniqueText || existing.sqlmapMetadata?.technique
+            };
+            if (!existing.description && notes) {
+              existing.description = notes;
+            }
+          }
+          continue;
+        }
+
+        const vulnInfo = this.vulnerabilityDatabase[keyType] || this.vulnerabilityDatabase['SQL Injection'] || {
+          severity: 'High',
+          cvss: 7.0,
+          description: 'SQL injection finding reported by SQLMap',
+          impact: 'Potential data exfiltration',
+          remediation: ['Use parameterized queries', 'Implement strict input validation']
+        };
+
+        vulnerabilities.push({
+          id: uuidv4(),
+          type: keyType,
+          parameter: paramName,
+          httpMethod: method,
+          severity: vulnInfo.severity,
+          cvss: vulnInfo.cvss,
+          description: techniqueText || notes || vulnInfo.description,
+          impact: vulnInfo.impact,
+          remediation: vulnInfo.remediation,
+          confidenceLabel: summary.confirmed.length > 0 ? 'Confirmed' : 'Likely',
+          confidenceScore: summary.confirmed.length > 0 ? 0.9 : 0.7,
+          status: summary.confirmed.length > 0 ? 'confirmed' : 'suspected',
+          signals: ['sqlmap-csv'],
+          why: 'Parsed from SQLMap CSV results.',
+          payload,
+          sqlmapMetadata: {
+            csv: record,
+            technique: techniqueText,
+            notes
+          },
+          evidence: payload ? [{ line: 0, content: payload, context: 'payload' }] : undefined,
+          discoveredAt: new Date().toISOString()
+        });
+        registerKey(keyType, paramName, method);
+      }
+    }
+
     // If we have structured SQLMap results, use them first
     if (sqlmapResults && sqlmapResults.findings) {
       for (const finding of sqlmapResults.findings) {
@@ -324,10 +815,17 @@ class ReportGenerator {
             remediation: ['Implement proper input validation', 'Use parameterized queries']
           };
 
+          const param = finding.parameter || 'Unknown';
+          const method = finding.method || finding.place || undefined;
+          if (hasKey(finding.technique || 'SQL Injection', param, method)) {
+            continue;
+          }
+
           vulnerabilities.push({
             id: uuidv4(),
             type: finding.technique || 'SQL Injection',
-            parameter: finding.parameter,
+            parameter: param,
+            httpMethod: method,
             severity: finding.severity === 'high' ? 'High' : vulnInfo.severity,
             cvss: vulnInfo.cvss,
             description: finding.description || vulnInfo.description,
@@ -343,6 +841,7 @@ class ReportGenerator {
             }],
             discoveredAt: new Date().toISOString()
           });
+          registerKey(finding.technique || 'SQL Injection', param, method);
         }
       }
     }
@@ -441,10 +940,11 @@ class ReportGenerator {
           return map[t] || t;
         })(next.type || 'SQL Injection');
         const keyParam = next.parameter || 'Unknown';
-        const idx = arr.findIndex(f => (f.type === normType) && ((f.parameter || 'Unknown') === keyParam));
+          const idx = arr.findIndex(f => (f.type === normType) && ((f.parameter || 'Unknown') === keyParam));
         if (idx === -1) {
           next.type = normType;
           arr.push(next);
+            registerKey(normType, keyParam, next.httpMethod || next.method || undefined);
           return;
         }
         const cur = arr[idx];
@@ -682,6 +1182,24 @@ class ReportGenerator {
 
     // Calculate risk score
     const riskScore = this.calculateRiskScore(vulnerabilities);
+
+    const summaryForMetadata = (summary && (summary.confirmed.length > 0 || summary.attempted.length > 0 || summary.verdictLine))
+      ? {
+          verdictLine: summary.verdictLine,
+          rawSection: summary.rawSection,
+          confirmed: summary.confirmed.map((item) => ({
+            parameter: item.parameter,
+            method: item.method,
+            place: item.place,
+            type: item.type,
+            title: item.title,
+            payload: item.payload,
+            techniqueName: item.techniqueName,
+            raw: item.rawText
+          })),
+          attempted: summary.attempted
+        }
+      : undefined;
     
     return {
       total: vulnerabilities.length,
@@ -691,7 +1209,8 @@ class ReportGenerator {
       low: vulnerabilities.filter(v => v.severity === 'Low').length,
       riskScore: riskScore,
       riskLevel: this.getRiskLevel(riskScore),
-      findings: vulnerabilities
+      findings: vulnerabilities,
+      sqlmapSummary: summaryForMetadata
     };
   }
 
@@ -871,6 +1390,7 @@ class ReportGenerator {
 
   async analyzeExtractedData(scanData, sqlmapResults = null) {
     const output = scanData.output || '';
+    const artifacts = this.parseSqlmapArtifacts(output);
     const extractedData = {
       databases: [],
       tables: [],
@@ -881,18 +1401,56 @@ class ReportGenerator {
       structuredData: null
     };
 
+    if (artifacts.dbms.length > 0) {
+      extractedData.systemInfo.dbms = artifacts.dbms;
+    }
+    if (artifacts.banners.length > 0) {
+      extractedData.systemInfo.banner = artifacts.banners;
+    }
+    if (artifacts.currentDatabase) {
+      extractedData.databases = [artifacts.currentDatabase];
+    }
+    if (artifacts.currentUser) {
+      extractedData.users = [artifacts.currentUser];
+    }
+    if (artifacts.hostname) {
+      extractedData.systemInfo.hostname = artifacts.hostname;
+    }
+    if (typeof artifacts.isDba === 'boolean') {
+      extractedData.systemInfo.isDba = artifacts.isDba;
+    }
+    if (artifacts.webTechnology.length > 0) {
+      extractedData.systemInfo.webTechnology = artifacts.webTechnology;
+    }
+    if (artifacts.webServerOs) {
+      extractedData.systemInfo.webServerOs = artifacts.webServerOs;
+    }
+    if (artifacts.os) {
+      extractedData.systemInfo.dbmsOs = artifacts.os;
+    }
+
     // If we have structured SQLMap results, use them
     if (sqlmapResults) {
       // Extract database information from findings
       const dbFindings = sqlmapResults.findings.filter(f => f.type === 'database_info');
       if (dbFindings.length > 0) {
-        extractedData.databases = dbFindings.map(f => f.info).filter(Boolean);
+        const existing = new Set(extractedData.databases);
+        for (const finding of dbFindings) {
+          if (finding.info) existing.add(finding.info);
+        }
+        extractedData.databases = Array.from(existing);
       }
 
       // Extract version information
       const versionFindings = sqlmapResults.findings.filter(f => f.type === 'version_info');
       if (versionFindings.length > 0) {
-        extractedData.systemInfo.dbms = versionFindings.map(f => f.dbms).filter(Boolean);
+        const current = Array.isArray(extractedData.systemInfo.dbms)
+          ? new Set(extractedData.systemInfo.dbms)
+          : new Set();
+        for (const finding of versionFindings) {
+          if (finding.dbms) current.add(finding.dbms);
+        }
+        extractedData.systemInfo.dbms = Array.from(current);
       }
 
       // Include CSV data if available
@@ -1034,6 +1592,7 @@ class ReportGenerator {
         scanProfile: 'basic',
         reportVersion: '1.0',
         scanner: 'SQLMap Integration',
+        severityCriteria: this.getSeverityCriteriaOverview(),
         ...reportData.metadata || {}
       }
     };
@@ -1617,6 +2176,52 @@ class ReportGenerator {
         recommendations, scanDuration, metadata, outputFiles
       } = sanitizedData;
 
+      const severityCriteria = (metadata && metadata.severityCriteria) || this.getSeverityCriteriaOverview();
+      const severityOrder = ['critical', 'high', 'medium', 'low', 'informational'];
+      const orderedSeverityKeys = Object.keys(severityCriteria || {}).sort((a, b) => {
+        const ai = severityOrder.indexOf(a.toLowerCase());
+        const bi = severityOrder.indexOf(b.toLowerCase());
+        const aIndex = ai === -1 ? severityOrder.length + a.localeCompare(b) : ai;
+        const bIndex = bi === -1 ? severityOrder.length + b.localeCompare(a) : bi;
+        return aIndex - bIndex;
+      });
+      const severityCardsHtml = orderedSeverityKeys
+        .map((key) => {
+          const info = severityCriteria[key];
+          if (!info) return '';
+          const titleLabel = info.label || key.charAt(0).toUpperCase() + key.slice(1);
+          const summary = info.summary || '';
+          const detail = info.detail || '';
+          const impacts = Array.isArray(info.impacts) && info.impacts.length
+            ? `<ul class="severity-impacts">${info.impacts.map(impact => `<li>${impact}</li>`).join('')}</ul>`
+            : '';
+          const techniques = Array.isArray(info.techniques) && info.techniques.length
+            ? `<div class="severity-techniques"><strong>Techniques:</strong> ${info.techniques.join(', ')}</div>`
+            : '';
+          return `
+            <div class="severity-card severity-${key.toLowerCase()}">
+              <h3>${titleLabel}</h3>
+              ${summary ? `<p class="severity-summary">${summary}</p>` : ''}
+              ${detail ? `<p class="severity-detail">${detail}</p>` : ''}
+              ${impacts}
+              ${techniques}
+            </div>
+          `;
+        })
+        .filter(Boolean)
+        .join('');
+      const severitySection = severityCardsHtml
+        ? `
+            <div class="section severity-criteria">
+              <h2>How we grade severity</h2>
+              <p class="severity-intro">Severity ratings reflect what SQLMap actually proved during the scan. Critical findings mean stacked (multi-statement) execution was confirmed, which enables data tampering and destructive changes. High findings confirm controllable single statements that expose data or logic through boolean/time-based, error-based, union-based, or classical payloads.</p>
+              <div class="severity-grid">
+                ${severityCardsHtml}
+              </div>
+            </div>
+          `
+        : '';
+
       const humanizeDuration = (ms) => {
         if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return 'N/A';
         const sec = Math.floor(ms / 1000);
@@ -1782,6 +2387,23 @@ class ReportGenerator {
           .report-footer { text-align: center; padding: 20px; font-size: 0.9em; color: #7f8c8d; background: #ecf0f1; }
           ${pdfStyling ? '.pdf-fallback-notice { background: #fffbe6; border: 1px solid #ffd700; border-radius: 5px; padding: 15px; margin: 20px 0; text-align: center; color: #b7950b; } @media print { .pdf-fallback-notice { display: none; } }' : ''}
 
+          .severity-criteria { background:#f8fafc; border-radius:12px; padding:18px; border:1px solid #e1e8f0; }
+          .severity-intro { color:#4b5563; margin-bottom:16px; }
+          .severity-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap:16px; }
+          .severity-card { border-radius:10px; padding:16px; background:#fff; border:1px solid #dbe4f0; box-shadow:0 1px 2px rgba(15,23,42,0.05); }
+          .severity-card h3 { margin-top:0; margin-bottom:8px; }
+          .severity-card p { margin:0 0 8px; color:#334155; }
+          .severity-summary { font-weight:600; }
+          .severity-detail { font-size:0.95em; }
+          .severity-impacts { margin:0 0 8px; padding-left:20px; color:#1f2937; }
+          .severity-techniques { font-size:0.9em; color:#475569; }
+
+          .severity-critical { border-left:5px solid #e74c3c; }
+          .severity-high { border-left:5px solid #e67e22; }
+          .severity-medium { border-left:5px solid #f1c40f; }
+          .severity-low { border-left:5px solid #2ecc71; }
+          .severity-informational { border-left:5px solid #3498db; }
+
           /* New UI additions */
           .verdict { display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:#ecf0f1; padding:16px; border-radius:10px; }
           .badge { display:inline-block; background:#dde6ee; color:#2c3e50; padding:2px 8px; border-radius:999px; font-size:12px; margin-left:6px; }
@@ -1839,6 +2461,8 @@ class ReportGenerator {
                 <p>${scanDurationText}</p>
               </div>
             </div>
+
+            ${severitySection}
 
             <div class="section">
               <h2>Overall verdict</h2>
@@ -1955,11 +2579,53 @@ class ReportGenerator {
     try {
       // Sanitize data if not already sanitized
       const sanitizedData = reportData.metadata ? reportData : this.sanitizeReportData(reportData);
-      
+      const severityCriteria = (sanitizedData.metadata && sanitizedData.metadata.severityCriteria) || this.getSeverityCriteriaOverview();
+      const order = ['critical', 'high', 'medium', 'low', 'informational'];
+      /** @type {Array<{ key: string, label: string, block: string }>} */
+      const severityBlocks = Object.entries(severityCriteria || {}).reduce((acc, [rawKey, info]) => {
+        const key = rawKey.toLowerCase();
+        const label = info?.label || key.charAt(0).toUpperCase() + key.slice(1);
+        const summary = info?.summary;
+        const detail = info?.detail;
+        const impacts = Array.isArray(info?.impacts) ? info.impacts.filter(Boolean) : [];
+        const techniques = Array.isArray(info?.techniques) ? info.techniques.filter(Boolean) : [];
+        const contentParts = [];
+        if (summary) contentParts.push(summary);
+        if (detail) contentParts.push(detail);
+        if (impacts.length) {
+          contentParts.push('**Impact if exploited:**');
+          contentParts.push(impacts.map(impact => `- ${impact}`).join('\n'));
+        }
+        if (techniques.length) {
+          contentParts.push(`**Includes techniques:** ${techniques.join(', ')}`);
+        }
+        const block = contentParts.filter(Boolean).join('\n\n');
+        if (block) acc.push({ key, label, block });
+        return acc;
+      }, []);
+
+      severityBlocks.sort((a, b) => {
+        const ai = order.indexOf(a.key);
+        const bi = order.indexOf(b.key);
+        const aIndex = ai === -1 ? order.length + a.key.localeCompare(b.key) : ai;
+        const bIndex = bi === -1 ? order.length + b.key.localeCompare(a.key) : bi;
+        return aIndex - bIndex;
+      });
+
+      const severitySection = severityBlocks.length
+        ? severityBlocks.map(block => `### ${block.label}\n${block.block}`).join('\n\n')
+        : '_Severity metadata unavailable._';
+
       return `# ${sanitizedData.title}
 
 **Target:** ${sanitizedData.target}
 **Generated:** ${new Date(sanitizedData.metadata.generatedAt).toLocaleString()}
+
+## Severity grading
+
+Severity ratings capture what SQLMap actually proved during the scan. Critical findings confirm stacked multi-statement execution (data tampering risk). High findings confirm controllable single statements that expose sensitive data or logic.
+
+${severitySection}
 
 ## Vulnerabilities (${sanitizedData.vulnerabilities.total})
 

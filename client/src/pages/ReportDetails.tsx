@@ -16,6 +16,72 @@ type OverallVerdict = {
   affectedParameters?: Array<{ param: string; type: string }>;
 };
 
+type SqlmapSummaryEntry = {
+  parameter?: string;
+  method?: string;
+  place?: string;
+  type?: string;
+  title?: string;
+  payload?: string;
+  techniqueName?: string;
+  raw?: string;
+};
+
+type SqlmapSummaryMetadata = {
+  verdictLine?: string;
+  rawSection?: string;
+  confirmed?: SqlmapSummaryEntry[];
+  attempted?: Array<{ technique?: string; line?: string }>;
+};
+
+type SeverityCriteriaEntry = {
+  label?: string;
+  summary?: string;
+  detail?: string;
+  impacts?: string[];
+  techniques?: string[];
+};
+
+type ReportMetadata = Record<string, any> & {
+  overallVerdict?: OverallVerdict;
+  sqlmapSummary?: SqlmapSummaryMetadata;
+  falsePositives?: Record<string, boolean>;
+  severityCriteria?: Record<string, SeverityCriteriaEntry>;
+};
+
+const FALLBACK_SEVERITY_CRITERIA: Record<string, SeverityCriteriaEntry> = {
+  critical: {
+    label: 'Critical',
+    summary: 'Stacked (multi-statement) SQL injection confirmed.',
+    detail:
+      'The scanner proved it can break out of the query and append additional statements (INSERT/UPDATE/DELETE/DDL). Attackers can tamper with or destroy data, and may escalate to file/command execution depending on DB privileges.',
+    impacts: [
+      'Data tampering or destructive writes',
+      'Schema changes such as DROP/ALTER',
+      'Potential file read/write or OS command execution'
+    ],
+    techniques: ['Stacked queries']
+  },
+  high: {
+    label: 'High',
+    summary: 'Single-statement SQL injection confirmed with data access.',
+    detail:
+      'SQLMap demonstrated full control over a query that returns data or metadata (boolean/time-based, error-based, union-based, or classical payloads). Attackers can read sensitive information and pivot further but did not execute multiple statements in one request.',
+    impacts: [
+      'Sensitive data disclosure and credential theft',
+      'Authentication bypass or forced logic changes',
+      'Database enumeration that enables follow-on attacks'
+    ],
+    techniques: [
+      'SQL Injection',
+      'Boolean-based blind SQL injection',
+      'Time-based blind SQL injection',
+      'Error-based SQL injection',
+      'Union query SQL injection'
+    ]
+  }
+};
+
 type Report = {
   id: string;
   title: string;
@@ -50,6 +116,18 @@ type Report = {
         content: string;
         context?: string;
       }>;
+      payload?: string;
+      techniqueSummary?: string;
+      sqlmapMetadata?: {
+        place?: string;
+        method?: string;
+        type?: string;
+        title?: string;
+        payload?: string;
+        raw?: string;
+        technique?: string;
+        csv?: Record<string, unknown>;
+      };
     }>;
   };
   recommendations?: {
@@ -64,7 +142,24 @@ type Report = {
     effort?: string;
     impact?: string;
   }>;
-  metadata?: Record<string, any>;
+  extractedData?: {
+    databases?: string[];
+    tables?: string[];
+    columns?: string[];
+    users?: string[];
+    systemInfo?: {
+      dbms?: string[] | string;
+      banner?: string[] | string;
+      hostname?: string;
+      isDba?: boolean;
+      webTechnology?: string[];
+      webServerOs?: string;
+      dbmsOs?: string;
+    };
+    csvFiles?: Array<{ name: string; path?: string; size?: number; modified?: string | number }>;
+    structuredData?: unknown;
+  };
+  metadata?: ReportMetadata;
 };
 
 
@@ -166,6 +261,121 @@ export default function ReportDetails() {
     return null;
   }, [report]);
 
+  const sqlmapSummary = useMemo<SqlmapSummaryMetadata | null>(() => {
+    const summary = report?.metadata?.sqlmapSummary;
+    if (summary && typeof summary === 'object') {
+      return summary as SqlmapSummaryMetadata;
+    }
+    return null;
+  }, [report]);
+
+  const severityCriteria = useMemo<Record<string, SeverityCriteriaEntry>>(() => {
+    const metaCriteria = (report?.metadata?.severityCriteria || {}) as Record<string, SeverityCriteriaEntry>;
+    const merged: Record<string, SeverityCriteriaEntry> = {};
+    const normalizeKey = (key: string) => key.toLowerCase();
+
+    // Seed with fallback values first so core definitions always exist.
+    for (const [key, value] of Object.entries(FALLBACK_SEVERITY_CRITERIA)) {
+      merged[normalizeKey(key)] = { ...value };
+    }
+
+    if (metaCriteria && typeof metaCriteria === 'object') {
+      for (const [rawKey, value] of Object.entries(metaCriteria)) {
+        if (!value || typeof value !== 'object') continue;
+        const key = normalizeKey(rawKey);
+        const base = merged[key] || {};
+        merged[key] = {
+          ...base,
+          ...value,
+          impacts: Array.isArray(value.impacts) ? value.impacts : base.impacts,
+          techniques: Array.isArray(value.techniques) ? value.techniques : base.techniques
+        };
+      }
+    }
+
+    return merged;
+  }, [report]);
+
+  const severityLegendEntries = useMemo(() => {
+    const order = ['critical', 'high', 'medium', 'low', 'informational'];
+    const entries = Object.entries(severityCriteria || {});
+    const usable = entries
+      .map(([rawKey, info]) => {
+        const key = rawKey.toLowerCase();
+        const label = info?.label || key.charAt(0).toUpperCase() + key.slice(1);
+        const summary = info?.summary?.trim();
+        const detail = info?.detail?.trim();
+        const impacts = Array.isArray(info?.impacts) ? info!.impacts!.filter(Boolean) : [];
+        const techniques = Array.isArray(info?.techniques) ? info!.techniques!.filter(Boolean) : [];
+        const hasContent = Boolean(summary || detail || impacts.length || techniques.length);
+        if (!hasContent) return null;
+        return { key, label, summary, detail, impacts, techniques };
+      })
+      .filter(Boolean) as Array<{
+        key: string;
+        label: string;
+        summary?: string;
+        detail?: string;
+        impacts: string[];
+        techniques: string[];
+      }>;
+
+    usable.sort((a, b) => {
+      const ai = order.indexOf(a.key);
+      const bi = order.indexOf(b.key);
+      const aIndex = ai === -1 ? order.length + a.key.localeCompare(b.key) : ai;
+      const bIndex = bi === -1 ? order.length + b.key.localeCompare(a.key) : bi;
+      return aIndex - bIndex;
+    });
+
+    return usable;
+  }, [severityCriteria]);
+
+  const arrayify = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((item) => (item == null ? '' : String(item))).filter((item) => item.length > 0);
+    }
+    if (typeof value === 'string') {
+      return value.length > 0 ? [value] : [];
+    }
+    return [];
+  };
+
+  const extractionHighlights = useMemo(() => {
+    if (!report?.extractedData) return null;
+    const data = report.extractedData;
+    const systemInfo = data.systemInfo || {};
+    const dbmsList = arrayify(systemInfo.dbms);
+    const bannerList = arrayify(systemInfo.banner);
+    const webTech = arrayify(systemInfo.webTechnology);
+    const databases = Array.isArray(data.databases) ? data.databases.filter(Boolean) : [];
+    const users = Array.isArray(data.users) ? data.users.filter(Boolean) : [];
+    const hasHighlights =
+      dbmsList.length > 0 ||
+      bannerList.length > 0 ||
+      databases.length > 0 ||
+      users.length > 0 ||
+      typeof systemInfo.hostname === 'string' ||
+      typeof systemInfo.isDba === 'boolean' ||
+      typeof systemInfo.webServerOs === 'string' ||
+      typeof systemInfo.dbmsOs === 'string' ||
+      webTech.length > 0;
+
+    if (!hasHighlights) return null;
+
+    return {
+      dbmsList,
+      bannerList,
+      databases,
+      users,
+      hostname: typeof systemInfo.hostname === 'string' ? systemInfo.hostname : undefined,
+      isDba: typeof systemInfo.isDba === 'boolean' ? systemInfo.isDba : undefined,
+      webServerOs: typeof systemInfo.webServerOs === 'string' ? systemInfo.webServerOs : undefined,
+      dbmsOs: typeof systemInfo.dbmsOs === 'string' ? systemInfo.dbmsOs : undefined,
+      webTechnology: webTech
+    };
+  }, [report]);
+
   const overallVerdictChipClass = useMemo(() => {
     const level = (overallVerdict?.level || '').toString().toLowerCase();
     if (level === 'exploited') return 'bg-red-900 text-red-200 border border-red-700';
@@ -237,7 +447,7 @@ export default function ReportDetails() {
   };
 
   const isFalsePositive = (findingId: string) => {
-    const fp = (report as any)?.metadata?.falsePositives || {};
+    const fp = report?.metadata?.falsePositives || {};
     return !!fp[findingId];
   };
 
@@ -257,6 +467,28 @@ export default function ReportDetails() {
       toast.error(e.message || 'Failed to update');
     }
   }
+
+  const copyToClipboard = async (value: string, successMessage = 'Copied to clipboard') => {
+    if (!value) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = value;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      toast.success(successMessage);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to copy to clipboard');
+    }
+  };
   
   const onVerify = async (findingId: string) => {
     if (!report?.id) return;
@@ -631,6 +863,61 @@ export default function ReportDetails() {
           </div>
           )}
 
+        {severityLegendEntries.length > 0 && (
+          <div className="mb-6 rounded-lg border border-gray-700 bg-gray-900/70 p-4">
+            <div className="flex items-start gap-3 mb-3">
+              <Flag className="h-5 w-5 text-orange-300 mt-1" />
+              <div>
+                <h3 className="text-base font-semibold text-white">How we grade severity</h3>
+                <p className="text-xs text-gray-400 mt-1 max-w-3xl">
+                  Critical findings mean SQLMap stacked multiple statements in a single request (data tampering risk). High findings confirm controllable single-statement injection that exposes sensitive data or logic. Medium and Low levels appear only when custom rules downgrade impact.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {severityLegendEntries.map((entry) => (
+                <div key={entry.key} className="rounded-md border border-gray-700 bg-gray-950/60 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-white uppercase tracking-wide">{entry.label}</span>
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        entry.key === 'critical'
+                          ? 'bg-red-500'
+                          : entry.key === 'high'
+                          ? 'bg-orange-400'
+                          : entry.key === 'medium'
+                          ? 'bg-yellow-400'
+                          : entry.key === 'low'
+                          ? 'bg-blue-400'
+                          : 'bg-gray-400'
+                      }`}
+                      aria-hidden="true"
+                    ></span>
+                  </div>
+                  {entry.summary && <p className="text-sm text-gray-200 mb-2">{entry.summary}</p>}
+                  {entry.detail && <p className="text-xs text-gray-400 mb-3 leading-relaxed">{entry.detail}</p>}
+                  {entry.impacts.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide mb-1">Impact if exploited</p>
+                      <ul className="list-disc list-inside text-xs text-gray-400 space-y-1">
+                        {entry.impacts.map((impact, idx) => (
+                          <li key={`${entry.key}-impact-${idx}`}>{impact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {entry.techniques.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide mb-1">Includes techniques</p>
+                      <p className="text-xs text-gray-400">{entry.techniques.join(', ')}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {overallVerdict && (
           <div className="mb-6 rounded-lg border border-gray-700 bg-gray-900/70 p-5 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div className="flex items-start gap-3">
@@ -800,7 +1087,177 @@ export default function ReportDetails() {
                       </div>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-6">
+                      {sqlmapSummary && (
+                        <div className="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-lg">
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                              <FileText size={18} className="text-blue-300" /> SQLMap verdict
+                            </h3>
+                            {sqlmapSummary.verdictLine && (
+                              <span className="text-sm text-gray-300">{sqlmapSummary.verdictLine}</span>
+                            )}
+                          </div>
+
+                          {Array.isArray(sqlmapSummary.confirmed) && sqlmapSummary.confirmed.length > 0 && (
+                            <div className="mt-4 space-y-3">
+                              <div className="text-xs uppercase text-gray-400 tracking-wide">Confirmed injection points</div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                {sqlmapSummary.confirmed.map((entry, idx) => (
+                                  <div key={`${entry.parameter || 'confirmed'}-${idx}`} className="bg-gray-900 border border-gray-700 rounded p-3">
+                                    <div className="flex items-center justify-between text-sm text-gray-200 mb-2">
+                                      <span className="font-semibold break-all">{entry.parameter || 'Unknown parameter'}</span>
+                                      {entry.method && (
+                                        <span className="px-2 py-0.5 bg-gray-800 rounded uppercase text-xs border border-gray-700">
+                                          {entry.method}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {entry.title && <div className="text-xs text-gray-400 mb-1 break-words">{entry.title}</div>}
+                                    {entry.payload && (
+                                      <div className="mt-2">
+                                        <div className="text-xs text-gray-500 uppercase mb-1">Payload</div>
+                                        <div className="bg-black/50 border border-gray-700 rounded p-2 text-xs text-green-300 font-mono break-all">
+                                          {entry.payload}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {entry.raw && (
+                                      <details className="mt-2 text-xs text-gray-400">
+                                        <summary className="cursor-pointer text-gray-500 hover:text-gray-300">View raw block</summary>
+                                        <pre className="mt-1 whitespace-pre-wrap break-words bg-gray-950 border border-gray-800 rounded p-2 text-[11px] text-gray-300">
+                                          {entry.raw}
+                                        </pre>
+                                      </details>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {sqlmapSummary.attempted && sqlmapSummary.attempted.length > 0 && (
+                            <details className="mt-4 text-xs text-gray-400">
+                              <summary className="cursor-pointer text-gray-500 hover:text-gray-300">
+                                {sqlmapSummary.attempted.length} additional technique checks
+                              </summary>
+                              <ul className="mt-2 space-y-1 list-disc list-inside text-gray-400">
+                                {sqlmapSummary.attempted.slice(0, 8).map((attempt, idx) => (
+                                  <li key={idx}>{attempt.technique || attempt.line || 'Unknown technique'}</li>
+                                ))}
+                                {sqlmapSummary.attempted.length > 8 && (
+                                  <li>+ {sqlmapSummary.attempted.length - 8} more</li>
+                                )}
+                              </ul>
+                            </details>
+                          )}
+
+                          {sqlmapSummary.rawSection && (
+                            <details className="mt-4 text-xs text-gray-400">
+                              <summary className="cursor-pointer text-gray-500 hover:text-gray-300">Raw SQLMap summary</summary>
+                              <pre className="mt-2 whitespace-pre-wrap break-words bg-gray-950 border border-gray-800 rounded p-3 text-[11px] text-gray-300">
+                                {sqlmapSummary.rawSection}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      )}
+
+                      {extractionHighlights && (
+                        <div className="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-lg">
+                          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                            <ExternalLink size={18} className="text-emerald-300" /> Data extracted during exploitation
+                          </h3>
+                          <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm text-gray-200">
+                            {extractionHighlights.dbmsList.length > 0 && (
+                              <div>
+                                <div className="text-xs uppercase text-gray-500 mb-1">DBMS</div>
+                                <ul className="space-y-1">
+                                  {extractionHighlights.dbmsList.map((value, idx) => (
+                                    <li key={`dbms-${idx}`} className="break-words">{value}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {extractionHighlights.bannerList.length > 0 && (
+                              <div>
+                                <div className="text-xs uppercase text-gray-500 mb-1">Banner</div>
+                                <ul className="space-y-1">
+                                  {extractionHighlights.bannerList.map((value, idx) => (
+                                    <li key={`banner-${idx}`} className="break-words">{value}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {extractionHighlights.databases.length > 0 && (
+                              <div>
+                                <div className="text-xs uppercase text-gray-500 mb-1">Databases</div>
+                                <ul className="space-y-1">
+                                  {extractionHighlights.databases.map((db, idx) => (
+                                    <li key={`database-${idx}`} className="break-all font-mono text-green-300">{db}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {extractionHighlights.users.length > 0 && (
+                              <div>
+                                <div className="text-xs uppercase text-gray-500 mb-1">Users</div>
+                                <ul className="space-y-1">
+                                  {extractionHighlights.users.map((user, idx) => (
+                                    <li key={`user-${idx}`} className="break-all">{user}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {extractionHighlights.hostname && (
+                              <div>
+                                <div className="text-xs uppercase text-gray-500 mb-1">Database host</div>
+                                <div className="break-all">{extractionHighlights.hostname}</div>
+                              </div>
+                            )}
+
+                            {typeof extractionHighlights.isDba === 'boolean' && (
+                              <div>
+                                <div className="text-xs uppercase text-gray-500 mb-1">DBA privileges</div>
+                                <div
+                                  className={`inline-flex items-center px-2 py-1 rounded ${extractionHighlights.isDba ? 'bg-red-900/40 text-red-200 border border-red-600' : 'bg-gray-900 text-gray-300 border border-gray-700'}`}
+                                >
+                                  {extractionHighlights.isDba ? 'Yes (high risk)' : 'No'}
+                                </div>
+                              </div>
+                            )}
+
+                            {extractionHighlights.webTechnology.length > 0 && (
+                              <div className="md:col-span-2">
+                                <div className="text-xs uppercase text-gray-500 mb-1">Web technology stack</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {extractionHighlights.webTechnology.map((tech, idx) => (
+                                    <span key={`tech-${idx}`} className="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-xs">{tech}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {extractionHighlights.webServerOs && (
+                              <div>
+                                <div className="text-xs uppercase text-gray-500 mb-1">Web server OS</div>
+                                <div>{extractionHighlights.webServerOs}</div>
+                              </div>
+                            )}
+
+                            {extractionHighlights.dbmsOs && (
+                              <div>
+                                <div className="text-xs uppercase text-gray-500 mb-1">DBMS OS</div>
+                                <div>{extractionHighlights.dbmsOs}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <div>
                         <h4 className="text-sm font-semibold text-gray-300 mb-1">Description</h4>
                         <p className="text-gray-200">{vuln.description}</p>
@@ -817,6 +1274,56 @@ export default function ReportDetails() {
                             )}
                             <code className="bg-gray-900 px-2 py-1 rounded text-green-400">{parameterName}</code>
                           </div>
+                        </div>
+                      )}
+
+                      {vuln.payload && typeof vuln.payload === 'string' && vuln.payload.trim().length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-300 mb-1">Confirmed Payload</h4>
+                          <div className="bg-gray-900 border border-gray-700 rounded p-3 text-xs md:text-sm text-green-300 font-mono break-all relative">
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(vuln.payload!, 'Payload copied to clipboard')}
+                              className="absolute top-2 right-2 text-xs px-2 py-1 bg-gray-800 border border-gray-600 rounded text-gray-200 hover:bg-gray-700"
+                            >
+                              Copy
+                            </button>
+                            {vuln.payload}
+                          </div>
+                        </div>
+                      )}
+
+                      {vuln.sqlmapMetadata && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-300 mb-1">SQLMap Context</h4>
+                          <div className="grid gap-2 text-xs md:text-sm text-gray-200">
+                            {(vuln.sqlmapMetadata.type || vuln.techniqueSummary) && (
+                              <div>
+                                <span className="text-gray-500 uppercase text-[11px] mr-1">Technique</span>
+                                <span className="text-gray-200">{vuln.sqlmapMetadata.type || vuln.techniqueSummary}</span>
+                              </div>
+                            )}
+                            {vuln.sqlmapMetadata.title && (
+                              <div>
+                                <span className="text-gray-500 uppercase text-[11px] mr-1">Title</span>
+                                <span className="text-gray-200 break-words">{vuln.sqlmapMetadata.title}</span>
+                              </div>
+                            )}
+                            {vuln.sqlmapMetadata.payload && !vuln.payload && (
+                              <div className="text-gray-200">
+                                <span className="text-gray-500 uppercase text-[11px] mr-1">Payload</span>
+                                <span className="font-mono text-green-300 break-all">{vuln.sqlmapMetadata.payload}</span>
+                              </div>
+                            )}
+                          </div>
+                          {vuln.sqlmapMetadata.raw && (
+                            <details className="mt-2 text-xs text-gray-400">
+                              <summary className="cursor-pointer text-gray-500 hover:text-gray-300">View raw SQLMap block</summary>
+                              <pre className="mt-2 whitespace-pre-wrap break-words bg-gray-950 border border-gray-800 rounded p-3 text-[11px] text-gray-300">
+                                {vuln.sqlmapMetadata.raw}
+                              </pre>
+                            </details>
+                          )}
                         </div>
                       )}
 

@@ -275,7 +275,7 @@ app.get('/api/sqlmap/profiles', async (req, res) => {
 // Server-side validation of flags/profile (no sqlmap spawn)
 app.post('/api/sqlmap/validate', async (req, res) => {
   try {
-    const { target = '', profile = 'basic', customFlags = '', options = {} } = req.body || {};
+  const { target = '', profile = 'basic', customFlags = '' } = req.body || {};
     const result = { ok: true, disallowed: [], warnings: [], normalizedArgs: [], commandPreview: '', description: '', impact: { speed: 'medium', stealth: 'medium', exfil: 'low' } };
 
     // Validate/normalize flags using server whitelist
