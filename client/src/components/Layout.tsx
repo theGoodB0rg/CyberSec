@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, Link } from 'react-router-dom'
 import {
   HomeIcon,
   ComputerDesktopIcon,
@@ -12,6 +12,7 @@ import {
   ShieldCheckIcon,
   Bars3Icon,
   XMarkIcon,
+  CheckCircleIcon,
 } from '@heroicons/react/24/outline'
 import { useAppStore } from '../store/appStore'
 import clsx from 'clsx'
@@ -30,7 +31,7 @@ const navigation = [
 export default function Layout() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { isConnected, runningScans, currentUser, logout } = useAppStore()
+  const { isConnected, runningScans, currentUser, logout, reportNotifications, dismissReportNotification } = useAppStore()
   const location = useLocation()
 
   // Minimal telemetry: send a visit event on route change (privacy-respecting)
@@ -319,6 +320,46 @@ export default function Layout() {
           </div>
         </main>
       </div>
+
+      {/* Report ready prompts */}
+      {reportNotifications.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-40 space-y-3">
+          {reportNotifications.map((notification) => (
+            <div
+              key={notification.id}
+              className="w-80 bg-gray-900 border border-blue-500/30 rounded-lg shadow-xl p-4"
+            >
+              <div className="flex items-start space-x-3">
+                <CheckCircleIcon className="h-6 w-6 text-emerald-400" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-white">Report ready</p>
+                  <p className="text-xs text-gray-300 mt-1">
+                    {notification.target
+                      ? `Your scan for ${notification.target} has finished. Review the findings in the report.`
+                      : 'Your scan has finished and a report is ready to review.'}
+                  </p>
+                  <div className="mt-3 flex space-x-2">
+                    <Link
+                      to={`/reports/${notification.reportId}`}
+                      onClick={() => dismissReportNotification(notification.id)}
+                      className="flex-1 inline-flex items-center justify-center px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+                    >
+                      View report
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => dismissReportNotification(notification.id)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors"
+                    >
+                      Later
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

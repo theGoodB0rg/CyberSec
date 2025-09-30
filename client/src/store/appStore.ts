@@ -61,6 +61,16 @@ export interface Report {
   }
 }
 
+export interface ReportNotification {
+  id: string
+  scanId: string
+  reportId: string
+  target?: string
+  status: 'completed' | 'failed'
+  createdAt: string
+  exitCode?: number | null
+}
+
 export interface Scan {
   id: string
   target: string
@@ -129,6 +139,9 @@ interface AppState {
   terminalSelectedProfile: string
   terminalCustomFlags: string
   lastCustomFlagsByUser: Record<string, string>
+
+  // Report notifications
+  reportNotifications: ReportNotification[]
   
   // Computed properties
   runningScans: Scan[]
@@ -185,6 +198,10 @@ interface AppActions {
   
   // Loading state
   setLoading: (loading: boolean) => void
+
+  // Report notifications
+  enqueueReportNotification: (notification: ReportNotification) => void
+  dismissReportNotification: (notificationId: string) => void
 }
 
 const defaultSettings: Settings = {
@@ -261,6 +278,7 @@ export const useAppStore = create<AppState & AppActions>()(
   terminalSelectedProfile: 'basic',
   terminalCustomFlags: '',
   lastCustomFlagsByUser: {},
+    reportNotifications: [],
 
         // Computed properties
         get runningScans() {
@@ -592,6 +610,25 @@ export const useAppStore = create<AppState & AppActions>()(
         setLoading: (loading) => {
           set((state) => {
             state.isLoading = loading
+          })
+        },
+
+        enqueueReportNotification: (notification) => {
+          set((state) => {
+            // Prevent duplicates for the same report in quick succession
+            const exists = state.reportNotifications.some((n) => n.reportId === notification.reportId)
+            if (!exists) {
+              state.reportNotifications.unshift(notification)
+              if (state.reportNotifications.length > 3) {
+                state.reportNotifications = state.reportNotifications.slice(0, 3)
+              }
+            }
+          })
+        },
+
+        dismissReportNotification: (notificationId) => {
+          set((state) => {
+            state.reportNotifications = state.reportNotifications.filter((n) => n.id !== notificationId)
           })
         },
       })),

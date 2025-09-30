@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { io, Socket } from 'socket.io-client'
 import { useAppStore } from '../store/appStore'
 import toast from 'react-hot-toast'
+import { CheckCircleIcon } from '@heroicons/react/24/outline'
+import { apiFetch } from '@/utils/api'
 
 interface SocketContextType {
   socket: Socket | null
@@ -28,7 +31,19 @@ interface SocketProviderProps {
 export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const { setConnected, upsertScanFromEvent, loadRunningScans, updateScan, addReport, addTerminalOutput, authToken, isAuthenticated } = useAppStore()
+  const {
+    setConnected,
+    upsertScanFromEvent,
+    loadRunningScans,
+    loadReports,
+    updateScan,
+    addReport,
+    addTerminalOutput,
+    enqueueReportNotification,
+    dismissReportNotification,
+    authToken,
+    isAuthenticated,
+  } = useAppStore()
 
   // Derive WS host once
   const WS_HOST = useMemo(() => {
@@ -108,17 +123,97 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       updateScan(scanId, { output: output })
     })
 
-    socketInstance.on('scan-completed', (data) => {
-      const { scanId, status } = data
+    socketInstance.on('scan-completed', async (data) => {
+      const { scanId, status, reportId, exit_code, target: eventTarget } = data || {}
       console.log('Scan completed:', data)
-      
-      updateScan(scanId, { 
+
+      const exitCode = typeof exit_code === 'number' ? exit_code : null
+
+      updateScan(scanId, {
         status: status,
-        endTime: new Date().toISOString()
+        endTime: new Date().toISOString(),
+        exitCode: exitCode ?? undefined,
       })
-      
+
       if (status === 'completed') {
-        toast.success('Scan completed successfully')
+        const hasReportId = typeof reportId === 'string' && reportId.length > 0
+        let resolvedTarget: string | undefined = eventTarget
+
+        if (hasReportId) {
+          try {
+            const existing = useAppStore.getState().reports.find((r) => r.id === reportId)
+            if (!existing) {
+              const freshReport = await apiFetch(`/api/reports/${encodeURIComponent(reportId)}`)
+              if (freshReport) {
+                addReport(freshReport as any)
+                resolvedTarget = (freshReport as any)?.target ?? resolvedTarget
+              }
+            } else {
+              resolvedTarget = existing.target || resolvedTarget
+            }
+          } catch (error) {
+            console.error('Failed to fetch report after scan completion', error)
+            await loadReports().catch(() => {})
+          }
+        } else {
+          await loadReports().catch(() => {})
+        }
+
+        const fallbackTarget =
+          resolvedTarget || useAppStore.getState().scans.find((scan) => scan.id === scanId)?.target
+
+        if (hasReportId) {
+          const notificationId = `report-${reportId}-${Date.now()}`
+          enqueueReportNotification({
+            id: notificationId,
+            scanId,
+            reportId,
+            target: fallbackTarget,
+            status: 'completed',
+            createdAt: new Date().toISOString(),
+            exitCode,
+          })
+
+          toast.custom((t) => (
+            <div className="flex items-start space-x-3 bg-gray-900 border border-blue-500/40 rounded-lg shadow-xl p-4 w-80">
+              <CheckCircleIcon className="h-6 w-6 text-emerald-400 mt-1" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-white">Report ready</p>
+                <p className="text-xs text-gray-300 mt-1">
+                  {fallbackTarget
+                    ? `Scan for ${fallbackTarget} finished. The report is ready to review.`
+                    : 'Scan finished successfully. The report is ready to review.'}
+                </p>
+                <div className="mt-3 flex space-x-2">
+                  <Link
+                    to={`/reports/${reportId}`}
+                    onClick={() => {
+                      toast.dismiss(t.id)
+                      dismissReportNotification(notificationId)
+                    }}
+                    className="inline-flex items-center justify-center px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+                  >
+                    View report
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toast.dismiss(t.id)
+                      dismissReportNotification(notificationId)
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          ), {
+            duration: 8000,
+          })
+        } else {
+          toast.success('Scan completed successfully')
+        }
       } else {
         toast.error('Scan failed')
       }
@@ -202,7 +297,20 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     }
   // Recreate socket when authToken changes (login/logout) so the server sees
   // updated credentials without a full page refresh.
-  }, [WS_HOST, authToken, isAuthenticated, setConnected, upsertScanFromEvent, loadRunningScans, updateScan, addReport, addTerminalOutput])
+  }, [
+    WS_HOST,
+    authToken,
+    isAuthenticated,
+    setConnected,
+    upsertScanFromEvent,
+    loadRunningScans,
+    loadReports,
+    updateScan,
+    addReport,
+    addTerminalOutput,
+    enqueueReportNotification,
+    dismissReportNotification,
+  ])
 
   const emit = (event: string, data?: any) => {
     if (socket && isConnected) {

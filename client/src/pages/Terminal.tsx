@@ -141,17 +141,25 @@ export default function Terminal() {
     }
 
   // Server emits 'scan-completed'; keep backward compatibility if older event name was used
-  const handleScanComplete = (data: { scanId: string; result: any }) => {
+  const handleScanComplete = (data: { scanId: string; status?: string; reportId?: string; exit_code?: number }) => {
       setIsScanning(false)
-      
+
       if (xtermRef.current) {
         xtermRef.current.writeln('')
-        xtermRef.current.writeln('\\x1b[1;32m✓ Scan completed successfully!\\x1b[0m')
+        if (data.status === 'failed') {
+          xtermRef.current.writeln('\x1b[1;31m✗ Scan finished with a failure status. Review the report or logs for details.\x1b[0m')
+        } else {
+          xtermRef.current.writeln('\x1b[1;32m✓ Scan completed successfully!\x1b[0m')
+        }
+        if (data.reportId) {
+          xtermRef.current.writeln(`\x1b[36mReport ID: ${data.reportId}\x1b[0m`)
+        }
         xtermRef.current.writeln('')
       }
 
-      updateScan(data.scanId, { status: 'completed' })
-      toast.success('Scan completed successfully!')
+      if (data.scanId) {
+        updateScan(data.scanId, { status: (data.status as any) || 'completed' })
+      }
     }
 
     const handleScanError = (data: { scanId?: string; message?: string; error?: string }) => {
