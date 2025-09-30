@@ -82,6 +82,41 @@ const FALLBACK_SEVERITY_CRITERIA: Record<string, SeverityCriteriaEntry> = {
   }
 };
 
+type SeverityVisualStyle = {
+  card: string;
+  badge: string;
+};
+
+const DEFAULT_SEVERITY_STYLE: SeverityVisualStyle = {
+  card: 'border border-gray-700/70 border-l-4 border-gray-500 bg-gray-800 text-gray-100',
+  badge: 'bg-gray-700 text-gray-100 border border-gray-500'
+};
+
+const SEVERITY_STYLE_MAP: Record<string, SeverityVisualStyle> = {
+  critical: {
+    card: 'border border-red-800/60 border-l-4 border-red-500 bg-gradient-to-br from-red-950 via-red-900 to-red-800 text-gray-100',
+    badge: 'bg-red-600 text-white border border-red-300'
+  },
+  high: {
+    card: 'border border-orange-800/60 border-l-4 border-orange-500 bg-gradient-to-br from-orange-950 via-orange-900 to-orange-800 text-gray-100',
+    badge: 'bg-orange-500 text-white border border-orange-200'
+  },
+  medium: {
+    card: 'border border-amber-700/60 border-l-4 border-amber-500 bg-gradient-to-br from-amber-950 via-amber-900 to-amber-800 text-gray-100',
+    badge: 'bg-amber-400 text-gray-900 border border-amber-200'
+  },
+  low: {
+    card: 'border border-sky-800/60 border-l-4 border-sky-500 bg-gradient-to-br from-sky-950 via-sky-900 to-sky-800 text-gray-100',
+    badge: 'bg-sky-500 text-white border border-sky-200'
+  }
+};
+
+const getSeverityStyles = (severity?: string): SeverityVisualStyle => {
+  if (!severity) return DEFAULT_SEVERITY_STYLE;
+  const key = severity.toLowerCase();
+  return SEVERITY_STYLE_MAP[key] || DEFAULT_SEVERITY_STYLE;
+};
+
 type Report = {
   id: string;
   title: string;
@@ -409,21 +444,6 @@ export default function ReportDetails() {
     fetchEvents();
   }, [activeTab, scanId]);
 
-  const getSeverityClass = (severity: string) => {
-    switch (severity?.toLowerCase()) {
-      case 'critical':
-        return 'bg-red-800 text-red-100 border-red-600';
-      case 'high':
-        return 'bg-orange-800 text-orange-100 border-orange-600';
-      case 'medium':
-        return 'bg-yellow-800 text-yellow-100 border-yellow-600';
-      case 'low':
-        return 'bg-blue-800 text-blue-100 border-blue-600';
-      default:
-        return 'bg-gray-700 text-gray-200 border-gray-600';
-    }
-  };
-  
   const formatConfidence = (score?: number) => {
     if (typeof score !== 'number') return '—';
     return `${Math.round(Math.min(1, Math.max(0, score)) * 100)}%`;
@@ -998,10 +1018,10 @@ export default function ReportDetails() {
                 })();
                 const statusChipClass =
                   statusKey === 'confirmed'
-                    ? 'bg-green-900 text-green-200 border border-green-700'
+                    ? 'bg-emerald-600 text-white border border-emerald-400'
                     : statusKey === 'suspected'
-                      ? 'bg-yellow-900 text-yellow-200 border border-yellow-700'
-                      : 'bg-gray-700 text-gray-200 border border-gray-600';
+                      ? 'bg-amber-500 text-gray-900 border border-amber-300'
+                      : 'bg-slate-600 text-white border border-slate-400';
                 const confidenceScoreText = typeof effectiveScore === 'number' ? formatConfidence(effectiveScore) : undefined;
                 const httpMethod = vuln.httpMethod || (vuln as any).http_method || (vuln as any).method || null;
                 const signals = Array.isArray(vuln.signals)
@@ -1012,9 +1032,10 @@ export default function ReportDetails() {
                 const whyShown = verifyResult[vuln.id]?.why || vuln.why;
                 const discoveredAt = vuln.discoveredAt || (vuln as any).discovered_at;
                 const parameterName = vuln.parameter || (vuln as any).parameter || 'Unknown';
+                const severityStyle = getSeverityStyles(vuln.severity);
 
                 return (
-                  <div key={vuln.id} className={`bg-gray-750 p-6 rounded-lg border-l-4 ${getSeverityClass(vuln.severity)} shadow-lg`}>
+                  <div key={vuln.id} className={`${severityStyle.card} p-6 rounded-lg shadow-lg`}>
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="text-xl font-semibold text-white">{vuln.type}</h3>
@@ -1035,19 +1056,19 @@ export default function ReportDetails() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-sm font-bold uppercase px-3 py-1 rounded-full ${getSeverityClass(vuln.severity)}`}>
+                        <span className={`text-sm font-bold uppercase px-3 py-1 rounded-full ${severityStyle.badge}`}>
                           {vuln.severity}
                         </span>
                         {verificationLabel && (
                           <span
                             className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                               verificationLabel === 'Confirmed'
-                                ? 'bg-green-900 text-green-200 border border-green-700'
+                                ? 'bg-emerald-600 text-white border border-emerald-400'
                                 : verificationLabel === 'Likely'
-                                  ? 'bg-yellow-900 text-yellow-200 border border-yellow-700'
+                                  ? 'bg-amber-500 text-gray-900 border border-amber-300'
                                   : verificationLabel === 'Inconclusive'
-                                    ? 'bg-orange-900 text-orange-200 border border-orange-700'
-                                    : 'bg-gray-700 text-gray-200 border border-gray-600'
+                                    ? 'bg-orange-500 text-white border border-orange-300'
+                                    : 'bg-slate-600 text-white border border-slate-400'
                             }`}
                             title={`Verification: ${verificationLabel}`}
                           >
@@ -1072,9 +1093,9 @@ export default function ReportDetails() {
                           {verifying[vuln.id] ? 'Verifying…' : 'Verify'}
                         </button>
                         <button
-                          className={`ml-2 px-2 py-1 rounded text-xs border ${
+                          className={`ml-2 px-2 py-1 rounded text-xs border transition-colors ${
                             isFalsePositive(vuln.id)
-                              ? 'bg-red-900/40 border-red-700 text-red-200'
+                              ? 'bg-red-700/40 border-red-400 text-white'
                               : 'bg-gray-700 border-gray-600 text-gray-200'
                           }`}
                           onClick={() => toggleFalsePositive(vuln.id)}

@@ -2417,6 +2417,11 @@ class ReportGenerator {
           .tech-table th { background:#f8fafc; font-weight:600; }
           .table-wrap { overflow:auto; border:1px solid #eee; border-radius:8px; }
           .details summary { cursor:pointer; color:#2c3e50; font-weight:600; margin:8px 0; }
+          .confidence-note { background:#f1f5f9; border:1px solid #d5e3f6; border-radius:10px; padding:12px 16px; }
+          .confidence-note summary { background:#e7f1ff; border-radius:8px; margin:-12px -16px 12px; padding:12px 16px; }
+          .confidence-note[open] summary { border-bottom:1px solid #d5e3f6; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+          .confidence-note p { margin:0 0 12px; color:#334155; }
+          .confidence-note ul { margin:0 0 12px; padding-left:20px; }
           .payload { background:#f7f7f7; padding:12px; border-radius:8px; overflow:auto; }
           .evidence-row { display:flex; gap:10px; align-items:flex-start; padding:6px 0; border-bottom:1px dashed #eee; }
           .evidence-row .line { color:#7f8c8d; min-width:40px; font-family:monospace; }
@@ -2493,6 +2498,20 @@ class ReportGenerator {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            <div class="section">
+              <h2>Confidence scoring</h2>
+              <details class="details confidence-note">
+                <summary>Why confirmed findings can show 90%–99% confidence</summary>
+                <p>Each technique SQLMap tries (error-based, boolean, time delay, union, stacked, etc.) gets its own confidence score. Even when a payload works, the tool keeps a little margin because different checks can return noisy signals.</p>
+                <ul>
+                  <li><strong>Multiple techniques:</strong> Scores reflect the reliability of the specific method, not a single global verdict.</li>
+                  <li><strong>Protection against false positives:</strong> The remaining few percent covers edge cases like flaky responses or defensive systems altering replies.</li>
+                  <li><strong>Anything above ~90% is treated as confirmed:</strong> In practice, these findings have already been demonstrated with working evidence.</li>
+                </ul>
+                <p>If a score ever drops much lower, investigate manually before acting on the result.</p>
+              </details>
             </div>
 
             <div class="section">
