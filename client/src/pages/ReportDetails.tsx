@@ -256,11 +256,27 @@ export default function ReportDetails() {
                 ok: true,
                 label: v.label,
                 score: v.score,
-                confirmations: v.confirmations,
-                signals: v.signals,
+                confirmations: Array.isArray(v.confirmations)
+                  ? v.confirmations
+                  : typeof v.confirmations === 'string'
+                    ? [v.confirmations]
+                    : undefined,
+                signals: Array.isArray(v.signals)
+                  ? v.signals
+                  : typeof v.signals === 'string'
+                    ? [v.signals]
+                    : undefined,
                 wafDetected: !!v.wafDetected,
                 suggestions: Array.isArray(v.suggestions) ? v.suggestions : undefined,
-                why: 'Persisted verification summary'
+                why: 'Persisted verification summary',
+                seededPayloads: Array.isArray(v.payloadsTested) ? v.payloadsTested.filter((value: any) => typeof value === 'string' && value.trim().length > 0) : undefined,
+                payloadConfirmed: typeof v.payloadConfirmed === 'boolean' ? v.payloadConfirmed : undefined,
+                baselineConfidence: v.baselineConfidence && typeof v.baselineConfidence === 'object'
+                  ? {
+                      label: typeof v.baselineConfidence.label === 'string' ? v.baselineConfidence.label : null,
+                      score: typeof v.baselineConfidence.score === 'number' ? v.baselineConfidence.score : null
+                    }
+                  : undefined
               };
               if (v.at) meta[fid] = { at: v.at };
             }
@@ -455,15 +471,19 @@ export default function ReportDetails() {
     return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
-  const getEffectiveConfidence = (findingId: string, fallbackLabel?: string, fallbackScore?: number) => {
-    const verified = verifyResult[findingId];
-    if (verified?.ok) {
-      return {
-        label: verified.label ?? fallbackLabel,
-        score: typeof verified.score === 'number' ? verified.score : fallbackScore
-      };
-    }
-    return { label: fallbackLabel, score: fallbackScore };
+  const composeConfidenceText = (label?: string | null, scoreText?: string | null) => {
+    if (!label && !scoreText) return 'Unknown';
+    if (!label) return scoreText || 'Unknown';
+    return scoreText ? `${label} (${scoreText})` : label;
+  };
+
+  const getVerificationChipClass = (label?: string | null) => {
+    const lowered = String(label || '').toLowerCase();
+    if (lowered === 'confirmed') return 'bg-emerald-600 text-white border border-emerald-400';
+    if (lowered === 'likely') return 'bg-amber-500 text-gray-900 border border-amber-300';
+    if (lowered === 'inconclusive') return 'bg-orange-500 text-white border border-orange-300';
+    if (lowered === 'suspected') return 'bg-rose-500 text-white border border-rose-300';
+    return 'bg-slate-600 text-white border border-slate-400';
   };
 
   const isFalsePositive = (findingId: string) => {
@@ -984,17 +1004,27 @@ export default function ReportDetails() {
 
           {report.vulnerabilities?.findings?.length > 0 ? (
             <>
+              <div className="bg-gray-900/70 border border-gray-700 rounded-lg p-4 text-xs text-gray-300 leading-relaxed">
+                <p className="font-semibold text-gray-200 mb-1">How to read the confidence badges</p>
+                <p>
+                  <span className="text-gray-100">SQLMap</span> shows the confidence recorded during the full automated scan.
+                  The <span className="text-gray-100">Quick verify</span> badge replays lightweight boolean / time / error probes
+                  and, when possible, the strongest SQLMap payload. Use it as a fast sanity check: it adds confidence but never
+                  lowers the original SQLMap score. Read both values together when deciding remediation.
+                </p>
+              </div>
+
               {(showFalsePositivesOnly
                 ? report.vulnerabilities.findings.filter((f) => isFalsePositive(f.id))
                 : report.vulnerabilities.findings
               ).map((vuln) => {
-                const { label: effectiveLabel, score: effectiveScore } = getEffectiveConfidence(
-                  vuln.id,
-                  vuln.confidenceLabel,
-                  vuln.confidenceScore
-                );
-                const verificationLabel = verifyResult[vuln.id]?.label;
+                const sqlmapLabel = vuln.confidenceLabel || 'Unknown';
+                const sqlmapScoreText = typeof vuln.confidenceScore === 'number' ? formatConfidence(vuln.confidenceScore) : null;
+                const sqlmapConfidenceText = composeConfidenceText(sqlmapLabel, sqlmapScoreText);
                 const verifyDetails = verifyResult[vuln.id];
+                const verificationLabel = verifyDetails?.label;
+                const verificationScoreText = typeof verifyDetails?.score === 'number' ? formatConfidence(verifyDetails.score) : null;
+                const verificationConfidenceText = composeConfidenceText(verificationLabel, verificationScoreText);
                 const verifyDom = verifyDetails?.dom;
                 const verifySuggestions = verifyDetails?.suggestions ?? [];
                 const verifyConfirmations = verifyDetails?.confirmations ?? [];
@@ -1005,24 +1035,45 @@ export default function ReportDetails() {
                   wafIndicators?.body ? 'body' : undefined,
                   wafIndicators?.status ? 'status' : undefined
                 ].filter((value): value is string => typeof value === 'string');
+                const seededPayloads = Array.isArray(verifyDetails?.seededPayloads)
+                  ? verifyDetails.seededPayloads.filter((value) => typeof value === 'string' && value.trim().length > 0)
+                  : [];
+                const payloadAttempts = Array.isArray(verifyDetails?.payloadAttempts) ? verifyDetails.payloadAttempts : [];
+                const payloadHit = Array.isArray(verifyDetails?.confirmations)
+                  ? verifyDetails.confirmations.includes('payload')
+                  : !!verifyDetails?.payloadConfirmed;
+                const quickVerifyTitle = verifyDetails
+                  ? payloadHit
+                    ? 'Quick verifier replayed the strongest SQLMap payload and detected a response delta'
+                    : seededPayloads.length > 0
+                      ? 'Quick verifier replayed SQLMap payloads but did not observe meaningful variance'
+                      : 'Quick verifier runs lightweight boolean/time/error probes based on a safe baseline'
+                  : 'Quick verifier has not been run yet';
+                const baselineConfidence = verifyDetails?.baselineConfidence;
+                const baselineConfidenceText = baselineConfidence
+                  ? composeConfidenceText(
+                      baselineConfidence.label ?? undefined,
+                      typeof baselineConfidence.score === 'number' ? formatConfidence(baselineConfidence.score) : null
+                    )
+                  : null;
                 const statusKey = (() => {
-                  if (verificationLabel) {
+                  const base = (vuln.status || sqlmapLabel || 'tested').toString().toLowerCase() || 'tested';
+                  if (verifyDetails?.ok && verificationLabel) {
                     const lowered = verificationLabel.toLowerCase();
                     if (lowered === 'confirmed') return 'confirmed';
-                    if (lowered === 'likely' || lowered === 'suspected' || lowered === 'inconclusive') return 'suspected';
-                    return lowered;
+                    if (lowered === 'likely' && base !== 'confirmed') return 'likely';
+                    if (lowered === 'suspected' && !['confirmed', 'likely'].includes(base)) return 'suspected';
+                    if (lowered === 'inconclusive') return base;
                   }
-                  const base = (vuln.status || effectiveLabel || 'tested').toString().toLowerCase();
-                  if (!base) return 'tested';
                   return base;
                 })();
+                const statusToneKey = statusKey === 'likely' ? 'suspected' : statusKey;
                 const statusChipClass =
-                  statusKey === 'confirmed'
+                  statusToneKey === 'confirmed'
                     ? 'bg-emerald-600 text-white border border-emerald-400'
-                    : statusKey === 'suspected'
+                    : statusToneKey === 'suspected'
                       ? 'bg-amber-500 text-gray-900 border border-amber-300'
                       : 'bg-slate-600 text-white border border-slate-400';
-                const confidenceScoreText = typeof effectiveScore === 'number' ? formatConfidence(effectiveScore) : undefined;
                 const httpMethod = vuln.httpMethod || (vuln as any).http_method || (vuln as any).method || null;
                 const signals = Array.isArray(vuln.signals)
                   ? vuln.signals
@@ -1041,12 +1092,27 @@ export default function ReportDetails() {
                         <h3 className="text-xl font-semibold text-white">{vuln.type}</h3>
                         <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-300">
                           <span className={`px-2 py-0.5 rounded ${statusChipClass}`}>Status: {formatStatus(statusKey)}</span>
-                          {(verificationLabel || effectiveLabel) && (
-                            <span className="px-2 py-0.5 rounded bg-gray-700">
-                              Confidence: {verificationLabel || effectiveLabel}
-                              {confidenceScoreText ? ` (${confidenceScoreText})` : ''}
-                            </span>
-                          )}
+                          <span className="px-2 py-0.5 rounded bg-gray-700" title="Confidence recorded by SQLMap during the original scan">
+                            SQLMap: {sqlmapConfidenceText}
+                          </span>
+                          {verifyDetails
+                            ? (
+                              <span
+                                className={`px-2 py-0.5 rounded ${getVerificationChipClass(verificationLabel)}`}
+                                title={quickVerifyTitle}
+                              >
+                                Quick verify: {verifyDetails.ok ? verificationConfidenceText : 'Failed'}
+                                {payloadHit && (
+                                  <span className="ml-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-emerald-100">
+                                    <CheckCircle size={12} /> payload
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-gray-800 text-gray-300" title="No manual verification has been run yet">
+                                Quick verify: Not run
+                              </span>
+                            )}
                           {httpMethod && (
                             <span className="px-2 py-0.5 rounded bg-gray-700 uppercase tracking-wide">Method: {httpMethod}</span>
                           )}
@@ -1348,15 +1414,27 @@ export default function ReportDetails() {
                         </div>
                       )}
 
-                      {(verificationLabel || effectiveLabel) && (
-                        <div>
-                          <h4 className="text-sm font-semibold text-gray-300 mb-1">Confidence</h4>
-                          <p className="text-gray-200">
-                            {(verificationLabel || effectiveLabel) ?? 'Unknown'}
-                            {confidenceScoreText ? ` (${confidenceScoreText})` : ''}
-                          </p>
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-300 mb-1">Confidence</h4>
+                        <div className="text-sm text-gray-200 space-y-1">
+                          <div>
+                            <span className="text-[11px] uppercase text-gray-500 mr-1">SQLMap</span>
+                            <span className="font-medium text-white">{sqlmapConfidenceText}</span>
+                          </div>
+                          <div>
+                            <span className="text-[11px] uppercase text-gray-500 mr-1">Quick verify</span>
+                            <span
+                              className={verifyDetails?.ok ? 'font-medium text-white' : verifyDetails ? 'font-medium text-amber-300' : 'text-gray-300'}
+                            >
+                              {verifyDetails
+                                ? verifyDetails.ok
+                                  ? verificationConfidenceText || 'Completed'
+                                  : verifyDetails.label || 'Failed'
+                                : 'Not run'}
+                            </span>
+                          </div>
                         </div>
-                      )}
+                      </div>
 
                       {whyShown && (
                         <div>
@@ -1425,6 +1503,66 @@ export default function ReportDetails() {
                                   </span>
                                 )}
                               </div>
+
+                              {baselineConfidenceText && (
+                                <div className="text-xs text-gray-400 mt-2 normal-case">
+                                  SQLMap baseline: <span className="text-gray-200">{baselineConfidenceText}</span>
+                                </div>
+                              )}
+
+                              {seededPayloads.length > 0 && (
+                                <div className="mt-3 text-xs text-gray-300 space-y-2 normal-case">
+                                  <div className={payloadHit ? 'text-emerald-300 font-medium' : 'text-gray-300 font-medium'}>
+                                    {payloadHit ? 'Seeded payload replay detected a change.' : 'Seeded payload replay did not observe a change.'}
+                                  </div>
+                                  <div className="text-[11px] uppercase text-gray-500">Payloads replayed</div>
+                                  <div className="space-y-1">
+                                    {seededPayloads.slice(0, 3).map((payload, idx) => (
+                                      <div key={`payload-${idx}`} className="flex items-start gap-2">
+                                        <code className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-[11px] text-green-300 break-all flex-1">{payload}</code>
+                                        <button
+                                          type="button"
+                                          className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-200"
+                                          onClick={() => copyToClipboard(payload, 'Payload copied to clipboard')}
+                                        >
+                                          Copy
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {seededPayloads.length > 3 && (
+                                    <div className="text-[11px] text-gray-500">…and {seededPayloads.length - 3} more</div>
+                                  )}
+                                </div>
+                              )}
+
+                              {payloadAttempts.length > 0 && (
+                                <details className="mt-3 text-xs text-gray-400">
+                                  <summary className="cursor-pointer text-gray-500 hover:text-gray-300">Replay responses</summary>
+                                  <div className="mt-2 space-y-2">
+                                    {payloadAttempts.slice(0, 3).map((attempt, idx) => {
+                                      const diff = attempt.diff || {};
+                                      const hasDiff = diff && diff.identical === false;
+                                      const diffSummary = hasDiff
+                                        ? `Δ +${diff.added ?? 0} / -${diff.removed ?? 0} / ≠ ${diff.changed ?? 0}`
+                                        : 'No significant body diff';
+                                      return (
+                                        <div key={`attempt-${idx}`} className="bg-gray-900 border border-gray-700 rounded p-2 space-y-1">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <code className="text-[11px] text-green-300 break-all">{attempt.payload}</code>
+                                            <span className="text-[11px] text-gray-400">{attempt.status} • {attempt.timeMs}ms</span>
+                                          </div>
+                                          <div className="text-[11px] text-gray-400">{diffSummary}</div>
+                                          <code className="text-[11px] text-blue-300 break-all" title={attempt.url}>{attempt.url}</code>
+                                        </div>
+                                      );
+                                    })}
+                                    {payloadAttempts.length > 3 && (
+                                      <div className="text-[11px] text-gray-500">…{payloadAttempts.length - 3} more attempts captured.</div>
+                                    )}
+                                  </div>
+                                </details>
+                              )}
 
                               {verifyDetails.why && (
                                 <div className="text-gray-300 normal-case">Why: {verifyDetails.why}</div>

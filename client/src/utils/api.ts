@@ -69,6 +69,10 @@ export type VerifyFindingResult = {
   wafDetected?: boolean
   wafIndicators?: { header?: boolean, body?: boolean, status?: boolean, sources?: string[] }
   suggestions?: string[]
+  seededPayloads?: string[]
+  payloadAttempts?: Array<{ payload: string, url: string, status: number, timeMs: number, diff?: { identical?: boolean, added?: number, removed?: number, changed?: number } }>
+  baselineConfidence?: { label: string | null, score: number | null }
+  payloadConfirmed?: boolean
   dom?: {
     checked: boolean
     reflected: boolean

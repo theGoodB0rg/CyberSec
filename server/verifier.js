@@ -260,16 +260,42 @@ function curlSnippet(url) {
 }
 
 // Attempt multi-signal verification with request context (method/headers/data)
-async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestContext = {} }) {
+async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestContext = {}, seedPayloads = [], originalConfidence = null }) {
   const signalsTested = [];
   const confirmations = [];
   const attempts = [];
+  const payloadAttempts = [];
   let confidenceScore = 0.0;
   let wafDetected = false;
   let dom = { checked: false };
   // Aggregate simple WAF indicators across attempts for auditing/UI hints
   const wafFlags = { header: false, body: false, status: false };
   const wafSources = new Set();
+
+  const seededPayloads = Array.isArray(seedPayloads)
+    ? seedPayloads
+        .map((value) => {
+          if (value == null) return '';
+          if (typeof value === 'number') return value.toString();
+          return String(value).trim();
+        })
+        .filter(Boolean)
+        .filter((value, index, arr) => arr.indexOf(value) === index)
+        .slice(0, 4)
+    : [];
+
+  const baselineConfidence =
+    originalConfidence && typeof originalConfidence === 'object'
+      ? {
+          label: typeof originalConfidence.label === 'string' ? originalConfidence.label : null,
+          score: typeof originalConfidence.score === 'number' ? originalConfidence.score : null
+        }
+      : null;
+
+  let baselineResponse = null;
+  let baselineNormalized = null;
+  let baselineStatus = null;
+  let baselineRecorded = false;
 
   try {
     const method = (requestContext.method || 'GET').toUpperCase();
@@ -278,6 +304,37 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     if (requestContext.cookie) headers['Cookie'] = requestContext.cookie;
     const baseData = requestContext.data || null;
 
+    const recordBaseline = (url, res) => {
+      if (baselineRecorded) return;
+      baselineRecorded = true;
+      attempts.push({ kind: 'baseline', url, status: res.status, timeMs: res.timeMs });
+    };
+
+    const ensureBaseline = async () => {
+      if (baselineResponse) return baselineResponse;
+      const variant = buildRequestVariant({
+        baseUrl: targetUrl,
+        parameter,
+        payload: '1',
+        method,
+        headers,
+        data: baseData,
+        cookie: requestContext.cookie
+      });
+      const res = await httpRequest(variant);
+      baselineResponse = res;
+      baselineStatus = res.status;
+      baselineNormalized = normalizeHtml(res.body);
+      const baseWaf = detectWafIndicators(res);
+      wafDetected = wafDetected || baseWaf.any;
+      if (baseWaf.any) wafSources.add('baseline');
+      wafFlags.header = wafFlags.header || !!baseWaf.headerHit;
+      wafFlags.body = wafFlags.body || !!baseWaf.bodyHit;
+      wafFlags.status = wafFlags.status || !!baseWaf.statusHit;
+      recordBaseline(variant.url, res);
+      return res;
+    };
+
     // Determine which strategies to run
     const runBoolean = strategy === 'auto' || strategy === 'boolean';
     const runTime = strategy === 'auto' || strategy === 'time';
@@ -285,88 +342,140 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
 
     // Boolean-based test
     if (runBoolean) {
-    const truePayloads = [
-      '1 AND 1=1',
-      "' OR '1'='1"
-    ];
-    const falsePayloads = [
-      '1 AND 1=2',
-      "' OR '1'='2"
-    ];
+      const truePayloads = [
+        '1 AND 1=1',
+        "' OR '1'='1"
+      ];
+      const falsePayloads = [
+        '1 AND 1=2',
+        "' OR '1'='2"
+      ];
 
-    const vTrue = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: truePayloads[Math.floor(Math.random()*truePayloads.length)], method, headers, data: baseData, cookie: requestContext.cookie });
-    const vFalse = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: falsePayloads[Math.floor(Math.random()*falsePayloads.length)], method, headers, data: baseData, cookie: requestContext.cookie });
+      const vTrue = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: truePayloads[Math.floor(Math.random() * truePayloads.length)], method, headers, data: baseData, cookie: requestContext.cookie });
+      const vFalse = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: falsePayloads[Math.floor(Math.random() * falsePayloads.length)], method, headers, data: baseData, cookie: requestContext.cookie });
 
-    // Random small delay 100-400ms between requests
-    const r1 = await httpRequest(vTrue);
-    await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random()*300)));
-    const r2 = await httpRequest(vFalse);
+      // Random small delay 100-400ms between requests
+      const r1 = await httpRequest(vTrue);
+      await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random() * 300)));
+      const r2 = await httpRequest(vFalse);
 
-    const n1 = normalizeHtml(r1.body);
-    const n2 = normalizeHtml(r2.body);
-    const diff = simpleDiffSummary(n1, n2);
-    const lenDelta = Math.abs(n1.length - n2.length);
+      const n1 = normalizeHtml(r1.body);
+      const n2 = normalizeHtml(r2.body);
+      const diff = simpleDiffSummary(n1, n2);
+      const lenDelta = Math.abs(n1.length - n2.length);
 
-    attempts.push({ kind: 'boolean', true: { url: vTrue.url, status: r1.status, timeMs: r1.timeMs }, false: { url: vFalse.url, status: r2.status, timeMs: r2.timeMs }, diff });
-  const bWaf1 = detectWafIndicators(r1);
-  const bWaf2 = detectWafIndicators(r2);
-  wafDetected = wafDetected || bWaf1.any || bWaf2.any;
-  if (bWaf1.any || bWaf2.any) wafSources.add('boolean');
-  wafFlags.header = wafFlags.header || !!bWaf1.headerHit || !!bWaf2.headerHit;
-  wafFlags.body = wafFlags.body || !!bWaf1.bodyHit || !!bWaf2.bodyHit;
-  wafFlags.status = wafFlags.status || !!bWaf1.statusHit || !!bWaf2.statusHit;
+      attempts.push({ kind: 'boolean', true: { url: vTrue.url, status: r1.status, timeMs: r1.timeMs }, false: { url: vFalse.url, status: r2.status, timeMs: r2.timeMs }, diff });
+      const bWaf1 = detectWafIndicators(r1);
+      const bWaf2 = detectWafIndicators(r2);
+      wafDetected = wafDetected || bWaf1.any || bWaf2.any;
+      if (bWaf1.any || bWaf2.any) wafSources.add('boolean');
+      wafFlags.header = wafFlags.header || !!bWaf1.headerHit || !!bWaf2.headerHit;
+      wafFlags.body = wafFlags.body || !!bWaf1.bodyHit || !!bWaf2.bodyHit;
+      wafFlags.status = wafFlags.status || !!bWaf1.statusHit || !!bWaf2.statusHit;
 
-    if (!diff.identical || lenDelta > 50 || r1.status !== r2.status) {
-      signalsTested.push('boolean');
-      confirmations.push('boolean');
-      confidenceScore += 0.45; // significant weight
-    }
+      if (!diff.identical || lenDelta > 50 || r1.status !== r2.status) {
+        signalsTested.push('boolean');
+        confirmations.push('boolean');
+        confidenceScore += 0.45; // significant weight
+      }
     }
 
     // Time-based test (light)
     if (runTime) {
-    const sleepVariants = ['SLEEP(3)', 'SLEEP%283%29'];
-    const sleep = sleepVariants[Math.floor(Math.random()*sleepVariants.length)];
-    const vTime = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: `1 AND ${sleep}`, method, headers, data: baseData, cookie: requestContext.cookie });
-    const vBase = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: '1', method, headers, data: baseData, cookie: requestContext.cookie });
+      const sleepVariants = ['SLEEP(3)', 'SLEEP%283%29'];
+      const sleep = sleepVariants[Math.floor(Math.random() * sleepVariants.length)];
+      const vTime = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: `1 AND ${sleep}`, method, headers, data: baseData, cookie: requestContext.cookie });
+      const vBase = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: '1', method, headers, data: baseData, cookie: requestContext.cookie });
 
-    const base = await httpRequest(vBase);
-    await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random()*200)));
-    const delayed = await httpRequest(vTime);
+      const base = await httpRequest(vBase);
+      await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random() * 200)));
+      const delayed = await httpRequest(vTime);
 
-    attempts.push({ kind: 'time', baseline: { url: vBase.url, timeMs: base.timeMs }, delayed: { url: vTime.url, timeMs: delayed.timeMs } });
-  const tWaf1 = detectWafIndicators(base);
-  const tWaf2 = detectWafIndicators(delayed);
-  wafDetected = wafDetected || tWaf1.any || tWaf2.any;
-  if (tWaf1.any || tWaf2.any) wafSources.add('time');
-  wafFlags.header = wafFlags.header || !!tWaf1.headerHit || !!tWaf2.headerHit;
-  wafFlags.body = wafFlags.body || !!tWaf1.bodyHit || !!tWaf2.bodyHit;
-  wafFlags.status = wafFlags.status || !!tWaf1.statusHit || !!tWaf2.statusHit;
-    if (delayed.timeMs - base.timeMs > 1800) {
-      signalsTested.push('time');
-      confirmations.push('time');
-      confidenceScore += 0.35;
-    }
+      attempts.push({ kind: 'time', baseline: { url: vBase.url, timeMs: base.timeMs }, delayed: { url: vTime.url, timeMs: delayed.timeMs } });
+      const tWaf1 = detectWafIndicators(base);
+      const tWaf2 = detectWafIndicators(delayed);
+      wafDetected = wafDetected || tWaf1.any || tWaf2.any;
+      if (tWaf1.any || tWaf2.any) wafSources.add('time');
+      wafFlags.header = wafFlags.header || !!tWaf1.headerHit || !!tWaf2.headerHit;
+      wafFlags.body = wafFlags.body || !!tWaf1.bodyHit || !!tWaf2.bodyHit;
+      wafFlags.status = wafFlags.status || !!tWaf1.statusHit || !!tWaf2.statusHit;
+
+      if (!baselineResponse) {
+        baselineResponse = base;
+        baselineStatus = base.status;
+        baselineNormalized = normalizeHtml(base.body);
+        recordBaseline(vBase.url, base);
+      }
+
+      if (delayed.timeMs - base.timeMs > 1800) {
+        signalsTested.push('time');
+        confirmations.push('time');
+        confidenceScore += 0.35;
+      }
     }
 
     // Error-based test
     if (runError) {
-    const vErr = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: "'", method, headers, data: baseData, cookie: requestContext.cookie });
-    const errRes = await httpRequest(vErr);
-    const body = (errRes.body || '').toString();
-    const errorPatterns = /(sql syntax|mysql|postgres|oracle|sqlite|mssql|odbc|warning|unclosed quotation|unterminated string)/i;
-    attempts.push({ kind: 'error', url: vErr.url, status: errRes.status });
-  const eWaf = detectWafIndicators(errRes);
-  wafDetected = wafDetected || eWaf.any;
-  if (eWaf.any) wafSources.add('error');
-  wafFlags.header = wafFlags.header || !!eWaf.headerHit;
-  wafFlags.body = wafFlags.body || !!eWaf.bodyHit;
-  wafFlags.status = wafFlags.status || !!eWaf.statusHit;
-    if (errorPatterns.test(body)) {
-      signalsTested.push('error');
-      confirmations.push('error');
-      confidenceScore += 0.35;
+      const vErr = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: "'", method, headers, data: baseData, cookie: requestContext.cookie });
+      const errRes = await httpRequest(vErr);
+      const body = (errRes.body || '').toString();
+      const errorPatterns = /(sql syntax|mysql|postgres|oracle|sqlite|mssql|odbc|warning|unclosed quotation|unterminated string)/i;
+      attempts.push({ kind: 'error', url: vErr.url, status: errRes.status });
+      const eWaf = detectWafIndicators(errRes);
+      wafDetected = wafDetected || eWaf.any;
+      if (eWaf.any) wafSources.add('error');
+      wafFlags.header = wafFlags.header || !!eWaf.headerHit;
+      wafFlags.body = wafFlags.body || !!eWaf.bodyHit;
+      wafFlags.status = wafFlags.status || !!eWaf.statusHit;
+      if (errorPatterns.test(body)) {
+        signalsTested.push('error');
+        confirmations.push('error');
+        confidenceScore += 0.35;
+      }
     }
+
+    if (seededPayloads.length > 0) {
+      try {
+        const base = await ensureBaseline();
+        const baseNorm = baselineNormalized || normalizeHtml(base.body);
+        const baseStatus = baselineStatus ?? base.status;
+        let payloadConfirmed = false;
+        const keywordPattern = /(sql syntax|mysql|postgres|oracle|sqlite|mssql|odbc|warning|unclosed quotation|unterminated string|select\b|union\b|database)/i;
+
+        for (const payload of seededPayloads) {
+          const variant = buildRequestVariant({ baseUrl: targetUrl, parameter, payload, method, headers, data: baseData, cookie: requestContext.cookie });
+          const res = await httpRequest(variant);
+          const normalized = normalizeHtml(res.body);
+          const diff = simpleDiffSummary(baseNorm, normalized);
+          const lenDelta = Math.abs(normalized.length - baseNorm.length);
+          const statusChanged = res.status !== baseStatus;
+          const keywordHit = keywordPattern.test(String(res.body || '')) || keywordPattern.test(normalized);
+
+          const attempt = { kind: 'payload', payload, url: variant.url, status: res.status, timeMs: res.timeMs, diff };
+          attempts.push(attempt);
+          payloadAttempts.push({ payload, url: variant.url, status: res.status, timeMs: res.timeMs, diff });
+
+          const pWaf = detectWafIndicators(res);
+          wafDetected = wafDetected || pWaf.any;
+          if (pWaf.any) wafSources.add('payload');
+          wafFlags.header = wafFlags.header || !!pWaf.headerHit;
+          wafFlags.body = wafFlags.body || !!pWaf.bodyHit;
+          wafFlags.status = wafFlags.status || !!pWaf.statusHit;
+
+          if (!payloadConfirmed && (statusChanged || !diff.identical || lenDelta > 60 || keywordHit)) {
+            payloadConfirmed = true;
+            confirmations.push('payload');
+            signalsTested.push('payload');
+            confidenceScore += 0.3;
+          }
+
+          if (payloadConfirmed) {
+            break;
+          }
+        }
+      } catch (err) {
+        attempts.push({ kind: 'payload-error', error: err.message });
+      }
     }
 
     // Cap score to 1.0
@@ -383,7 +492,7 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     }
 
     // DOM-based validation: only attempt if no WAF and method is GET-like (we mutate URL param)
-    if (!wafDetected && String(requestContext.method || 'GET').toUpperCase() === 'GET') {
+    if (!wafDetected && method === 'GET') {
       try {
         const domRes = await domReflectionCheck({ url: targetUrl, parameter, requestContext });
         dom = { checked: true, ok: domRes.ok, reflected: !!domRes.reflected, matches: domRes.matches || [] };
@@ -419,15 +528,23 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       }
     }
 
+    const signalSummary = `Signals: ${confirmations.join(', ') || 'none'}`;
+    const domSummary = `DOM: ${dom.checked ? (dom.reflected ? 'reflected' : 'not-reflected') : 'skipped'}`;
+    const payloadSummary = seededPayloads.length > 0
+      ? ` Payloads tested: ${seededPayloads.length}${confirmations.includes('payload') ? ' (variance detected)' : ' (no change observed)'}.`
+      : '';
+
     const why = wafDetected
       ? 'WAF indicators detected; results inconclusive. Consider suggested tamper and slower settings.'
-      : `Signals: ${confirmations.join(', ') || 'none'}; DOM: ${dom.checked ? (dom.reflected ? 'reflected' : 'not-reflected') : 'skipped'}. Score ${Math.round(confidenceScore*100)}%.`;
+      : `${signalSummary}; ${domSummary}.${payloadSummary} Score ${Math.round(confidenceScore * 100)}%.`;
 
     // Diff view payload
     const diffView = {
+      baseline: attempts.find(a => a.kind === 'baseline') || null,
       boolean: attempts.find(a => a.kind === 'boolean') || null,
       time: attempts.find(a => a.kind === 'time') || null,
-      error: attempts.find(a => a.kind === 'error') || null
+      error: attempts.find(a => a.kind === 'error') || null,
+      payload: payloadAttempts.length > 0 ? payloadAttempts : null
     };
 
     // Return minimal PoC pairs and cURL
@@ -442,6 +559,13 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     if (diffView.error?.url) {
       poc.push({ name: 'error-trigger', curl: curlSnippet(diffView.error.url) });
     }
+    if (payloadAttempts.length > 0) {
+      payloadAttempts.slice(0, 2).forEach((attempt, idx) => {
+        if (attempt?.url) {
+          poc.push({ name: `payload-${idx + 1}`, curl: curlSnippet(attempt.url) });
+        }
+      });
+    }
 
     return {
       ok: true,
@@ -455,7 +579,10 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       wafIndicators: wafDetected ? { ...wafFlags, sources: Array.from(wafSources) } : undefined,
       suggestions: wafDetected ? wafSuggestions() : [],
       why,
-      dom
+      dom,
+      seededPayloads: seededPayloads.length > 0 ? seededPayloads : undefined,
+      payloadAttempts: payloadAttempts.length > 0 ? payloadAttempts : undefined,
+      baselineConfidence: baselineConfidence || undefined
     };
   } catch (e) {
     Logger.warn('verifyFinding failed', { error: e.message });

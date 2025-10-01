@@ -1032,7 +1032,57 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
       userAgent: opts.userAgent || undefined
     };
 
-    const result = await verifyFinding({ targetUrl: scan.target, parameter: param, requestContext });
+    const methodHints = [
+      finding.httpMethod,
+      finding.method,
+      (finding.sqlmapMetadata && finding.sqlmapMetadata.method) || null,
+      (finding.sqlmapMetadata && finding.sqlmapMetadata.place) || null,
+      (() => {
+        const csv = finding.sqlmapMetadata && finding.sqlmapMetadata.csv;
+        if (csv && typeof csv === 'object') {
+          return csv.method || csv.place || csv.httpMethod || null;
+        }
+        return null;
+      })()
+    ]
+      .map((value) => (value ? String(value).toUpperCase() : ''))
+      .filter((value) => ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].includes(value));
+    if (methodHints.length > 0) {
+      requestContext.method = methodHints[0];
+    }
+
+    const payloadCandidates = [];
+    if (typeof finding.payload === 'string' && finding.payload.trim().length > 0) {
+      payloadCandidates.push(finding.payload.trim());
+    }
+    if (finding.sqlmapMetadata && typeof finding.sqlmapMetadata === 'object') {
+      const meta = finding.sqlmapMetadata;
+      if (typeof meta.payload === 'string' && meta.payload.trim().length > 0) {
+        payloadCandidates.push(meta.payload.trim());
+      }
+      const csv = meta.csv;
+      if (csv && typeof csv === 'object') {
+        for (const [key, value] of Object.entries(csv)) {
+          if (typeof value === 'string' && /payload/i.test(key) && value.trim().length > 0) {
+            payloadCandidates.push(value.trim());
+          }
+        }
+      }
+    }
+    const seedPayloads = Array.from(new Set(payloadCandidates)).slice(0, 5);
+
+    const originalConfidence = {
+      label: finding.confidenceLabel || null,
+      score: typeof finding.confidenceScore === 'number' ? finding.confidenceScore : null
+    };
+
+    const result = await verifyFinding({
+      targetUrl: scan.target,
+      parameter: param,
+      requestContext,
+      seedPayloads,
+      originalConfidence
+    });
 
     // Log event
     try {
@@ -1066,7 +1116,10 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
           signals: result.signalsTested,
           wafDetected: !!result.wafDetected,
           suggestions: result.suggestions || [],
-          indicators: result.wafIndicators || null
+          indicators: result.wafIndicators || null,
+          payloadsTested: Array.isArray(result.seededPayloads) && result.seededPayloads.length > 0 ? result.seededPayloads : undefined,
+          payloadConfirmed: Array.isArray(result.confirmations) ? result.confirmations.includes('payload') : undefined,
+          baselineConfidence: result.baselineConfidence || undefined
         };
         return { ...m, verifications };
       });
@@ -1103,7 +1156,29 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
       Logger.warn('Failed to persist DOM screenshot', { error: e.message });
     }
 
-  return res.json({ ok: result.ok, label: result.label, score: result.confidenceScore, confirmations: result.confirmations, signals: result.signalsTested, diff: result.diffView, poc: result.poc, why: result.why, wafDetected: !!result.wafDetected, suggestions: result.suggestions || [], wafIndicators: result.wafIndicators || undefined, dom: { checked: !!result.dom?.checked, reflected: !!result.dom?.reflected, matches: result.dom?.matches || [], url: result.dom?.url, proof: domProof } });
+  return res.json({
+    ok: result.ok,
+    label: result.label,
+    score: result.confidenceScore,
+    confirmations: result.confirmations,
+    signals: result.signalsTested,
+    diff: result.diffView,
+    poc: result.poc,
+    why: result.why,
+    wafDetected: !!result.wafDetected,
+    suggestions: result.suggestions || [],
+    wafIndicators: result.wafIndicators || undefined,
+    seededPayloads: result.seededPayloads || [],
+    payloadAttempts: result.payloadAttempts || undefined,
+    baselineConfidence: result.baselineConfidence || undefined,
+    dom: {
+      checked: !!result.dom?.checked,
+      reflected: !!result.dom?.reflected,
+      matches: result.dom?.matches || [],
+      url: result.dom?.url,
+      proof: domProof
+    }
+  });
   } catch (e) {
     Logger.error('Finding verification failed', e);
     res.status(500).json({ error: 'Verification failed', details: e.message });
