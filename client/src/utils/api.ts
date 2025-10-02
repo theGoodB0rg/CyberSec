@@ -64,13 +64,33 @@ export type VerifyFindingResult = {
   confirmations?: string[]
   signals?: string[]
   diff?: any
-  poc?: Array<{ name: string, curl: string }>
+  poc?: Array<{
+    name: string
+    curl: string
+    expectedSignal?: {
+      type?: string
+      summary?: string
+      metrics?: Record<string, number | string | null>
+    }
+    evidencePreview?: QuickVerifyEvidencePreview | null
+    rawKey?: string | null
+    rawEvidenceId?: string | null
+    rawEvidenceHash?: string | null
+    rawEvidenceLength?: number | null
+  }>
   why?: string
   wafDetected?: boolean
   wafIndicators?: { header?: boolean, body?: boolean, status?: boolean, sources?: string[] }
   suggestions?: string[]
   seededPayloads?: string[]
-  payloadAttempts?: Array<{ payload: string, url: string, status: number, timeMs: number, diff?: { identical?: boolean, added?: number, removed?: number, changed?: number } }>
+  payloadAttempts?: Array<{
+    payload: string
+    url: string
+    status: number
+    timeMs: number
+    diff?: { identical?: boolean, added?: number, removed?: number, changed?: number }
+    fingerprintDiff?: { statusChanged?: boolean, lengthDelta?: number, headers?: { added: string[], removed: string[], changed: string[] } }
+  }>
   baselineConfidence?: { label: string | null, score: number | null }
   payloadConfirmed?: boolean
   dom?: {
@@ -80,13 +100,198 @@ export type VerifyFindingResult = {
     url?: string
     proof?: { filename: string, path: string }
   }
+  remediationSuspected?: boolean
+  extraSignals?: Array<{
+    type: string
+    description: string
+    payload?: string
+    fingerprintDiff?: { statusChanged?: boolean, lengthDelta?: number, headers?: { added: string[], removed: string[], changed: string[] } }
+    contentDiff?: { identical?: boolean, added?: number, removed?: number, changed?: number }
+    statusChanged?: boolean
+    lenDelta?: number
+  }>
+  bestPayload?: string | null
+  driftCheck?: {
+    url?: string
+    status?: number
+    timeMs?: number
+    fingerprintDiff?: { statusChanged?: boolean, lengthDelta?: number, headers?: { added: string[], removed: string[], changed: string[] } }
+    contentDiff?: { identical?: boolean, added?: number, removed?: number, changed?: number }
+  } | null
+  verificationStartedAt?: number
+  verificationCompletedAt?: number
+  verificationDurationMs?: number | null
+  evidence?: QuickVerifyEvidence | null
+  rawEvidence?: QuickVerifyEvidenceSummary[]
+  consent?: {
+    decision: boolean
+    preference: QuickVerifyConsentPreference
+  }
 }
 
-export async function verifyFinding(reportId: string, findingId: string): Promise<VerifyFindingResult> {
+export type QuickVerifyEvidencePreview = {
+  status: number | null
+  timeMs: number | null
+  length: number | null
+  hash: string | null
+  excerpt?: string | null
+  headers?: Record<string, string>
+  url?: string | null
+  method?: string | null
+}
+
+export type QuickVerifySignalResponse = {
+  preview?: QuickVerifyEvidencePreview | null
+  snapshot?: {
+    status?: number | null
+    timeMs?: number | null
+    length?: number | null
+    headers?: Record<string, string>
+  } | null
+  rawKey?: string | null
+  rawEvidenceId?: string | null
+  rawEvidenceHash?: string | null
+  rawEvidenceLength?: number | null
+}
+
+export type QuickVerifyEvidence = {
+  baseline?: {
+    preview?: QuickVerifyEvidencePreview | null
+    rawKey?: string | null
+    rawEvidenceId?: string | null
+    rawEvidenceHash?: string | null
+    rawEvidenceLength?: number | null
+  } | null
+  signals: {
+    boolean: {
+      diff?: { identical?: boolean, added?: number, removed?: number, changed?: number } | null
+      lengthDelta?: number | null
+      fingerprintDiff?: { statusChanged?: boolean, lengthDelta?: number, headers?: { added: string[], removed: string[], changed: string[] } } | null
+      responses?: {
+        true?: QuickVerifySignalResponse
+        false?: QuickVerifySignalResponse
+      }
+    } | null
+    time: {
+      deltaMs?: number | null
+      fingerprintDiff?: { statusChanged?: boolean, lengthDelta?: number, headers?: { added: string[], removed: string[], changed: string[] } } | null
+      responses?: {
+        baseline?: QuickVerifySignalResponse
+        delayed?: QuickVerifySignalResponse
+      }
+    } | null
+    error: {
+      keywordMatch?: boolean
+      preview?: QuickVerifyEvidencePreview | null
+      rawKey?: string | null
+      rawEvidenceId?: string | null
+      rawEvidenceHash?: string | null
+      rawEvidenceLength?: number | null
+    } | null
+    payloads: Array<{
+      payload: string
+      keywordHit?: boolean
+      diff?: { identical?: boolean, added?: number, removed?: number, changed?: number } | null
+      fingerprintDiff?: { statusChanged?: boolean, lengthDelta?: number, headers?: { added: string[], removed: string[], changed: string[] } } | null
+      preview?: QuickVerifyEvidencePreview | null
+      rawKey?: string | null
+      rawEvidenceId?: string | null
+      rawEvidenceHash?: string | null
+      rawEvidenceLength?: number | null
+    }>
+  }
+  drift?: {
+    preview?: QuickVerifyEvidencePreview | null
+    fingerprintDiff?: { statusChanged?: boolean, lengthDelta?: number, headers?: { added: string[], removed: string[], changed: string[] } } | null
+    contentDiff?: { identical?: boolean, added?: number, removed?: number, changed?: number } | null
+    rawKey?: string | null
+    rawEvidenceId?: string | null
+    rawEvidenceHash?: string | null
+    rawEvidenceLength?: number | null
+  } | null
+  dom?: {
+    ok?: boolean
+    reflected?: boolean
+    matches?: Array<{ selector: string, mode: string, attribute?: string }>
+    url?: string | null
+    screenshotCaptured?: boolean
+  } | null
+  waf?: {
+    detected: boolean
+    indicators?: { header?: boolean, body?: boolean, status?: boolean, sources?: string[] } | null
+  } | null
+}
+
+export type QuickVerifyEvidenceSummary = {
+  id: string | null
+  key: string
+  scope: string | null
+  tag: string | null
+  status: number | null
+  timeMs: number | null
+  bodyHash: string | null
+  bodyLength: number | null
+  method: string | null
+  url: string | null
+  createdAt: string | null
+  contentType: string | null
+  stored: boolean
+}
+
+export type QuickVerifyConsentPreference = {
+  userId: string
+  storeEvidence: boolean | null
+  rememberChoice: boolean
+  promptSuppressed: boolean
+  promptVersion: number
+  lastPromptAt: string | null
+  lastDecisionAt: string | null
+  updatedAt: string | null
+  createdAt: string | null
+  source: string | null
+}
+
+export type QuickVerifyConsentInput = {
+  storeEvidence: boolean
+  rememberChoice?: boolean
+  promptSuppressed?: boolean
+  promptVersion?: number
+  lastPromptAt?: string
+  source?: string
+}
+
+export async function verifyFinding(reportId: string, findingId: string, options: { consent?: QuickVerifyConsentInput, captureRawBodies?: boolean } = {}): Promise<VerifyFindingResult> {
+  const payload: Record<string, unknown> = { reportId };
+  if (options.consent) payload.consent = options.consent;
+  if (options.captureRawBodies !== undefined) payload.captureRawBodies = options.captureRawBodies;
   return apiFetch<VerifyFindingResult>(`/api/findings/${encodeURIComponent(findingId)}/verify`, {
     method: 'POST',
-    body: JSON.stringify({ reportId })
+    body: JSON.stringify(payload)
   })
+}
+
+export async function getQuickVerifyPreference(): Promise<QuickVerifyConsentPreference> {
+  const res = await apiFetch<{ ok: boolean, preference: QuickVerifyConsentPreference }>(`/api/quick-verify/preferences`);
+  return res.preference;
+}
+
+export async function updateQuickVerifyPreference(preference: Partial<QuickVerifyConsentInput> & { storeEvidence?: boolean | null }): Promise<QuickVerifyConsentPreference> {
+  const res = await apiFetch<{ ok: boolean, preference: QuickVerifyConsentPreference }>(`/api/quick-verify/preferences`, {
+    method: 'POST',
+    body: JSON.stringify(preference)
+  });
+  return res.preference;
+}
+
+export async function clearQuickVerifyPreference(): Promise<void> {
+  await apiFetch<{ ok: boolean }>(`/api/quick-verify/preferences`, { method: 'DELETE' });
+}
+
+export async function listQuickVerifyEvidence(reportId: string, findingId: string, limit = 50): Promise<QuickVerifyEvidenceSummary[]> {
+  const res = await apiFetch<{ ok: boolean, evidence: QuickVerifyEvidenceSummary[] }>(
+    `/api/reports/${encodeURIComponent(reportId)}/findings/${encodeURIComponent(findingId)}/quick-verify/evidence?limit=${encodeURIComponent(String(limit))}`
+  );
+  return res.evidence;
 }
 
 // User settings & profiles

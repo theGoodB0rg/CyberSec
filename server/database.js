@@ -222,6 +222,46 @@ class Database {
       )
     `;
 
+    const createQuickVerifyPreferencesTable = `
+      CREATE TABLE IF NOT EXISTS quick_verify_preferences (
+        user_id TEXT PRIMARY KEY,
+        store_evidence INTEGER,
+        remember_choice INTEGER DEFAULT 0,
+        prompt_suppressed INTEGER DEFAULT 0,
+        prompt_version INTEGER DEFAULT 1,
+        last_prompt_at TEXT,
+        last_decision_at TEXT,
+        updated_at TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        source TEXT
+      )
+    `;
+
+    const createQuickVerifyEvidenceTable = `
+      CREATE TABLE IF NOT EXISTS quick_verify_evidence (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        org_id TEXT,
+        report_id TEXT NOT NULL,
+        finding_id TEXT NOT NULL,
+        raw_key TEXT NOT NULL,
+        scope TEXT,
+        tag TEXT,
+        status INTEGER,
+        time_ms INTEGER,
+        body_hash TEXT,
+        body_length INTEGER,
+        method TEXT,
+        url TEXT,
+        headers TEXT,
+        stored_path TEXT,
+        content_type TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        source TEXT
+      )
+    `;
+
     this.db.serialize(() => {
       this.db.run(createScansTable);
       this.db.run(createReportsTable);
@@ -236,6 +276,8 @@ class Database {
   this.db.run(createJobsTable);
       this.db.run(createUserSettingsTable);
       this.db.run(createUserProfilesTable);
+      this.db.run(createQuickVerifyPreferencesTable);
+  this.db.run(createQuickVerifyEvidenceTable);
       // Migration: ensure jobs.created_by_admin exists
       this.db.run(`ALTER TABLE jobs ADD COLUMN created_by_admin INTEGER DEFAULT 0`, (err) => {
         if (err && !/duplicate column/i.test(err.message)) {
@@ -259,6 +301,8 @@ class Database {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_telemetry_type_time ON telemetry_events(event_type, at)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_telemetry_user_time ON telemetry_events(user_id, at)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles(user_id, updated_at DESC)`);
+  this.db.run(`CREATE INDEX IF NOT EXISTS idx_qv_evidence_lookup ON quick_verify_evidence(report_id, finding_id, created_at DESC)`);
+  this.db.run(`CREATE INDEX IF NOT EXISTS idx_qv_evidence_user ON quick_verify_evidence(user_id, created_at DESC)`);
 
       // Attempt to add new columns if upgrading existing recon_parameters
       const alterCols = [
@@ -1490,6 +1534,314 @@ class Database {
       this.db.run(sql, [id, userId], function(err) {
         if (err) return reject(err);
         resolve(this.changes > 0);
+      });
+    });
+  }
+
+  async getQuickVerifyPreference(userId) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        SELECT user_id, store_evidence, remember_choice, prompt_suppressed, prompt_version,
+               last_prompt_at, last_decision_at, updated_at, created_at, source
+        FROM quick_verify_preferences
+        WHERE user_id = ?
+      `;
+      this.db.get(sql, [userId], (err, row) => {
+        if (err) return reject(err);
+        if (!row) {
+          return resolve({
+            userId,
+            storeEvidence: null,
+            rememberChoice: false,
+            promptSuppressed: false,
+            promptVersion: 1,
+            lastPromptAt: null,
+            lastDecisionAt: null,
+            updatedAt: null,
+            createdAt: null,
+            source: null
+          });
+        }
+        const toBool = (value) => value === 1 || value === true;
+        const storeEvidence = row.store_evidence == null ? null : row.store_evidence === 1;
+        resolve({
+          userId: row.user_id,
+          storeEvidence,
+          rememberChoice: toBool(row.remember_choice),
+          promptSuppressed: toBool(row.prompt_suppressed),
+          promptVersion: row.prompt_version != null ? Number(row.prompt_version) : 1,
+          lastPromptAt: row.last_prompt_at || null,
+          lastDecisionAt: row.last_decision_at || null,
+          updatedAt: row.updated_at || null,
+          createdAt: row.created_at || null,
+          source: row.source || null
+        });
+      });
+    });
+  }
+
+  async upsertQuickVerifyPreference(userId, updates = {}) {
+    const nowIso = new Date().toISOString();
+    const current = await this.getQuickVerifyPreference(userId).catch(() => ({
+      userId,
+      storeEvidence: null,
+      rememberChoice: false,
+      promptSuppressed: false,
+      promptVersion: 1,
+      lastPromptAt: null,
+      lastDecisionAt: null,
+      updatedAt: null,
+      createdAt: null,
+      source: null
+    }));
+
+    const merged = {
+      storeEvidence: updates.storeEvidence !== undefined ? updates.storeEvidence : current.storeEvidence,
+      rememberChoice: updates.rememberChoice !== undefined ? !!updates.rememberChoice : current.rememberChoice,
+      promptSuppressed: updates.promptSuppressed !== undefined ? !!updates.promptSuppressed : current.promptSuppressed,
+      promptVersion: updates.promptVersion !== undefined ? Number(updates.promptVersion) : (current.promptVersion || 1),
+      lastPromptAt: updates.lastPromptAt !== undefined ? updates.lastPromptAt : current.lastPromptAt,
+      lastDecisionAt: updates.lastDecisionAt !== undefined ? updates.lastDecisionAt : current.lastDecisionAt,
+      source: updates.source !== undefined ? updates.source : current.source
+    };
+
+    const toDb = (value) => {
+      if (value == null) return 0;
+      return value ? 1 : 0;
+    };
+
+    const storeEvidenceVal = merged.storeEvidence == null ? null : merged.storeEvidence ? 1 : 0;
+    const rememberChoiceVal = toDb(merged.rememberChoice);
+    const promptSuppressedVal = toDb(merged.promptSuppressed);
+    const promptVersionVal = Number.isFinite(merged.promptVersion) ? Number(merged.promptVersion) : 1;
+    const lastPromptAtVal = merged.lastPromptAt || null;
+    const lastDecisionAtVal = merged.lastDecisionAt || null;
+    const sourceVal = merged.source || null;
+
+    const sql = `
+      INSERT INTO quick_verify_preferences (
+        user_id, store_evidence, remember_choice, prompt_suppressed, prompt_version,
+        last_prompt_at, last_decision_at, updated_at, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        store_evidence = excluded.store_evidence,
+        remember_choice = excluded.remember_choice,
+        prompt_suppressed = excluded.prompt_suppressed,
+        prompt_version = excluded.prompt_version,
+        last_prompt_at = COALESCE(excluded.last_prompt_at, quick_verify_preferences.last_prompt_at),
+        last_decision_at = COALESCE(excluded.last_decision_at, quick_verify_preferences.last_decision_at),
+        updated_at = excluded.updated_at,
+        source = COALESCE(excluded.source, quick_verify_preferences.source)
+    `;
+
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        sql,
+        [
+          userId,
+          storeEvidenceVal,
+          rememberChoiceVal,
+          promptSuppressedVal,
+          promptVersionVal,
+          lastPromptAtVal,
+          lastDecisionAtVal,
+          nowIso,
+          sourceVal
+        ],
+        (err) => {
+          if (err) return reject(err);
+          this.getQuickVerifyPreference(userId).then(resolve).catch(reject);
+        }
+      );
+    });
+  }
+
+  async clearQuickVerifyPreference(userId) {
+    return new Promise((resolve, reject) => {
+      this.db.run('DELETE FROM quick_verify_preferences WHERE user_id = ?', [userId], (err) => {
+        if (err) return reject(err);
+        resolve(true);
+      });
+    });
+  }
+
+  async addQuickVerifyEvidence({
+    id = uuidv4(),
+    userId,
+    orgId = null,
+    reportId,
+    findingId,
+    rawKey,
+    scope = null,
+    tag = null,
+    status = null,
+    timeMs = null,
+    bodyHash = null,
+    bodyLength = null,
+    method = null,
+    url = null,
+    headers = {},
+    storedPath = null,
+    contentType = null,
+    source = null
+  }) {
+    if (!userId || !reportId || !findingId || !rawKey) {
+      throw new Error('Missing required quick verify evidence fields');
+    }
+    const headersJson = headers ? JSON.stringify(headers) : null;
+    const nowIso = new Date().toISOString();
+    const sql = `
+      INSERT INTO quick_verify_evidence (
+        id, user_id, org_id, report_id, finding_id, raw_key,
+        scope, tag, status, time_ms, body_hash, body_length,
+        method, url, headers, stored_path, content_type, created_at, updated_at, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        sql,
+        [
+          id,
+          userId,
+          orgId,
+          reportId,
+          findingId,
+          rawKey,
+          scope,
+          tag,
+          status,
+          timeMs,
+          bodyHash,
+          bodyLength,
+          method,
+          url,
+          headersJson,
+          storedPath,
+          contentType,
+          nowIso,
+          nowIso,
+          source
+        ],
+        (err) => {
+          if (err) return reject(err);
+          resolve({
+            id,
+            userId,
+            orgId,
+            reportId,
+            findingId,
+            rawKey,
+            scope,
+            tag,
+            status,
+            timeMs,
+            bodyHash,
+            bodyLength,
+            method,
+            url,
+            headers,
+            storedPath,
+            contentType,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            source
+          });
+        }
+      );
+    });
+  }
+
+  async listQuickVerifyEvidence({ reportId, findingId, userId, orgId = null, isAdmin = false, limit = 50 }) {
+    if (!reportId || !findingId) {
+      throw new Error('reportId and findingId are required');
+    }
+    const maxLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+    const conditions = ['report_id = ?', 'finding_id = ?'];
+    const params = [reportId, findingId];
+    if (!isAdmin) {
+      conditions.push('(user_id = ?' + (orgId ? ' OR (org_id IS NOT NULL AND org_id = ?)' : '') + ')');
+      params.push(userId);
+      if (orgId) params.push(orgId);
+    }
+    params.push(maxLimit);
+
+    const sql = `
+      SELECT id, user_id, org_id, report_id, finding_id, raw_key,
+             scope, tag, status, time_ms, body_hash, body_length,
+             method, url, headers, stored_path, content_type, created_at, updated_at, source
+      FROM quick_verify_evidence
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY created_at DESC
+      LIMIT ?
+    `;
+
+    return new Promise((resolve, reject) => {
+      this.db.all(sql, params, (err, rows) => {
+        if (err) return reject(err);
+        const toReturn = (rows || []).map((row) => ({
+          id: row.id,
+          userId: row.user_id,
+          orgId: row.org_id || null,
+          reportId: row.report_id,
+          findingId: row.finding_id,
+          rawKey: row.raw_key,
+          scope: row.scope || null,
+          tag: row.tag || null,
+          status: row.status != null ? Number(row.status) : null,
+          timeMs: row.time_ms != null ? Number(row.time_ms) : null,
+          bodyHash: row.body_hash || null,
+          bodyLength: row.body_length != null ? Number(row.body_length) : null,
+          method: row.method || null,
+          url: row.url || null,
+          headers: row.headers ? JSON.parse(row.headers) : {},
+          storedPath: row.stored_path || null,
+          contentType: row.content_type || null,
+          createdAt: row.created_at || null,
+          updatedAt: row.updated_at || null,
+          source: row.source || null
+        }));
+        resolve(toReturn);
+      });
+    });
+  }
+
+  async getQuickVerifyEvidenceById(id) {
+    if (!id) throw new Error('Evidence id required');
+    const sql = `
+      SELECT id, user_id, org_id, report_id, finding_id, raw_key,
+             scope, tag, status, time_ms, body_hash, body_length,
+             method, url, headers, stored_path, content_type, created_at, updated_at, source
+      FROM quick_verify_evidence
+      WHERE id = ?
+      LIMIT 1
+    `;
+    return new Promise((resolve, reject) => {
+      this.db.get(sql, [id], (err, row) => {
+        if (err) return reject(err);
+        if (!row) return resolve(null);
+        resolve({
+          id: row.id,
+          userId: row.user_id,
+          orgId: row.org_id || null,
+          reportId: row.report_id,
+          findingId: row.finding_id,
+          rawKey: row.raw_key,
+          scope: row.scope || null,
+          tag: row.tag || null,
+          status: row.status != null ? Number(row.status) : null,
+          timeMs: row.time_ms != null ? Number(row.time_ms) : null,
+          bodyHash: row.body_hash || null,
+          bodyLength: row.body_length != null ? Number(row.body_length) : null,
+          method: row.method || null,
+          url: row.url || null,
+          headers: row.headers ? JSON.parse(row.headers) : {},
+          storedPath: row.stored_path || null,
+          contentType: row.content_type || null,
+          createdAt: row.created_at || null,
+          updatedAt: row.updated_at || null,
+          source: row.source || null
+        });
       });
     });
   }

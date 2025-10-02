@@ -266,7 +266,39 @@ This ensures you have access to well-formatted, professional results suitable fo
 - Further analysis and research
 - Integration with other security tools
 
-## 🔧 Configuration
+## � Quick Verify & Evidence Capture
+
+Quick Verify replays lightweight boolean/time/error probes (and, when safe, your strongest SQLMap payload) to validate findings without a full SQLMap rerun. The workflow now captures forensic evidence with explicit user consent:
+
+- **Consent-aware prompt** – When you verify a finding (single or bulk), the Report Details UI asks whether to store raw HTTP responses. You can store or skip, and optionally remember the decision for future runs.
+- **Evidence vault** – When storage is allowed, the backend writes JSON bundles under `server/temp/quick-verify-evidence/<report>/<finding>/<timestamp>/`. Each bundle contains headers, payload metadata, a base64-encoded body, and integrity hashes.
+- **Per-run feedback** – The verification panel shows whether raw responses were stored, highlights the latest consent preference, and lists the captured evidence with status codes, timings, hashes, and download links.
+- **Safer previews** – Proof-of-concept cards now display compact response snapshots (status, latency, size, hash, optional excerpt) and download buttons that pull the full JSON via an authenticated route. If storage was skipped, the UI makes that explicit.
+
+### Managing consent preferences
+
+Preferences are persisted per user. You can adjust them directly via the API:
+
+```http
+GET    /api/quick-verify/preferences           # fetch your current preference
+POST   /api/quick-verify/preferences           # body: { storeEvidence, rememberChoice?, promptVersion?, source? }
+DELETE /api/quick-verify/preferences           # clears the saved preference
+```
+
+Skipping storage keeps Quick Verify fast and ephemeral. Allowing storage creates an audit trail you can download or share later.
+
+### Working with stored evidence programmatically
+
+List or download stored responses for a finding:
+
+```http
+GET /api/reports/:reportId/findings/:findingId/quick-verify/evidence?limit=50
+GET /api/quick-verify/evidence/:evidenceId/download
+```
+
+Both routes enforce user/org ownership unless the caller is an admin. Downloads stream the exact JSON blob written during verification (headers, metadata, base64 body, SHA-256 digest).
+
+## �🔧 Configuration
 
 ### Environment Variables
 

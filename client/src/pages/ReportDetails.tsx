@@ -1,10 +1,22 @@
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw, Image as ImageIcon, ExternalLink, Flag } from 'lucide-react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import { apiFetch, getScanEvents, type ScanEvent, verifyFinding as apiVerifyFinding, type VerifyFindingResult } from '../utils/api';
+import {
+  apiFetch,
+  getScanEvents,
+  getQuickVerifyPreference,
+  type ScanEvent,
+  verifyFinding as apiVerifyFinding,
+  type VerifyFindingResult,
+  type QuickVerifyConsentPreference,
+  type QuickVerifyConsentInput,
+  type QuickVerifyEvidencePreview,
+  type QuickVerifyEvidenceSummary,
+  listQuickVerifyEvidence
+} from '../utils/api';
 import { useAppStore } from '../store/appStore';
 import { useScanSocket } from '../hooks/useSocket';
 import { wafPreset } from '../utils/sqlmapFlags';
@@ -115,6 +127,22 @@ const getSeverityStyles = (severity?: string): SeverityVisualStyle => {
   if (!severity) return DEFAULT_SEVERITY_STYLE;
   const key = severity.toLowerCase();
   return SEVERITY_STYLE_MAP[key] || DEFAULT_SEVERITY_STYLE;
+};
+
+const slugifyForFilename = (raw: string | null | undefined, fallback: string): string => {
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim().toLowerCase();
+    if (trimmed.length > 0) {
+      const condensed = trimmed
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/^-+|-+$/g, '');
+      if (condensed.length > 0) {
+        return condensed.slice(0, 64);
+      }
+    }
+  }
+  return fallback;
 };
 
 type Report = {
@@ -237,7 +265,15 @@ export default function ReportDetails() {
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [panning, setPanning] = useState<boolean>(false);
+  const [quickVerifyPreference, setQuickVerifyPreference] = useState<QuickVerifyConsentPreference | null>(null);
+  const [pendingConsent, setPendingConsent] = useState<{ findingIds: string[]; mode: 'single' | 'bulk' } | null>(null);
+  const [consentDecision, setConsentDecision] = useState<'store' | 'skip'>('store');
+  const [consentRemember, setConsentRemember] = useState<boolean>(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null);
+  const [evidenceSummaries, setEvidenceSummaries] = useState<Record<string, QuickVerifyEvidenceSummary[]>>({});
+  const [evidenceLoading, setEvidenceLoading] = useState<Record<string, boolean>>({});
+  const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string | null>>({});
+  const shouldShowConsentReminder = quickVerifyPreference?.storeEvidence === false && !!quickVerifyPreference?.promptSuppressed;
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -296,6 +332,43 @@ export default function ReportDetails() {
       fetchReport();
     }
   }, [reportId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPreference = async () => {
+      try {
+        const pref = await getQuickVerifyPreference();
+        if (cancelled) return;
+        setQuickVerifyPreference(pref);
+        setConsentRemember(!!pref.rememberChoice);
+        if (pref.storeEvidence === null) {
+          setConsentDecision('store');
+        } else {
+          setConsentDecision(pref.storeEvidence ? 'store' : 'skip');
+        }
+      } catch (_) {
+        // Preference not yet set; default decision remains optimistic (store) until user chooses.
+      }
+    };
+    loadPreference();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!report?.id) return;
+    for (const [findingId, result] of Object.entries(verifyResult)) {
+      if (!findingId) continue;
+      if (evidenceSummaries[findingId] !== undefined || evidenceLoading[findingId]) continue;
+      if (result && Array.isArray(result.rawEvidence) && result.rawEvidence.length > 0) {
+        setEvidenceSummaries((prev) => ({ ...prev, [findingId]: result.rawEvidence as QuickVerifyEvidenceSummary[] }));
+        setEvidenceErrors((prev) => ({ ...prev, [findingId]: null }));
+        continue;
+      }
+      refreshEvidenceList(findingId, { silent: true });
+    }
+  }, [report?.id, verifyResult, evidenceSummaries, evidenceLoading, refreshEvidenceList]);
 
   const scanId = useMemo(() => {
     // Prefer a direct scanId on the report if available; otherwise try to infer from metadata/extracted data
@@ -529,20 +602,52 @@ export default function ReportDetails() {
       toast.error(err?.message || 'Failed to copy to clipboard');
     }
   };
-  
-  const onVerify = async (findingId: string) => {
+
+  const snapshotPreference = (decision: 'store' | 'skip', remember: boolean) => {
+    const nowIso = new Date().toISOString();
+    setQuickVerifyPreference((prev) => ({
+      userId: prev?.userId || 'self',
+      storeEvidence: decision === 'store',
+      rememberChoice: remember,
+      promptSuppressed: false,
+      promptVersion: prev?.promptVersion ?? 1,
+      lastPromptAt: nowIso,
+      lastDecisionAt: nowIso,
+      updatedAt: nowIso,
+      createdAt: prev?.createdAt ?? nowIso,
+      source: 'report-details'
+    }));
+  };
+
+  const runSingleVerification = async (
+    findingId: string,
+    options: { consent?: QuickVerifyConsentInput; manageGlobal?: boolean } = {}
+  ) => {
     if (!report?.id) return;
-    setGlobalVerifying(true);
-    setVerifying(prev => ({ ...prev, [findingId]: true }));
+    if (options.manageGlobal !== false) setGlobalVerifying(true);
+    setVerifying((prev) => ({ ...prev, [findingId]: true }));
     try {
-      const res = await apiVerifyFinding(report.id, findingId);
-      setVerifyResult(prev => ({ ...prev, [findingId]: res }));
-      setVerifyMeta(prev => ({ ...prev, [findingId]: { at: new Date().toISOString() } }));
-      // Refresh report to pull persisted verification metadata
+      const res = await apiVerifyFinding(
+        report.id,
+        findingId,
+        options.consent ? { consent: { ...options.consent } } : undefined
+      );
+      if (res.consent?.preference) {
+        setQuickVerifyPreference(res.consent.preference);
+      }
+      if (Array.isArray(res.rawEvidence) && res.rawEvidence.length > 0) {
+        setEvidenceSummaries((prev) => ({ ...prev, [findingId]: res.rawEvidence as QuickVerifyEvidenceSummary[] }));
+        setEvidenceErrors((prev) => ({ ...prev, [findingId]: null }));
+      }
+      setVerifyResult((prev) => ({ ...prev, [findingId]: res }));
+      setVerifyMeta((prev) => ({ ...prev, [findingId]: { at: new Date().toISOString() } }));
+      await refreshEvidenceList(findingId, { silent: true });
       try {
         const nr = await apiFetch(`/api/reports/${report.id}`);
         setReport(nr);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
       if (res.ok) {
         toast.success(`Verification: ${res.label} (${formatConfidence(res.score)})`);
       } else {
@@ -551,10 +656,24 @@ export default function ReportDetails() {
     } catch (e: any) {
       toast.error(e.message || 'Verification error');
     } finally {
-      setVerifying(prev => ({ ...prev, [findingId]: false }));
-      setGlobalVerifying(false);
+      setVerifying((prev) => ({ ...prev, [findingId]: false }));
+      if (options.manageGlobal !== false) setGlobalVerifying(false);
     }
-  }
+  };
+
+  const onVerify = async (findingId: string, consentOverride?: QuickVerifyConsentInput) => {
+    if (!report?.id) return;
+    const needsPrompt = !consentOverride && (!quickVerifyPreference || !quickVerifyPreference.rememberChoice);
+    if (needsPrompt) {
+      setConsentDecision(
+        quickVerifyPreference?.storeEvidence === false ? 'skip' : 'store'
+      );
+      setConsentRemember(!!quickVerifyPreference?.rememberChoice);
+      setPendingConsent({ findingIds: [findingId], mode: 'single' });
+      return;
+    }
+    await runSingleVerification(findingId, consentOverride ? { consent: consentOverride } : {});
+  };
 
   const shouldReverify = (findingId: string) => {
     const res = verifyResult[findingId];
@@ -565,13 +684,8 @@ export default function ReportDetails() {
     return false;
   }
 
-  const onVerifyAll = async () => {
-    if (!report?.id) return;
-    let ids = (report.vulnerabilities?.findings || []).map(f => f.id).filter(Boolean);
-    if (verifyOnlyChanged) {
-      ids = ids.filter(shouldReverify);
-    }
-    if (ids.length === 0) return;
+  const runBulkVerification = async (ids: string[], consentOverride?: QuickVerifyConsentInput) => {
+    if (!report?.id || ids.length === 0) return;
     setGlobalVerifying(true);
     setVerifyAllRunning(true);
     setVerifyAllProgress({ done: 0, total: ids.length });
@@ -580,35 +694,49 @@ export default function ReportDetails() {
     const concurrency = 3;
     const startDelayMs = 150;
     let index = 0;
-    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const worker = async () => {
       while (true) {
         const i = index++;
         if (i >= ids.length) break;
         const id = ids[i];
         await delay(startDelayMs);
-        setVerifying(prev => ({ ...prev, [id]: true }));
+        setVerifying((prev) => ({ ...prev, [id]: true }));
         try {
-          const res = await apiVerifyFinding(report.id!, id);
-          setVerifyResult(prev => ({ ...prev, [id]: res }));
-          setVerifyMeta(prev => ({ ...prev, [id]: { at: new Date().toISOString() } }));
-          if (res.ok) success++; else failed++;
+          const res = await apiVerifyFinding(
+            report.id!,
+            id,
+            consentOverride ? { consent: { ...consentOverride } } : undefined
+          );
+          if (res.consent?.preference) {
+            setQuickVerifyPreference(res.consent.preference);
+          }
+          if (Array.isArray(res.rawEvidence) && res.rawEvidence.length > 0) {
+            setEvidenceSummaries((prev) => ({ ...prev, [id]: res.rawEvidence as QuickVerifyEvidenceSummary[] }));
+            setEvidenceErrors((prev) => ({ ...prev, [id]: null }));
+          }
+          setVerifyResult((prev) => ({ ...prev, [id]: res }));
+          setVerifyMeta((prev) => ({ ...prev, [id]: { at: new Date().toISOString() } }));
+          await refreshEvidenceList(id, { silent: true });
+          if (res.ok) success++;
+          else failed++;
         } catch (_) {
           failed++;
         } finally {
-          setVerifying(prev => ({ ...prev, [id]: false }));
-          setVerifyAllProgress(prev => ({ ...prev, done: prev.done + 1, total: prev.total }));
+          setVerifying((prev) => ({ ...prev, [id]: false }));
+          setVerifyAllProgress((prev) => ({ ...prev, done: prev.done + 1, total: prev.total }));
         }
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, () => worker()));
     setVerifyAllRunning(false);
     setGlobalVerifying(false);
-    // Refresh report after batch verifications to reflect persisted summaries
     try {
       const nr = await apiFetch(`/api/reports/${report.id}`);
       setReport(nr);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
     if (failed === 0) {
       toast.success(`Verified all ${success} findings.`);
     } else if (success === 0) {
@@ -616,7 +744,61 @@ export default function ReportDetails() {
     } else {
       toast(`Verified ${success}, failed ${failed}.`, { icon: '⚠️' });
     }
-  }
+  };
+
+  const onVerifyAll = async (consentOverride?: QuickVerifyConsentInput) => {
+    if (!report?.id) return;
+    let ids = (report.vulnerabilities?.findings || []).map((f) => f.id).filter(Boolean);
+    if (verifyOnlyChanged) {
+      ids = ids.filter(shouldReverify);
+    }
+    if (ids.length === 0) return;
+    const needsPrompt = !consentOverride && (!quickVerifyPreference || !quickVerifyPreference.rememberChoice);
+    if (needsPrompt) {
+      setConsentDecision(
+        quickVerifyPreference?.storeEvidence === false ? 'skip' : 'store'
+      );
+      setConsentRemember(!!quickVerifyPreference?.rememberChoice);
+      setPendingConsent({ findingIds: ids, mode: 'bulk' });
+      return;
+    }
+    await runBulkVerification(ids, consentOverride);
+  };
+
+  const handleConsentConfirm = async () => {
+    if (!pendingConsent) return;
+    const targets = pendingConsent.findingIds;
+    if (targets.length === 0) {
+      setPendingConsent(null);
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const consent: QuickVerifyConsentInput = {
+      storeEvidence: consentDecision === 'store',
+      rememberChoice: consentRemember,
+      promptVersion: (quickVerifyPreference?.promptVersion ?? 1),
+      lastPromptAt: nowIso,
+      source: 'report-details'
+    };
+    snapshotPreference(consentDecision, consentRemember);
+    const mode = pendingConsent.mode;
+    setPendingConsent(null);
+    setConsentRemember(false);
+    try {
+      if (mode === 'single') {
+        await runSingleVerification(targets[0], { consent });
+      } else {
+        await runBulkVerification(targets, consent);
+      }
+    } catch {
+      // runSingleVerification/runBulkVerification already emit user-facing errors
+    }
+  };
+
+  const handleConsentCancel = () => {
+    setPendingConsent(null);
+    setConsentRemember(false);
+  };
 
   // Modal controls
   const openProofModal = async (src: string, title?: string) => {
@@ -650,6 +832,52 @@ export default function ReportDetails() {
     setPanStart(null);
   };
   const resetZoomPan = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+
+  const formatBytes = (value?: number | null): string => {
+    if (value == null || Number.isNaN(value)) return 'n/a';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = Math.max(0, Number(value));
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit++;
+    }
+    return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+  };
+
+  const formatDuration = (value?: number | null): string => {
+    if (value == null || Number.isNaN(value)) return 'n/a';
+    if (value < 1000) return `${Math.round(value)} ms`;
+    return `${(value / 1000).toFixed(2)} s`;
+  };
+
+  const formatTimestamp = (value?: string | null): string => {
+    if (!value) return 'Just now';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+  };
+
+  const refreshEvidenceList = useCallback(async (findingId: string, options: { silent?: boolean } = {}) => {
+    const currentReportId = report?.id;
+    if (!currentReportId) return;
+    const { silent = false } = options;
+    setEvidenceLoading((prev) => ({ ...prev, [findingId]: true }));
+    try {
+      const list = await listQuickVerifyEvidence(currentReportId, findingId);
+      setEvidenceSummaries((prev) => ({ ...prev, [findingId]: list }));
+      setEvidenceErrors((prev) => ({ ...prev, [findingId]: null }));
+      if (!silent && list.length === 0) {
+        toast('No stored responses yet for this finding.', { icon: 'ℹ️' });
+      }
+    } catch (err: any) {
+      const message = err?.message || 'Failed to load stored responses';
+      setEvidenceErrors((prev) => ({ ...prev, [findingId]: message }));
+      if (!silent) toast.error(message);
+    } finally {
+      setEvidenceLoading((prev) => ({ ...prev, [findingId]: false }));
+    }
+  }, [report?.id]);
   
   // Helper to fetch a protected URL with Authorization and return a blob
   const fetchWithAuth = async (path: string): Promise<Response> => {
@@ -671,6 +899,25 @@ export default function ReportDetails() {
       throw new Error(`Request failed (${res.status})${detail ? `: ${detail}` : ''}`);
     }
     return res;
+  };
+
+  const handleRawEvidenceDownload = async (evidenceId: string, preferredName?: string) => {
+    if (!evidenceId) return;
+    try {
+      const res = await fetchWithAuth(`/api/quick-verify/evidence/${encodeURIComponent(evidenceId)}/download`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${preferredName || `quick-verify-${evidenceId}`}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Raw response downloaded.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to download raw response');
+    }
   };
 
   // Convenience: get a Blob with auth
@@ -1014,6 +1261,20 @@ export default function ReportDetails() {
                 </p>
               </div>
 
+              {shouldShowConsentReminder && (
+                <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-3 text-xs text-amber-100 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                  <div>
+                    Raw quick-verify responses aren’t being stored because prompts are suppressed. Re-enable evidence retention from Settings.
+                  </div>
+                  <Link
+                    to="/settings"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400 text-amber-100"
+                  >
+                    Open Settings
+                  </Link>
+                </div>
+              )}
+
               {(showFalsePositivesOnly
                 ? report.vulnerabilities.findings.filter((f) => isFalsePositive(f.id))
                 : report.vulnerabilities.findings
@@ -1042,6 +1303,30 @@ export default function ReportDetails() {
                 const payloadHit = Array.isArray(verifyDetails?.confirmations)
                   ? verifyDetails.confirmations.includes('payload')
                   : !!verifyDetails?.payloadConfirmed;
+                const remediationSuspected = !!verifyDetails?.remediationSuspected;
+                const extraSignals = Array.isArray(verifyDetails?.extraSignals) ? verifyDetails.extraSignals : [];
+                const driftCheck = verifyDetails?.driftCheck || null;
+                const bestPayload = typeof verifyDetails?.bestPayload === 'string' && verifyDetails.bestPayload.trim().length > 0
+                  ? verifyDetails.bestPayload
+                  : null;
+                const verificationDuration = typeof verifyDetails?.verificationDurationMs === 'number' && Number.isFinite(verifyDetails.verificationDurationMs)
+                  ? `${Math.max(verifyDetails.verificationDurationMs / 1000, 0).toFixed(1)}s`
+                  : null;
+                const verificationStartedAt = typeof verifyDetails?.verificationStartedAt === 'number' && Number.isFinite(verifyDetails.verificationStartedAt)
+                  ? new Date(verifyDetails.verificationStartedAt).toLocaleString()
+                  : null;
+                const verificationCompletedAt = typeof verifyDetails?.verificationCompletedAt === 'number' && Number.isFinite(verifyDetails.verificationCompletedAt)
+                  ? new Date(verifyDetails.verificationCompletedAt).toLocaleString()
+                  : null;
+                const storedEvidence = (() => {
+                  const cached = evidenceSummaries[vuln.id];
+                  if (Array.isArray(cached) && cached.length > 0) return cached;
+                  if (Array.isArray(verifyDetails?.rawEvidence) && verifyDetails.rawEvidence.length > 0) return verifyDetails.rawEvidence;
+                  return [] as QuickVerifyEvidenceSummary[];
+                })();
+                const evidenceIsLoading = !!evidenceLoading[vuln.id];
+                const evidenceError = evidenceErrors[vuln.id] || null;
+                const shouldShowEvidencePanel = !!verifyDetails;
                 const quickVerifyTitle = verifyDetails
                   ? payloadHit
                     ? 'Quick verifier replayed the strongest SQLMap payload and detected a response delta'
@@ -1084,6 +1369,8 @@ export default function ReportDetails() {
                 const discoveredAt = vuln.discoveredAt || (vuln as any).discovered_at;
                 const parameterName = vuln.parameter || (vuln as any).parameter || 'Unknown';
                 const severityStyle = getSeverityStyles(vuln.severity);
+                const reportSlug = slugifyForFilename(report?.id, 'report');
+                const vulnSlug = slugifyForFilename(vuln.id, 'finding');
 
                 return (
                   <div key={vuln.id} className={`${severityStyle.card} p-6 rounded-lg shadow-lg`}>
@@ -1504,6 +1791,14 @@ export default function ReportDetails() {
                                 )}
                               </div>
 
+                              {(verificationDuration || verificationStartedAt || verificationCompletedAt) && (
+                                <div className="text-[11px] text-gray-400 mt-1 flex flex-wrap gap-3 normal-case">
+                                  {verificationDuration && <span>Runtime: {verificationDuration}</span>}
+                                  {verificationStartedAt && <span>Started: {verificationStartedAt}</span>}
+                                  {verificationCompletedAt && <span>Finished: {verificationCompletedAt}</span>}
+                                </div>
+                              )}
+
                               {baselineConfidenceText && (
                                 <div className="text-xs text-gray-400 mt-2 normal-case">
                                   SQLMap baseline: <span className="text-gray-200">{baselineConfidenceText}</span>
@@ -1515,6 +1810,14 @@ export default function ReportDetails() {
                                   <div className={payloadHit ? 'text-emerald-300 font-medium' : 'text-gray-300 font-medium'}>
                                     {payloadHit ? 'Seeded payload replay detected a change.' : 'Seeded payload replay did not observe a change.'}
                                   </div>
+                                  {bestPayload && (
+                                    <div className="flex items-center gap-2 text-emerald-200">
+                                      <CheckCircle size={12} className="text-emerald-300" />
+                                      <span className="text-xs">
+                                        Payload reused: <code className="bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 text-[11px] text-green-300">{bestPayload}</code>
+                                      </span>
+                                    </div>
+                                  )}
                                   <div className="text-[11px] uppercase text-gray-500">Payloads replayed</div>
                                   <div className="space-y-1">
                                     {seededPayloads.slice(0, 3).map((payload, idx) => (
@@ -1553,12 +1856,111 @@ export default function ReportDetails() {
                                             <span className="text-[11px] text-gray-400">{attempt.status} • {attempt.timeMs}ms</span>
                                           </div>
                                           <div className="text-[11px] text-gray-400">{diffSummary}</div>
+                                          {attempt.fingerprintDiff && (
+                                            <div className="text-[11px] text-gray-500">
+                                              Δ status: {attempt.fingerprintDiff.statusChanged ? 'yes' : 'no'}; Δ length: {attempt.fingerprintDiff.lengthDelta ?? 0}
+                                              {(() => {
+                                                const headers = attempt.fingerprintDiff?.headers;
+                                                if (!headers) return null;
+                                                const added = headers.added?.length || 0;
+                                                const removed = headers.removed?.length || 0;
+                                                const changed = headers.changed?.length || 0;
+                                                if (added + removed + changed === 0) return null;
+                                                return <span> • headers ± {added + removed + changed}</span>;
+                                              })()}
+                                            </div>
+                                          )}
                                           <code className="text-[11px] text-blue-300 break-all" title={attempt.url}>{attempt.url}</code>
                                         </div>
                                       );
                                     })}
                                     {payloadAttempts.length > 3 && (
                                       <div className="text-[11px] text-gray-500">…{payloadAttempts.length - 3} more attempts captured.</div>
+                                    )}
+                                  </div>
+                                </details>
+                              )}
+
+                              {remediationSuspected ? (
+                                <div className="mt-3 p-3 rounded border border-amber-600 bg-amber-500/10 text-xs text-amber-100 space-y-1">
+                                  <div className="flex items-center gap-2 font-semibold text-amber-100">
+                                    <ExclamationTriangleIcon className="h-4 w-4" />
+                                    <span>Baseline drift detected</span>
+                                  </div>
+                                  <p className="text-amber-200/90 normal-case">
+                                    Quick verify observed a notable change in the clean baseline after replaying payloads. Treat the original finding with caution and consider re-running a full scan.
+                                  </p>
+                                  {driftCheck && (
+                                    <div className="text-[11px] text-amber-200/80 space-y-1">
+                                      <div>Replay baseline status: {driftCheck.status ?? 'n/a'} • {driftCheck.timeMs ?? '—'}ms</div>
+                                      {driftCheck.fingerprintDiff && (
+                                        <div>
+                                          Δ status: {driftCheck.fingerprintDiff.statusChanged ? 'yes' : 'no'}; Δ length: {driftCheck.fingerprintDiff.lengthDelta ?? 0}
+                                          {(() => {
+                                            const headers = driftCheck.fingerprintDiff?.headers;
+                                            if (!headers) return null;
+                                            const added = headers.added?.length || 0;
+                                            const removed = headers.removed?.length || 0;
+                                            const changed = headers.changed?.length || 0;
+                                            if (added + removed + changed === 0) return null;
+                                            return <span> • headers ± {added + removed + changed}</span>;
+                                          })()}
+                                        </div>
+                                      )}
+                                      {driftCheck.contentDiff && driftCheck.contentDiff.identical === false && (
+                                        <div>Body diff: +{driftCheck.contentDiff.added ?? 0} / -{driftCheck.contentDiff.removed ?? 0} / ≠ {driftCheck.contentDiff.changed ?? 0}</div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : driftCheck ? (
+                                <div className="mt-3 p-3 rounded border border-gray-700 bg-gray-900 text-xs text-gray-300 space-y-1">
+                                  <div className="font-semibold text-gray-200">Baseline stable</div>
+                                  <div className="normal-case text-gray-300">
+                                    Baseline replay matched the earlier response fingerprint. No remediation drift detected.
+                                  </div>
+                                  <div className="text-[11px] text-gray-500">
+                                    Status {driftCheck.status ?? 'n/a'} • {driftCheck.timeMs ?? '—'}ms
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {extraSignals.length > 0 && (
+                                <details className="mt-3 text-xs text-gray-300">
+                                  <summary className="cursor-pointer text-gray-400 hover:text-gray-200">
+                                    Extra signals ({extraSignals.length})
+                                  </summary>
+                                  <div className="mt-2 space-y-2">
+                                    {extraSignals.slice(0, 6).map((signal, idx) => (
+                                      <div key={`extra-signal-${idx}`} className="bg-gray-900 border border-gray-700 rounded p-2 space-y-1">
+                                        <div className="text-[11px] uppercase text-gray-500">{signal.type}</div>
+                                        <div className="text-xs text-gray-200 normal-case">{signal.description}</div>
+                                        {signal.payload && (
+                                          <code className="block bg-gray-950 border border-gray-800 rounded px-2 py-1 text-[11px] text-green-300 break-all">{signal.payload}</code>
+                                        )}
+                                        {signal.fingerprintDiff && (
+                                          <div className="text-[11px] text-gray-500">
+                                            Δ status: {signal.fingerprintDiff.statusChanged ? 'yes' : 'no'}; Δ length: {signal.fingerprintDiff.lengthDelta ?? 0}
+                                            {(() => {
+                                              const headers = signal.fingerprintDiff?.headers;
+                                              if (!headers) return null;
+                                              const added = headers.added?.length || 0;
+                                              const removed = headers.removed?.length || 0;
+                                              const changed = headers.changed?.length || 0;
+                                              if (added + removed + changed === 0) return null;
+                                              return <span> • headers ± {added + removed + changed}</span>;
+                                            })()}
+                                          </div>
+                                        )}
+                                        {signal.contentDiff && signal.contentDiff.identical === false && (
+                                          <div className="text-[11px] text-gray-500">
+                                            Body diff: +{signal.contentDiff.added ?? 0} / -{signal.contentDiff.removed ?? 0} / ≠ {signal.contentDiff.changed ?? 0}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {extraSignals.length > 6 && (
+                                      <div className="text-[11px] text-gray-500">…+{extraSignals.length - 6} additional signals stored in the activity log.</div>
                                     )}
                                   </div>
                                 </details>
@@ -1739,15 +2141,239 @@ export default function ReportDetails() {
                                 </div>
                               )}
 
+                              {verifyDetails.consent && (
+                                <div className={`mt-3 p-3 rounded border text-xs ${
+                                  verifyDetails.consent.decision
+                                    ? 'border-emerald-500/40 bg-emerald-900/20 text-emerald-100'
+                                    : 'border-slate-600/40 bg-slate-900/40 text-gray-200'
+                                }`}>
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="font-semibold">
+                                      {verifyDetails.consent.decision
+                                        ? 'Raw responses were stored for this verification.'
+                                        : 'Raw responses were not stored for this verification.'}
+                                    </span>
+                                    {verifyDetails.consent.preference?.rememberChoice && (
+                                      <span className="text-[11px] uppercase tracking-wide opacity-80">Preference remembered</span>
+                                    )}
+                                  </div>
+                                  {verifyDetails.consent.preference?.lastDecisionAt && (
+                                    <div className="mt-1 text-[11px] opacity-80">
+                                      Last decision:{' '}
+                                      {formatTimestamp(verifyDetails.consent.preference.lastDecisionAt)}
+                                    </div>
+                                  )}
+                                  {!verifyDetails.consent.decision && (
+                                    <div className="mt-2 text-[11px] opacity-90">
+                                      You can re-run verification and allow storage to capture raw response bodies for forensic review.
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {shouldShowEvidencePanel && (
+                                <div className="mt-3 bg-gray-900 border border-gray-800 rounded p-3 text-xs text-gray-200">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="uppercase text-[11px] tracking-wide text-gray-400">
+                                      Stored raw responses
+                                      {storedEvidence.length > 0 && ` (${storedEvidence.length})`}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        className="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 disabled:opacity-60"
+                                        onClick={() => refreshEvidenceList(vuln.id)}
+                                        disabled={evidenceIsLoading}
+                                      >
+                                        {evidenceIsLoading ? 'Refreshing…' : 'Refresh'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  {evidenceError && (
+                                    <div className="mt-2 text-red-300 text-[11px]">{evidenceError}</div>
+                                  )}
+                                  {!evidenceError && evidenceIsLoading && storedEvidence.length === 0 && (
+                                    <div className="mt-2 text-gray-400 text-[11px]">Loading stored responses…</div>
+                                  )}
+                                  {!evidenceError && !evidenceIsLoading && storedEvidence.length === 0 && (
+                                    <div className="mt-2 text-gray-400 text-[11px]">No stored responses yet for this finding.</div>
+                                  )}
+                                  {storedEvidence.length > 0 && (
+                                    <ul className="mt-2 space-y-2">
+                                      {storedEvidence.slice(0, 5).map((item) => (
+                                        <li key={item.id || item.key} className="bg-gray-950 border border-gray-800 rounded p-2 space-y-1">
+                                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                            <span className="font-mono text-blue-200 break-all">{item.tag || item.scope || item.key}</span>
+                                            <span className="text-gray-400">{formatTimestamp(item.createdAt)}</span>
+                                          </div>
+                                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-400">
+                                            {item.status != null && <span>HTTP {item.status}</span>}
+                                            {item.timeMs != null && <span>{formatDuration(item.timeMs)}</span>}
+                                            {item.bodyLength != null && <span>{formatBytes(item.bodyLength)}</span>}
+                                            {item.bodyHash && (
+                                              <span className="font-mono text-gray-500">hash {item.bodyHash.slice(0, 12)}…</span>
+                                            )}
+                                          </div>
+                                          {item.url && (
+                                            <div className="text-[11px] text-gray-500 break-all">{item.url}</div>
+                                          )}
+                                          <div className="flex items-center justify-between gap-2 text-[11px] text-gray-400">
+                                            <span className="opacity-80">Key: {item.key}</span>
+                                            {item.id ? (
+                                              <button
+                                                type="button"
+                                                className="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200"
+                                                onClick={() => handleRawEvidenceDownload(item.id as string, `${report.id}-${vuln.id}-${item.tag || item.scope || item.key}`)}
+                                              >
+                                                Download JSON
+                                              </button>
+                                            ) : (
+                                              <span className="text-gray-500">Transient (not retained)</span>
+                                            )}
+                                          </div>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                  {storedEvidence.length > 5 && (
+                                    <div className="mt-2 text-[11px] text-gray-500">Showing first 5 of {storedEvidence.length} entries.</div>
+                                  )}
+                                </div>
+                              )}
+
                               {verifyPocEntries.length > 0 && (
                                 <div className="mt-2">
                                   <div className="text-xs text-gray-400 mb-1">Proof-of-Concept (cURL):</div>
-                                  <div className="bg-gray-900 p-2 rounded max-h-40 overflow-y-auto text-xs font-mono whitespace-pre select-all">
-                                    {verifyPocEntries.map((p, i) => (
-                                      <pre key={i} className="mb-1 whitespace-pre-wrap">
-                                        {`# ${p.name}\n${p.curl}`}
-                                      </pre>
-                                    ))}
+                                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                    {verifyPocEntries.map((p, i) => {
+                                      const matchingStoredEvidence = p.rawEvidenceId
+                                        ? storedEvidence.find((item) => item.id === p.rawEvidenceId)
+                                        : undefined;
+                                      const pocSlug = slugifyForFilename(p.name, `poc-${i + 1}`);
+                                      const baselineFilename = `${reportSlug}-${vulnSlug}-${pocSlug}-baseline.json`;
+                                      const currentFilename = `${reportSlug}-${vulnSlug}-${pocSlug}-current.json`;
+                                      const showDiffGuidance = !!p.rawEvidenceId;
+
+                                      return (
+                                        <div key={i} className="bg-gray-900 border border-gray-800 rounded p-2 text-xs font-mono whitespace-pre-wrap break-words">
+                                          <div className="flex items-center justify-between mb-1 text-[11px] text-gray-400">
+                                            <span className="uppercase tracking-wide">#{p.name}</span>
+                                            <button
+                                              type="button"
+                                              className="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200"
+                                              onClick={() => copyToClipboard(p.curl, 'cURL copied to clipboard')}
+                                            >
+                                              Copy
+                                            </button>
+                                          </div>
+                                          <pre className="m-0 whitespace-pre-wrap text-[11px] text-gray-200 select-text">
+                                            {p.curl}
+                                          </pre>
+                                          {p.expectedSignal && (
+                                            <div className="mt-2 bg-blue-900/20 border border-blue-800 rounded p-2 text-[11px] text-blue-100 space-y-1">
+                                              <div className="uppercase tracking-wide text-blue-300/80">Expected signal</div>
+                                              {p.expectedSignal.summary && (
+                                                <div className="text-[11px] text-blue-100/90">{p.expectedSignal.summary}</div>
+                                              )}
+                                              {p.expectedSignal.metrics && Object.keys(p.expectedSignal.metrics).length > 0 && (
+                                                <div className="grid grid-cols-2 gap-2 text-[11px] text-blue-100">
+                                                  {Object.entries(p.expectedSignal.metrics).map(([key, value]) => (
+                                                    <div key={key} className="flex items-center justify-between gap-2">
+                                                      <span className="text-blue-300/80">{key}</span>
+                                                      <span>{String(value ?? 'n/a')}</span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                          {p.evidencePreview && (
+                                            <div className="mt-2 bg-gray-950 border border-gray-800 rounded p-2 text-[11px] text-gray-200 space-y-2">
+                                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                <span className="text-gray-400 uppercase tracking-wide">Response snapshot</span>
+                                                {typeof p.evidencePreview.status === 'number' && (
+                                                  <span className="text-emerald-300">HTTP {p.evidencePreview.status}</span>
+                                                )}
+                                                {p.evidencePreview.length != null && (
+                                                  <span className="text-gray-400">Size {formatBytes(p.evidencePreview.length)}</span>
+                                                )}
+                                                {p.evidencePreview.timeMs != null && (
+                                                  <span className="text-gray-400">Latency {formatDuration(p.evidencePreview.timeMs)}</span>
+                                                )}
+                                                {p.evidencePreview.hash && (
+                                                  <span className="font-mono text-gray-500">hash {p.evidencePreview.hash.slice(0, 12)}…</span>
+                                                )}
+                                              </div>
+                                              {p.evidencePreview.url && (
+                                                <div className="text-gray-400 break-all">URL: {p.evidencePreview.url}</div>
+                                              )}
+                                              {p.evidencePreview.excerpt && (
+                                                <pre className="bg-black/60 border border-gray-900 rounded p-2 text-[11px] text-gray-300 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                                  {p.evidencePreview.excerpt}
+                                                </pre>
+                                              )}
+                                            </div>
+                                          )}
+                                          {(p.rawEvidenceHash || p.rawEvidenceLength != null || p.rawEvidenceId) && (
+                                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-400">
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                {p.rawEvidenceHash && (
+                                                  <span className="font-mono text-gray-500">hash {p.rawEvidenceHash.slice(0, 12)}…</span>
+                                                )}
+                                                {p.rawEvidenceLength != null && (
+                                                  <span>~{formatBytes(p.rawEvidenceLength)}</span>
+                                                )}
+                                              </div>
+                                              {p.rawEvidenceId ? (
+                                                <button
+                                                  type="button"
+                                                  className="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200"
+                                                  onClick={() => handleRawEvidenceDownload(p.rawEvidenceId as string, `${report.id}-${vuln.id}-${p.name}`)}
+                                                >
+                                                  Download response
+                                                </button>
+                                              ) : (
+                                                <span className="text-gray-500">Raw body not stored (consent withheld)</span>
+                                              )}
+                                            </div>
+                                          )}
+                                          {showDiffGuidance && (
+                                            <div className="mt-2 bg-indigo-950/40 border border-indigo-900/60 rounded p-2 text-[11px] text-indigo-100 space-y-2">
+                                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <span className="uppercase tracking-wide text-indigo-300">Diff guidance</span>
+                                                {matchingStoredEvidence?.bodyHash && (
+                                                  <span className="font-mono text-indigo-200/80">hash {matchingStoredEvidence.bodyHash.slice(0, 12)}…</span>
+                                                )}
+                                              </div>
+                                              <p className="text-indigo-100/80">
+                                                Download the stored baseline (rename to{' '}
+                                                <span className="font-mono text-indigo-200">{baselineFilename}</span>) and re-run the PoC into{' '}
+                                                <span className="font-mono text-indigo-200">{currentFilename}</span>, then compare the two files locally.
+                                              </p>
+                                              <div className="grid gap-2 md:grid-cols-2">
+                                                <div className="bg-black/40 border border-indigo-900 rounded p-2">
+                                                  <div className="text-[10px] uppercase tracking-wide text-indigo-300/80">PowerShell</div>
+                                                  <pre className="mt-1 whitespace-pre-wrap text-indigo-100/90 break-words">{`# Capture new response
+${p.curl} | Set-Content -Encoding utf8 "${currentFilename}"
+# Diff vs stored baseline
+fc /N "${baselineFilename}" "${currentFilename}"`}</pre>
+                                                </div>
+                                                <div className="bg-black/40 border border-indigo-900 rounded p-2">
+                                                  <div className="text-[10px] uppercase tracking-wide text-indigo-300/80">Bash</div>
+                                                  <pre className="mt-1 whitespace-pre-wrap text-indigo-100/90 break-words">{`# Capture new response
+${p.curl} | tee "${currentFilename}"
+# Diff vs stored baseline
+diff --strip-trailing-cr "${baselineFilename}" "${currentFilename}"`}</pre>
+                                                </div>
+                                              </div>
+                                              <p className="text-indigo-100/70">
+                                                Tip: keep the baseline file in a secure workspace and repeat these steps after remediation to prove the response has changed.
+                                              </p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               )}
@@ -1946,6 +2572,100 @@ export default function ReportDetails() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {pendingConsent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-lg bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-6 space-y-5">
+            <div className="flex items-start gap-3">
+              <ExclamationTriangleIcon className="h-6 w-6 text-amber-400 mt-1" />
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-white">Store raw responses for Quick Verify?</h2>
+                <p className="text-sm text-gray-300">
+                  We can save the HTTP headers and body captured during Quick Verify. These artifacts help explain why a finding was confirmed, but they may include sensitive data. Choose how you want to proceed.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className={`block border rounded-lg p-3 cursor-pointer transition ${
+                consentDecision === 'store' ? 'border-emerald-500/60 bg-emerald-900/20' : 'border-gray-700 hover:border-emerald-600/40'
+              }`}>
+                <div className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    name="quick-verify-consent"
+                    value="store"
+                    checked={consentDecision === 'store'}
+                    onChange={() => setConsentDecision('store')}
+                    className="mt-1"
+                  />
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold text-emerald-200">Store responses (recommended)</div>
+                    <p className="text-xs text-emerald-100/80">
+                      Saves hashed headers + body to the encrypted evidence vault so you can download the JSON later, compare payloads, and share proof with stakeholders.
+                    </p>
+                  </div>
+                </div>
+              </label>
+
+              <label className={`block border rounded-lg p-3 cursor-pointer transition ${
+                consentDecision === 'skip' ? 'border-slate-400/60 bg-slate-900/40' : 'border-gray-700 hover:border-slate-500/40'
+              }`}>
+                <div className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    name="quick-verify-consent"
+                    value="skip"
+                    checked={consentDecision === 'skip'}
+                    onChange={() => setConsentDecision('skip')}
+                    className="mt-1"
+                  />
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold text-gray-200">Skip storing responses</div>
+                    <p className="text-xs text-gray-300/80">
+                      Runs the same verification but discards raw content after computing scores. No new evidence will appear in the report history.
+                    </p>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-200">
+              <input
+                type="checkbox"
+                className="form-checkbox h-4 w-4 rounded border-gray-600 bg-gray-800"
+                checked={consentRemember}
+                onChange={(e) => setConsentRemember(e.target.checked)}
+              />
+              Remember my choice for future verifications
+            </label>
+
+            <div className="flex items-center justify-between text-[11px] text-gray-500">
+              <span>Impacted findings: {pendingConsent.findingIds.length}</span>
+              {quickVerifyPreference?.updatedAt && (
+                <span>Last preference update: {formatTimestamp(quickVerifyPreference.updatedAt)}</span>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded border border-gray-600 text-gray-300 bg-gray-800 hover:bg-gray-700"
+                onClick={handleConsentCancel}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                onClick={handleConsentConfirm}
+              >
+                {pendingConsent.mode === 'bulk' ? 'Verify all findings' : 'Verify now'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

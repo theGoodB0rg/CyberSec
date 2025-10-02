@@ -21,6 +21,7 @@ const createTargetsRouter = require('./routes/targets');
 const { verifyFinding } = require('./verifier');
 const QueueRunner = require('./queue');
 const { sanitizeOptionsForStorage, prepareAuthContext } = require('./helpers/scanHelpers');
+const { persistQuickVerifyRawBodies, summarizeRawBodies, remapEvidenceRawKeys } = require('./helpers/evidenceStorage');
 
 // Initialize Express app
 const app = express();
@@ -42,6 +43,11 @@ const DB_PATH = path.join(__dirname, 'data', 'cybersecurity.db');
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const QUICK_VERIFY_EVIDENCE_DIR = path.join(__dirname, 'temp', 'quick-verify-evidence');
+if (!fs.existsSync(QUICK_VERIFY_EVIDENCE_DIR)) {
+  fs.mkdirSync(QUICK_VERIFY_EVIDENCE_DIR, { recursive: true });
 }
 
 // Trust proxy configuration (pre-middleware):
@@ -1076,13 +1082,143 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
       score: typeof finding.confidenceScore === 'number' ? finding.confidenceScore : null
     };
 
+    const consentInput = (req.body && req.body.consent) || null;
+    const preferenceBefore = await database.getQuickVerifyPreference(req.user.id);
+    const nowIso = new Date().toISOString();
+    let shouldCaptureRawBodies = !!(preferenceBefore.rememberChoice && preferenceBefore.storeEvidence === true);
+    let consentLogged = false;
+
+    if (consentInput && typeof consentInput.storeEvidence === 'boolean') {
+      shouldCaptureRawBodies = consentInput.storeEvidence === true;
+      try {
+        await database.upsertQuickVerifyPreference(req.user.id, {
+          storeEvidence: consentInput.storeEvidence,
+          rememberChoice: consentInput.rememberChoice !== undefined ? !!consentInput.rememberChoice : preferenceBefore.rememberChoice,
+          promptSuppressed: consentInput.promptSuppressed === true,
+          promptVersion: consentInput.promptVersion != null ? Number(consentInput.promptVersion) : undefined,
+          lastPromptAt: consentInput.lastPromptAt || nowIso,
+          lastDecisionAt: nowIso,
+          source: consentInput.source || 'quick-verify'
+        });
+        consentLogged = true;
+      } catch (err) {
+        Logger.warn('Failed to persist quick verify consent', { error: err.message, userId: req.user.id });
+      }
+    }
+
+    if (!consentInput && req.body && typeof req.body.captureRawBodies === 'boolean') {
+      shouldCaptureRawBodies = !!req.body.captureRawBodies;
+    }
+
+    const activePreference = await database.getQuickVerifyPreference(req.user.id);
+
     const result = await verifyFinding({
       targetUrl: scan.target,
       parameter: param,
       requestContext,
       seedPayloads,
-      originalConfidence
+      originalConfidence,
+      captureRawBodies: shouldCaptureRawBodies
     });
+
+    const rawBodies = result.rawBodies || null;
+    let rawEvidenceSummary = [];
+    const evidenceMapping = {};
+    if (shouldCaptureRawBodies && rawBodies && Object.keys(rawBodies).length > 0) {
+      try {
+        const persisted = persistQuickVerifyRawBodies({
+          baseDir: QUICK_VERIFY_EVIDENCE_DIR,
+          reportId,
+          findingId,
+          rawBodies
+        });
+        for (const sample of persisted) {
+          try {
+            const storedRecord = await database.addQuickVerifyEvidence({
+              userId: req.user.id,
+              orgId: req.user.orgId || null,
+              reportId,
+              findingId,
+              rawKey: sample.key,
+              scope: sample.scope,
+              tag: sample.tag,
+              status: sample.status,
+              timeMs: sample.timeMs,
+              bodyHash: sample.bodyHash,
+              bodyLength: sample.bodyLength,
+              method: sample.method,
+              url: sample.url,
+              headers: sample.headers,
+              storedPath: path.relative(QUICK_VERIFY_EVIDENCE_DIR, sample.storedPath),
+              contentType: sample.contentType,
+              source: 'quick-verify'
+            });
+            evidenceMapping[sample.key] = storedRecord;
+          } catch (insertErr) {
+            Logger.error('Failed to record quick verify evidence metadata', { error: insertErr.message, key: sample.key, reportId, findingId });
+          }
+        }
+        rawEvidenceSummary = persisted.map((sample) => {
+          const record = evidenceMapping[sample.key];
+          if (record) {
+            return {
+              id: record.id,
+              key: record.rawKey,
+              scope: record.scope,
+              tag: record.tag,
+              status: record.status,
+              timeMs: record.timeMs,
+              bodyHash: record.bodyHash,
+              bodyLength: record.bodyLength,
+              method: record.method,
+              url: record.url,
+              createdAt: record.createdAt,
+              contentType: record.contentType,
+              stored: true
+            };
+          }
+          return {
+            id: null,
+            key: sample.key,
+            scope: sample.scope,
+            tag: sample.tag,
+            status: sample.status,
+            timeMs: sample.timeMs,
+            bodyHash: sample.bodyHash,
+            bodyLength: sample.bodyLength,
+            method: sample.method,
+            url: sample.url,
+            createdAt: null,
+            contentType: sample.contentType,
+            stored: false
+          };
+        });
+        if (rawEvidenceSummary.length > 0) {
+          try {
+            await database.logScanEvent({
+              scan_id: String(report.scan_id),
+              user_id: req.user.id,
+              org_id: req.user.orgId || null,
+              event_type: 'quick-verify-evidence-stored',
+              metadata: {
+                reportId,
+                findingId,
+                count: rawEvidenceSummary.length,
+                keys: rawEvidenceSummary.map((item) => item.key).slice(0, 10)
+              }
+            });
+          } catch (_) {}
+        }
+      } catch (persistErr) {
+        Logger.error('Failed to persist quick verify raw evidence', { error: persistErr.message, reportId, findingId });
+        rawEvidenceSummary = summarizeRawBodies(rawBodies).map((entry) => ({ ...entry, stored: false }));
+      }
+    } else if (rawBodies) {
+      rawEvidenceSummary = summarizeRawBodies(rawBodies).map((entry) => ({ ...entry, stored: false }));
+    }
+
+    delete result.rawBodies;
+    const evidenceForResponse = remapEvidenceRawKeys(result.evidence, evidenceMapping);
 
     // Log event
     try {
@@ -1102,7 +1238,33 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
           metadata: { reportId, findingId, suggestions: result.suggestions || [], indicators: result.wafIndicators || null }
         });
       }
+      if (result.remediationSuspected) {
+        await database.logScanEvent({
+          scan_id: String(report.scan_id),
+          user_id: req.user.id,
+          org_id: req.user.orgId || null,
+          event_type: 'post-verify-drift',
+          metadata: { reportId, findingId, drift: result.driftCheck || null, extraSignals: (result.extraSignals || []).slice(0, 5) }
+        });
+      }
     } catch (_) {}
+
+    if (consentLogged) {
+      try {
+        await database.logScanEvent({
+          scan_id: String(report.scan_id),
+          user_id: req.user.id,
+          org_id: req.user.orgId || null,
+          event_type: 'quick-verify-consent',
+          metadata: {
+            reportId,
+            findingId,
+            storeEvidence: typeof consentInput?.storeEvidence === 'boolean' ? consentInput.storeEvidence : shouldCaptureRawBodies,
+            rememberChoice: consentInput?.rememberChoice ?? activePreference.rememberChoice
+          }
+        });
+      } catch (_) {}
+    }
 
     // Persist a lightweight summary under metadata.verifications[findingId]
     try {
@@ -1119,7 +1281,11 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
           indicators: result.wafIndicators || null,
           payloadsTested: Array.isArray(result.seededPayloads) && result.seededPayloads.length > 0 ? result.seededPayloads : undefined,
           payloadConfirmed: Array.isArray(result.confirmations) ? result.confirmations.includes('payload') : undefined,
-          baselineConfidence: result.baselineConfidence || undefined
+          baselineConfidence: result.baselineConfidence || undefined,
+          remediationSuspected: !!result.remediationSuspected,
+          extraSignals: Array.isArray(result.extraSignals) ? result.extraSignals.slice(0, 10) : undefined,
+          bestPayload: result.bestPayload || undefined,
+          driftCheck: result.driftCheck || undefined
         };
         return { ...m, verifications };
       });
@@ -1162,8 +1328,11 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
     score: result.confidenceScore,
     confirmations: result.confirmations,
     signals: result.signalsTested,
+    remediationSuspected: !!result.remediationSuspected,
     diff: result.diffView,
     poc: result.poc,
+  evidence: evidenceForResponse || result.evidence || null,
+  rawEvidence: rawEvidenceSummary,
     why: result.why,
     wafDetected: !!result.wafDetected,
     suggestions: result.suggestions || [],
@@ -1171,17 +1340,154 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
     seededPayloads: result.seededPayloads || [],
     payloadAttempts: result.payloadAttempts || undefined,
     baselineConfidence: result.baselineConfidence || undefined,
+    extraSignals: result.extraSignals || [],
+    bestPayload: result.bestPayload || null,
+    driftCheck: result.driftCheck || null,
+    verificationStartedAt: result.verificationStartedAt,
+    verificationCompletedAt: result.verificationCompletedAt,
+    verificationDurationMs: (typeof result.verificationStartedAt === 'number' && typeof result.verificationCompletedAt === 'number')
+      ? Math.max(0, result.verificationCompletedAt - result.verificationStartedAt)
+      : null,
     dom: {
       checked: !!result.dom?.checked,
       reflected: !!result.dom?.reflected,
       matches: result.dom?.matches || [],
       url: result.dom?.url,
       proof: domProof
+    },
+    consent: {
+      decision: shouldCaptureRawBodies,
+      preference: {
+        storeEvidence: activePreference.storeEvidence,
+        rememberChoice: activePreference.rememberChoice,
+        promptSuppressed: activePreference.promptSuppressed,
+        promptVersion: activePreference.promptVersion,
+        lastPromptAt: activePreference.lastPromptAt,
+        lastDecisionAt: activePreference.lastDecisionAt,
+        updatedAt: activePreference.updatedAt,
+        createdAt: activePreference.createdAt,
+        source: activePreference.source
+      }
     }
   });
   } catch (e) {
     Logger.error('Finding verification failed', e);
     res.status(500).json({ error: 'Verification failed', details: e.message });
+  }
+});
+
+app.get('/api/quick-verify/preferences', async (req, res) => {
+  try {
+    const preference = await database.getQuickVerifyPreference(req.user.id);
+    res.json({ ok: true, preference });
+  } catch (e) {
+    Logger.error('Fetch quick verify preference failed', e);
+    res.status(500).json({ error: 'Failed to fetch preference' });
+  }
+});
+
+app.post('/api/quick-verify/preferences', async (req, res) => {
+  try {
+    const {
+      storeEvidence = undefined,
+      rememberChoice = undefined,
+      promptSuppressed = undefined,
+      promptVersion = undefined,
+      suppressPrompt = undefined,
+      lastPromptAt = undefined,
+      source = 'user'
+    } = req.body || {};
+    const nowIso = new Date().toISOString();
+    const preference = await database.upsertQuickVerifyPreference(req.user.id, {
+      storeEvidence,
+      rememberChoice,
+      promptSuppressed: promptSuppressed !== undefined ? !!promptSuppressed : (suppressPrompt !== undefined ? !!suppressPrompt : undefined),
+      promptVersion,
+      lastPromptAt: lastPromptAt || nowIso,
+      lastDecisionAt: nowIso,
+      source
+    });
+    res.json({ ok: true, preference });
+  } catch (e) {
+    Logger.error('Update quick verify preference failed', e);
+    res.status(500).json({ error: 'Failed to update preference', details: e.message });
+  }
+});
+
+app.delete('/api/quick-verify/preferences', async (req, res) => {
+  try {
+    await database.clearQuickVerifyPreference(req.user.id);
+    res.json({ ok: true });
+  } catch (e) {
+    Logger.error('Clear quick verify preference failed', e);
+    res.status(500).json({ error: 'Failed to clear preference' });
+  }
+});
+
+app.get('/api/reports/:id/findings/:findingId/quick-verify/evidence', async (req, res) => {
+  try {
+    const { id, findingId } = req.params;
+    const report = await database.getReport(id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    if (req.user.role !== 'admin' && report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const limit = Math.max(1, Math.min(200, parseInt(String(req.query.limit || '50'), 10) || 50));
+    const evidence = await database.listQuickVerifyEvidence({
+      reportId: id,
+      findingId,
+      userId: req.user.id,
+      orgId: req.user.orgId || null,
+      isAdmin: req.user.role === 'admin',
+      limit
+    });
+    res.json({ ok: true, evidence });
+  } catch (e) {
+    Logger.error('List quick verify evidence failed', e);
+    res.status(500).json({ error: 'Failed to fetch evidence', details: e.message });
+  }
+});
+
+app.get('/api/quick-verify/evidence/:evidenceId/download', async (req, res) => {
+  try {
+    const { evidenceId } = req.params;
+    const record = await database.getQuickVerifyEvidenceById(evidenceId);
+    if (!record) return res.status(404).json({ error: 'Evidence not found' });
+    const report = await database.getReport(record.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const userIsAdmin = req.user.role === 'admin';
+    const sameUser = record.userId === req.user.id;
+    const sameOrg = req.user.orgId && record.orgId && req.user.orgId === record.orgId;
+    if (!userIsAdmin && !sameUser && !sameOrg) {
+      if (report.user_id && report.user_id !== req.user.id && (!req.user.orgId || report.org_id !== req.user.orgId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+    if (!record.storedPath) return res.status(410).json({ error: 'Evidence file not stored' });
+    const baseResolved = path.resolve(QUICK_VERIFY_EVIDENCE_DIR);
+    const absolutePath = path.resolve(QUICK_VERIFY_EVIDENCE_DIR, record.storedPath);
+    const relativeCheck = path.relative(baseResolved, absolutePath);
+    if (relativeCheck.startsWith('..') || path.isAbsolute(relativeCheck)) {
+      return res.status(400).json({ error: 'Invalid evidence path' });
+    }
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(410).json({ error: 'Evidence file missing' });
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="qv-${record.id}.json"`);
+    const stream = fs.createReadStream(absolutePath);
+    stream.on('error', (err) => {
+      Logger.error('Stream quick verify evidence failed', err);
+      if (!res.headersSent) {
+        res.status(500).end();
+      }
+    });
+    stream.pipe(res);
+  } catch (e) {
+    Logger.error('Download quick verify evidence failed', e);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download evidence', details: e.message });
+    }
   }
 });
 

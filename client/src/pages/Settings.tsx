@@ -1,7 +1,8 @@
 import { CogIcon } from '@heroicons/react/24/outline'
 import { Disclosure } from '@headlessui/react'
 import { useEffect, useMemo, useState } from 'react'
-import { getServerSqlmapProfiles, getUserScanSettings, listUserProfiles, updateUserScanSettings, validateSqlmap, createUserProfile } from '../utils/api'
+import { getServerSqlmapProfiles, getUserScanSettings, listUserProfiles, updateUserScanSettings, validateSqlmap, createUserProfile, getQuickVerifyPreference, updateQuickVerifyPreference, clearQuickVerifyPreference } from '../utils/api'
+import type { QuickVerifyConsentPreference } from '../utils/api'
 
 type FormDefaults = {
   level?: number
@@ -23,6 +24,10 @@ export default function Settings() {
   const [defaultProfile, setDefaultProfile] = useState('basic')
   const [lastUsedProfile, setLastUsedProfile] = useState<string | null>(null)
   const [defaults, setDefaults] = useState<FormDefaults>({})
+  const [quickVerifyPreference, setQuickVerifyPreference] = useState<QuickVerifyConsentPreference | null>(null)
+  const [quickVerifyPrefLoading, setQuickVerifyPrefLoading] = useState(true)
+  const [quickVerifyPrefSaving, setQuickVerifyPrefSaving] = useState(false)
+  const [quickVerifyPrefError, setQuickVerifyPrefError] = useState<string | null>(null)
 
   // Builder state
   const [target, setTarget] = useState('http://example.com')
@@ -51,6 +56,22 @@ export default function Settings() {
         // ignore
       } finally {
         if (mounted) setLoading(false)
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const pref = await getQuickVerifyPreference()
+        if (!mounted) return
+        setQuickVerifyPreference(pref)
+      } catch (e: any) {
+        if (mounted) setQuickVerifyPrefError(e?.message || 'Failed to load preference')
+      } finally {
+        if (mounted) setQuickVerifyPrefLoading(false)
       }
     })()
     return () => { mounted = false }
@@ -85,6 +106,38 @@ export default function Settings() {
   }
 
   const flagsCsv = useMemo(() => (defaults.tamper || []).join(','), [defaults.tamper])
+
+  const quickVerifyMode: 'store' | 'skip' | 'ask' = useMemo(() => {
+    if (!quickVerifyPreference) return 'ask'
+    if (quickVerifyPreference.rememberChoice && quickVerifyPreference.storeEvidence === true) return 'store'
+    if (quickVerifyPreference.rememberChoice && quickVerifyPreference.storeEvidence === false) return 'skip'
+    return 'ask'
+  }, [quickVerifyPreference])
+
+  const updateQuickVerifyMode = async (mode: 'store' | 'skip' | 'ask') => {
+    if (quickVerifyPrefSaving || mode === quickVerifyMode) return
+    setQuickVerifyPrefSaving(true)
+    setQuickVerifyPrefError(null)
+    try {
+      if (mode === 'ask') {
+        await clearQuickVerifyPreference()
+        const fresh = await getQuickVerifyPreference()
+        setQuickVerifyPreference(fresh)
+      } else {
+        const fresh = await updateQuickVerifyPreference({
+          storeEvidence: mode === 'store',
+          rememberChoice: true,
+          promptSuppressed: true,
+          source: 'settings'
+        })
+        setQuickVerifyPreference(fresh)
+      }
+    } catch (e: any) {
+      setQuickVerifyPrefError(e?.message || 'Failed to update preference')
+    } finally {
+      setQuickVerifyPrefSaving(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -155,6 +208,98 @@ export default function Settings() {
                 <div className="mt-4 flex gap-3">
                   <button onClick={onSaveSettings} disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50">{saving ? 'Saving…' : 'Save Defaults'}</button>
                 </div>
+              </Disclosure.Panel>
+            </div>
+          )}
+        </Disclosure>
+
+        {/* Quick Verify Evidence Retention */}
+        <Disclosure defaultOpen>
+          {({ open }) => (
+            <div className="mb-6 bg-gray-800 rounded-lg border border-gray-700">
+              <Disclosure.Button className="w-full text-left p-4 flex items-center justify-between">
+                <div className="text-white font-semibold">Quick Verify Evidence Retention</div>
+                <span className="text-gray-400 text-sm">{open ? 'Hide' : 'Show'}</span>
+              </Disclosure.Button>
+              <Disclosure.Panel className="px-4 pb-4 space-y-4">
+                {quickVerifyPrefLoading ? (
+                  <div className="text-sm text-gray-400">Loading preference…</div>
+                ) : (
+                  <>
+                    {quickVerifyPrefError && (
+                      <div className="text-sm text-red-400">{quickVerifyPrefError}</div>
+                    )}
+                    <fieldset className="space-y-3">
+                      <legend className="text-xs uppercase tracking-wide text-gray-400">Storage preference</legend>
+                      <label className={`flex items-start gap-3 border rounded-lg p-3 cursor-pointer transition ${quickVerifyMode === 'store' ? 'border-emerald-500/60 bg-emerald-900/20' : 'border-gray-700 hover:border-emerald-600/40'}`}>
+                        <input
+                          type="radio"
+                          name="qv-pref"
+                          className="mt-1"
+                          value="store"
+                          checked={quickVerifyMode === 'store'}
+                          onChange={() => updateQuickVerifyMode('store')}
+                          disabled={quickVerifyPrefSaving}
+                        />
+                        <div className="space-y-1">
+                          <div className="text-sm font-semibold text-emerald-200">Always store responses</div>
+                          <p className="text-xs text-emerald-100/80">Automatically keeps raw quick-verify evidence with integrity hashes for every run without prompting.</p>
+                        </div>
+                      </label>
+                      <label className={`flex items-start gap-3 border rounded-lg p-3 cursor-pointer transition ${quickVerifyMode === 'skip' ? 'border-slate-400/60 bg-slate-900/40' : 'border-gray-700 hover:border-slate-500/40'}`}>
+                        <input
+                          type="radio"
+                          name="qv-pref"
+                          className="mt-1"
+                          value="skip"
+                          checked={quickVerifyMode === 'skip'}
+                          onChange={() => updateQuickVerifyMode('skip')}
+                          disabled={quickVerifyPrefSaving}
+                        />
+                        <div className="space-y-1">
+                          <div className="text-sm font-semibold text-gray-200">Never store responses</div>
+                          <p className="text-xs text-gray-300/80">Discards raw payloads after scoring. Keeps verification lightweight while suppressing future prompts.</p>
+                        </div>
+                      </label>
+                      <label className={`flex items-start gap-3 border rounded-lg p-3 cursor-pointer transition ${quickVerifyMode === 'ask' ? 'border-blue-400/60 bg-blue-900/20' : 'border-gray-700 hover:border-blue-500/40'}`}>
+                        <input
+                          type="radio"
+                          name="qv-pref"
+                          className="mt-1"
+                          value="ask"
+                          checked={quickVerifyMode === 'ask'}
+                          onChange={() => updateQuickVerifyMode('ask')}
+                          disabled={quickVerifyPrefSaving}
+                        />
+                        <div className="space-y-1">
+                          <div className="text-sm font-semibold text-blue-200">Ask me each time</div>
+                          <p className="text-xs text-blue-100/80">Clears the remembered decision so verifications prompt for consent on the next run.</p>
+                        </div>
+                      </label>
+                    </fieldset>
+                    {quickVerifyPreference && (
+                      <div className="text-xs text-gray-400 space-y-1">
+                        <div>
+                          Prompts {quickVerifyPreference.promptSuppressed ? 'are suppressed—verifications will not ask again.' : 'will appear the next time you run quick verify.'}
+                        </div>
+                        {quickVerifyPreference.updatedAt && (
+                          <div>Last updated: {new Date(quickVerifyPreference.updatedAt).toLocaleString()}</div>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700 text-sm text-gray-200 disabled:opacity-60"
+                        onClick={() => updateQuickVerifyMode('ask')}
+                        disabled={quickVerifyPrefSaving || quickVerifyMode === 'ask'}
+                      >
+                        Restore prompts
+                      </button>
+                      <span className="text-xs text-gray-500">Changes apply immediately for your account.</span>
+                    </div>
+                  </>
+                )}
               </Disclosure.Panel>
             </div>
           )}

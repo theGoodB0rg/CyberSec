@@ -1,6 +1,7 @@
 const axios = require('axios');
 const sanitizeHtml = require('sanitize-html');
 const { URL } = require('url');
+const crypto = require('crypto');
 const Logger = require('./utils/logger');
 let puppeteer = null;
 try {
@@ -26,6 +27,108 @@ function normalizeHtml(html) {
   } catch {
     return String(html || '');
   }
+}
+
+const MAX_EXCERPT_LENGTH = 480;
+
+function sanitizeForPreview(value) {
+  if (value == null) return '';
+  let str = '';
+  if (Buffer.isBuffer(value)) {
+    try {
+      str = value.toString('utf8');
+    } catch {
+      str = value.toString('latin1');
+    }
+  } else if (typeof value === 'string') {
+    str = value;
+  } else {
+    try {
+      str = JSON.stringify(value);
+    } catch {
+      str = String(value);
+    }
+  }
+
+  if (!str) return '';
+
+  const printable = str
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!printable) return '';
+
+  return printable.length > MAX_EXCERPT_LENGTH
+    ? `${printable.slice(0, MAX_EXCERPT_LENGTH)}…`
+    : printable;
+}
+
+function detectBinary(body) {
+  if (!body) return false;
+  const sample = typeof body === 'string' ? body.slice(0, 512) : body;
+  if (Buffer.isBuffer(sample)) {
+    const ascii = sample.toString('binary');
+    let controlCount = 0;
+    for (let i = 0; i < ascii.length; i++) {
+      const code = ascii.charCodeAt(i);
+      if (code < 32 && ![9, 10, 13].includes(code)) controlCount++;
+    }
+    return controlCount / Math.max(1, ascii.length) > 0.15;
+  }
+  return false;
+}
+
+function buildExcerpt(body) {
+  if (body == null) return null;
+  if (detectBinary(body)) {
+    const size = Buffer.isBuffer(body) ? body.length : Buffer.byteLength(String(body));
+    return `[binary content ~${size} bytes]`;
+  }
+  return sanitizeForPreview(body);
+}
+
+function hashBody(body) {
+  try {
+    return crypto.createHash('sha256').update(typeof body === 'string' ? body : Buffer.from(String(body))).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+const SENSITIVE_HEADER_KEYS = new Set(['authorization', 'cookie', 'proxy-authorization', 'set-cookie']);
+
+function sanitizeHeadersForStorage(headers = {}) {
+  const result = {};
+  for (const [rawKey, rawValue] of Object.entries(headers || {})) {
+    if (!rawKey) continue;
+    const key = String(rawKey);
+    const lower = key.toLowerCase();
+    if (SENSITIVE_HEADER_KEYS.has(lower)) continue;
+    if (Array.isArray(rawValue)) {
+      result[lower] = rawValue.map((v) => (v == null ? '' : String(v))).filter(Boolean).join('; ');
+    } else if (rawValue != null) {
+      result[lower] = String(rawValue);
+    }
+  }
+  return result;
+}
+
+function buildResponsePreview(response, variantMeta = {}) {
+  if (!response) return null;
+  const body = response.body || '';
+  const length = typeof body === 'string' ? body.length : Buffer.isBuffer(body) ? body.length : String(body).length;
+  return {
+    status: typeof response.status === 'number' ? response.status : null,
+    timeMs: typeof response.timeMs === 'number' ? response.timeMs : null,
+    length,
+    hash: hashBody(body),
+    excerpt: buildExcerpt(body),
+    headers: sanitizeHeadersForStorage(response.headers || {}),
+    url: variantMeta.url || null,
+    method: variantMeta.method || null
+  };
 }
 
 function buildUrlWithParam(baseUrl, param, value) {
@@ -255,22 +358,147 @@ function simpleDiffSummary(a, b) {
   return { identical: false, added, removed, changed };
 }
 
-function curlSnippet(url) {
-  return `curl -i -A "CyberSec-Verify/1.0" ${JSON.stringify(url)}`;
+function curlSnippet(variant) {
+  if (!variant || !variant.url) return null;
+  const parts = ['curl -i'];
+  const method = (variant.method || 'GET').toUpperCase();
+  if (method !== 'GET') {
+    parts.push(`-X ${method}`);
+  }
+  const headers = variant.headers || {};
+  const skipHeaders = new Set(['content-length', 'host']);
+  const seen = new Set();
+  for (const [rawKey, rawValue] of Object.entries(headers)) {
+    if (rawValue == null) continue;
+    const key = String(rawKey);
+    const value = Array.isArray(rawValue) ? rawValue.join(', ') : String(rawValue);
+    if (!value) continue;
+    if (skipHeaders.has(key.toLowerCase())) continue;
+    seen.add(key.toLowerCase());
+    parts.push(`-H ${JSON.stringify(`${key}: ${value}`)}`);
+  }
+  if (!seen.has('user-agent')) {
+    parts.push(`-H ${JSON.stringify('User-Agent: CyberSec-Verify/1.0')}`);
+  }
+  if (!seen.has('accept')) {
+    parts.push(`-H ${JSON.stringify('Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')}`);
+  }
+  if (variant.data != null && variant.data !== '') {
+    const body = typeof variant.data === 'string' ? variant.data : String(variant.data);
+    parts.push(`--data-raw ${JSON.stringify(body)}`);
+  }
+  parts.push(JSON.stringify(variant.url));
+  return parts.join(' ');
+}
+
+function snapshotResponse(res) {
+  if (!res) return null;
+  const rawHeaders = res.headers || {};
+  const selected = {};
+  const interesting = ['content-type', 'location', 'server', 'cache-control', 'vary', 'x-powered-by', 'via'];
+  for (const [key, value] of Object.entries(rawHeaders)) {
+    const lower = key.toLowerCase();
+    if (lower === 'set-cookie') {
+      const cookieCount = Array.isArray(value) ? value.length : (value ? 1 : 0);
+      selected['set-cookie-count'] = cookieCount;
+      continue;
+    }
+    if (interesting.includes(lower)) {
+      selected[lower] = Array.isArray(value) ? value[0] : value;
+    }
+  }
+  const body = res.body || '';
+  return {
+    status: typeof res.status === 'number' ? res.status : null,
+    timeMs: typeof res.timeMs === 'number' ? res.timeMs : null,
+    length: typeof body === 'string' ? body.length : String(body).length,
+    headers: selected
+  };
+}
+
+function diffSnapshots(base, candidate) {
+  if (!base || !candidate) return null;
+  const added = [];
+  const removed = [];
+  const changed = [];
+  const allKeys = new Set([
+    ...Object.keys(base.headers || {}),
+    ...Object.keys(candidate.headers || {})
+  ]);
+  for (const key of allKeys) {
+    const baseVal = base.headers?.[key];
+    const candVal = candidate.headers?.[key];
+    if (baseVal == null && candVal != null) {
+      added.push(key);
+    } else if (baseVal != null && candVal == null) {
+      removed.push(key);
+    } else if (baseVal != null && candVal != null && baseVal !== candVal) {
+      changed.push(key);
+    }
+  }
+  return {
+    statusChanged: base.status !== candidate.status,
+    lengthDelta: (candidate.length || 0) - (base.length || 0),
+    headers: {
+      added,
+      removed,
+      changed
+    }
+  };
 }
 
 // Attempt multi-signal verification with request context (method/headers/data)
-async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestContext = {}, seedPayloads = [], originalConfidence = null }) {
+async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestContext = {}, seedPayloads = [], originalConfidence = null, captureRawBodies = false }) {
+  const verificationStartedAt = Date.now();
   const signalsTested = [];
   const confirmations = [];
   const attempts = [];
   const payloadAttempts = [];
+  const extraSignals = [];
   let confidenceScore = 0.0;
   let wafDetected = false;
   let dom = { checked: false };
+  let remediationSuspected = false;
   // Aggregate simple WAF indicators across attempts for auditing/UI hints
   const wafFlags = { header: false, body: false, status: false };
   const wafSources = new Set();
+
+  const evidence = {
+    baseline: null,
+    signals: {
+      boolean: null,
+      time: null,
+      error: null,
+      payloads: []
+    },
+    drift: null,
+    dom: null,
+    waf: null
+  };
+  const rawBodies = captureRawBodies ? {} : null;
+
+  const recordRawBody = (scope, tag, response, variant) => {
+    if (!captureRawBodies || !response) return null;
+    const key = tag ? `${scope}:${tag}` : scope;
+    const sanitizedHeaders = sanitizeHeadersForStorage(variant?.headers || {});
+    if (rawBodies[key]) {
+      // ensure uniqueness by appending timestamp suffix
+      const uniqueKey = `${key}-${Date.now()}`;
+      return recordRawBody(uniqueKey, null, response, variant);
+    }
+    rawBodies[key] = {
+      scope,
+      tag: tag || null,
+      url: variant?.url || null,
+      method: variant?.method || null,
+      data: variant?.data || null,
+      headers: sanitizedHeaders,
+      status: response.status,
+      timeMs: response.timeMs,
+      body: response.body
+    };
+    return key;
+  };
 
   const seededPayloads = Array.isArray(seedPayloads)
     ? seedPayloads
@@ -294,8 +522,11 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
 
   let baselineResponse = null;
   let baselineNormalized = null;
+  let baselineSnapshot = null;
   let baselineStatus = null;
   let baselineRecorded = false;
+  let postDriftCheck = null;
+  let bestPayload = null;
 
   try {
     const method = (requestContext.method || 'GET').toUpperCase();
@@ -304,10 +535,17 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     if (requestContext.cookie) headers['Cookie'] = requestContext.cookie;
     const baseData = requestContext.data || null;
 
-    const recordBaseline = (url, res) => {
+    const recordBaseline = (variant, res) => {
       if (baselineRecorded) return;
       baselineRecorded = true;
-      attempts.push({ kind: 'baseline', url, status: res.status, timeMs: res.timeMs });
+      attempts.push({ kind: 'baseline', url: variant?.url || null, status: res.status, timeMs: res.timeMs });
+      evidence.baseline = {
+        preview: buildResponsePreview(res, variant),
+        fingerprint: snapshotResponse(res)
+      };
+      if (captureRawBodies) {
+        recordRawBody('baseline', null, res, variant || { url: targetUrl, method, headers, data: baseData });
+      }
     };
 
     const ensureBaseline = async () => {
@@ -322,16 +560,17 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
         cookie: requestContext.cookie
       });
       const res = await httpRequest(variant);
-      baselineResponse = res;
-      baselineStatus = res.status;
-      baselineNormalized = normalizeHtml(res.body);
+  baselineResponse = res;
+  baselineStatus = res.status;
+  baselineNormalized = normalizeHtml(res.body);
+  baselineSnapshot = snapshotResponse(res);
       const baseWaf = detectWafIndicators(res);
       wafDetected = wafDetected || baseWaf.any;
       if (baseWaf.any) wafSources.add('baseline');
       wafFlags.header = wafFlags.header || !!baseWaf.headerHit;
       wafFlags.body = wafFlags.body || !!baseWaf.bodyHit;
       wafFlags.status = wafFlags.status || !!baseWaf.statusHit;
-      recordBaseline(variant.url, res);
+      recordBaseline(variant, res);
       return res;
     };
 
@@ -359,12 +598,43 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random() * 300)));
       const r2 = await httpRequest(vFalse);
 
-      const n1 = normalizeHtml(r1.body);
-      const n2 = normalizeHtml(r2.body);
-      const diff = simpleDiffSummary(n1, n2);
-      const lenDelta = Math.abs(n1.length - n2.length);
+  const n1 = normalizeHtml(r1.body);
+  const n2 = normalizeHtml(r2.body);
+  const diff = simpleDiffSummary(n1, n2);
+  const lenDelta = Math.abs(n1.length - n2.length);
+  const snapshotTrue = snapshotResponse(r1);
+  const snapshotFalse = snapshotResponse(r2);
+  const fingerprintDiff = diffSnapshots(snapshotTrue, snapshotFalse);
 
-      attempts.push({ kind: 'boolean', true: { url: vTrue.url, status: r1.status, timeMs: r1.timeMs }, false: { url: vFalse.url, status: r2.status, timeMs: r2.timeMs }, diff });
+      const booleanTrueRawKey = recordRawBody('boolean', 'true', r1, vTrue);
+      const booleanFalseRawKey = recordRawBody('boolean', 'false', r2, vFalse);
+      evidence.signals.boolean = {
+        diff,
+        lengthDelta: lenDelta,
+        fingerprintDiff,
+        responses: {
+          true: {
+            preview: buildResponsePreview(r1, vTrue),
+            snapshot: snapshotTrue,
+            rawKey: booleanTrueRawKey
+          },
+          false: {
+            preview: buildResponsePreview(r2, vFalse),
+            snapshot: snapshotFalse,
+            rawKey: booleanFalseRawKey
+          }
+        }
+      };
+
+      attempts.push({
+        kind: 'boolean',
+        true: { url: vTrue.url, status: r1.status, timeMs: r1.timeMs },
+        false: { url: vFalse.url, status: r2.status, timeMs: r2.timeMs },
+        diff,
+        fingerprintDiff,
+        trueVariant: vTrue,
+        falseVariant: vFalse
+      });
       const bWaf1 = detectWafIndicators(r1);
       const bWaf2 = detectWafIndicators(r2);
       wafDetected = wafDetected || bWaf1.any || bWaf2.any;
@@ -377,6 +647,19 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
         signalsTested.push('boolean');
         confirmations.push('boolean');
         confidenceScore += 0.45; // significant weight
+        if (fingerprintDiff) {
+          extraSignals.push({
+            type: 'boolean-fingerprint',
+            description: 'Boolean test altered response fingerprint',
+            fingerprintDiff
+          });
+        }
+      } else if (fingerprintDiff && (fingerprintDiff.statusChanged || Math.abs(fingerprintDiff.lengthDelta) > 120)) {
+        extraSignals.push({
+          type: 'boolean-fingerprint-anomaly',
+          description: 'Boolean test found header/status drift without content diff',
+          fingerprintDiff
+        });
       }
     }
 
@@ -391,7 +674,37 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random() * 200)));
       const delayed = await httpRequest(vTime);
 
-      attempts.push({ kind: 'time', baseline: { url: vBase.url, timeMs: base.timeMs }, delayed: { url: vTime.url, timeMs: delayed.timeMs } });
+  const snapshotBase = snapshotResponse(base);
+  const snapshotDelayed = snapshotResponse(delayed);
+  const fingerprintDiff = diffSnapshots(snapshotBase, snapshotDelayed);
+
+      const timeBaselineRawKey = recordRawBody('time', 'baseline', base, vBase);
+      const timeDelayedRawKey = recordRawBody('time', 'delayed', delayed, vTime);
+      evidence.signals.time = {
+        deltaMs: delayed.timeMs - base.timeMs,
+        fingerprintDiff,
+        responses: {
+          baseline: {
+            preview: buildResponsePreview(base, vBase),
+            snapshot: snapshotBase,
+            rawKey: timeBaselineRawKey
+          },
+          delayed: {
+            preview: buildResponsePreview(delayed, vTime),
+            snapshot: snapshotDelayed,
+            rawKey: timeDelayedRawKey
+          }
+        }
+      };
+
+      attempts.push({
+        kind: 'time',
+        baseline: { url: vBase.url, timeMs: base.timeMs },
+        delayed: { url: vTime.url, timeMs: delayed.timeMs },
+        fingerprintDiff,
+        baselineVariant: vBase,
+        delayedVariant: vTime
+      });
       const tWaf1 = detectWafIndicators(base);
       const tWaf2 = detectWafIndicators(delayed);
       wafDetected = wafDetected || tWaf1.any || tWaf2.any;
@@ -404,13 +717,27 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
         baselineResponse = base;
         baselineStatus = base.status;
         baselineNormalized = normalizeHtml(base.body);
-        recordBaseline(vBase.url, base);
+        baselineSnapshot = snapshotResponse(base);
+        recordBaseline(vBase, base);
       }
 
       if (delayed.timeMs - base.timeMs > 1800) {
         signalsTested.push('time');
         confirmations.push('time');
         confidenceScore += 0.35;
+        if (fingerprintDiff) {
+          extraSignals.push({
+            type: 'time-drift',
+            description: 'Time-based payload also changed response fingerprint',
+            fingerprintDiff
+          });
+        }
+      } else if (fingerprintDiff && (fingerprintDiff.statusChanged || Math.abs(fingerprintDiff.lengthDelta) > 150)) {
+        extraSignals.push({
+          type: 'time-fingerprint-anomaly',
+          description: 'Timing payload created subtle fingerprint shift without slow response',
+          fingerprintDiff
+        });
       }
     }
 
@@ -420,7 +747,13 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       const errRes = await httpRequest(vErr);
       const body = (errRes.body || '').toString();
       const errorPatterns = /(sql syntax|mysql|postgres|oracle|sqlite|mssql|odbc|warning|unclosed quotation|unterminated string)/i;
-      attempts.push({ kind: 'error', url: vErr.url, status: errRes.status });
+      const errorRawKey = recordRawBody('error', 'probe', errRes, vErr);
+      evidence.signals.error = {
+        keywordMatch: errorPatterns.test(body),
+        preview: buildResponsePreview(errRes, vErr),
+        rawKey: errorRawKey
+      };
+  attempts.push({ kind: 'error', url: vErr.url, status: errRes.status, variant: vErr });
       const eWaf = detectWafIndicators(errRes);
       wafDetected = wafDetected || eWaf.any;
       if (eWaf.any) wafSources.add('error');
@@ -449,11 +782,24 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
           const diff = simpleDiffSummary(baseNorm, normalized);
           const lenDelta = Math.abs(normalized.length - baseNorm.length);
           const statusChanged = res.status !== baseStatus;
+          const attemptSnapshot = snapshotResponse(res);
+          const fingerprintDiff = baselineSnapshot ? diffSnapshots(baselineSnapshot, attemptSnapshot) : null;
           const keywordHit = keywordPattern.test(String(res.body || '')) || keywordPattern.test(normalized);
+          const payloadTag = crypto.createHash('sha1').update(String(payload)).digest('hex').slice(0, 12);
+          const payloadRawKey = recordRawBody('payload', payloadTag, res, variant);
+          const payloadPreview = buildResponsePreview(res, variant);
 
-          const attempt = { kind: 'payload', payload, url: variant.url, status: res.status, timeMs: res.timeMs, diff };
+          const attempt = { kind: 'payload', payload, url: variant.url, status: res.status, timeMs: res.timeMs, diff, fingerprintDiff, variant, keywordHit };
           attempts.push(attempt);
-          payloadAttempts.push({ payload, url: variant.url, status: res.status, timeMs: res.timeMs, diff });
+          payloadAttempts.push({ payload, url: variant.url, status: res.status, timeMs: res.timeMs, diff, fingerprintDiff, variant, keywordHit, preview: payloadPreview, rawKey: payloadRawKey });
+          evidence.signals.payloads.push({
+            payload,
+            keywordHit,
+            diff,
+            fingerprintDiff,
+            preview: payloadPreview,
+            rawKey: payloadRawKey
+          });
 
           const pWaf = detectWafIndicators(res);
           wafDetected = wafDetected || pWaf.any;
@@ -464,17 +810,105 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
 
           if (!payloadConfirmed && (statusChanged || !diff.identical || lenDelta > 60 || keywordHit)) {
             payloadConfirmed = true;
+            bestPayload = payload;
             confirmations.push('payload');
             signalsTested.push('payload');
             confidenceScore += 0.3;
+            if (fingerprintDiff) {
+              extraSignals.push({
+                type: 'payload-fingerprint',
+                description: `Seeded payload ${payload} changed response fingerprint`,
+                payload,
+                fingerprintDiff
+              });
+            }
           }
 
           if (payloadConfirmed) {
             break;
           }
+
+          if (!fingerprintDiff && (lenDelta > 120 || statusChanged)) {
+            extraSignals.push({
+              type: 'payload-anomaly',
+              description: `Payload ${payload} altered status/content without fingerprint diff`,
+              payload,
+              statusChanged,
+              lenDelta
+            });
+          } else if (fingerprintDiff && (fingerprintDiff.statusChanged || Math.abs(fingerprintDiff.lengthDelta) > 150 || fingerprintDiff.headers.added.length || fingerprintDiff.headers.removed.length || fingerprintDiff.headers.changed.length)) {
+            extraSignals.push({
+              type: 'payload-drift',
+              description: `Payload ${payload} introduced notable header/status drift`,
+              payload,
+              fingerprintDiff
+            });
+          }
         }
       } catch (err) {
         attempts.push({ kind: 'payload-error', error: err.message });
+      }
+    }
+
+    if (baselineResponse && baselineSnapshot) {
+      try {
+        const driftVariant = buildRequestVariant({
+          baseUrl: targetUrl,
+          parameter,
+          payload: '1',
+          method,
+          headers,
+          data: baseData,
+          cookie: requestContext.cookie
+        });
+        const driftResponse = await httpRequest(driftVariant);
+        const driftSnapshot = snapshotResponse(driftResponse);
+        const baselineNorm = baselineNormalized || normalizeHtml(baselineResponse.body || '');
+        const driftNormalized = normalizeHtml(driftResponse.body || '');
+        const contentDiff = simpleDiffSummary(baselineNorm, driftNormalized);
+        const fingerprintDiff = diffSnapshots(baselineSnapshot, driftSnapshot);
+        const driftRawKey = recordRawBody('drift', 'post', driftResponse, driftVariant);
+        evidence.drift = {
+          preview: buildResponsePreview(driftResponse, driftVariant),
+          fingerprintDiff,
+          contentDiff,
+          rawKey: driftRawKey
+        };
+        postDriftCheck = {
+          url: driftVariant.url,
+          status: driftResponse.status,
+          timeMs: driftResponse.timeMs,
+          fingerprintDiff,
+          contentDiff
+        };
+
+        const largeContentShift = !contentDiff.identical && (contentDiff.changed > 45 || contentDiff.added + contentDiff.removed > 30);
+        const fingerprintShift = fingerprintDiff && (
+          fingerprintDiff.statusChanged ||
+          Math.abs(fingerprintDiff.lengthDelta) > 180 ||
+          fingerprintDiff.headers.added.length > 0 ||
+          fingerprintDiff.headers.removed.length > 0 ||
+          fingerprintDiff.headers.changed.length > 0
+        );
+
+        if (largeContentShift || fingerprintShift) {
+          remediationSuspected = true;
+          extraSignals.push({
+            type: 'drift-detected',
+            description: 'Baseline response drifted notably after verification attempts; remediation may have occurred.',
+            fingerprintDiff,
+            contentDiff
+          });
+        } else {
+          extraSignals.push({
+            type: 'drift-stable',
+            description: 'Baseline response fingerprint remained stable after verification.',
+            fingerprintDiff,
+            contentDiff
+          });
+        }
+      } catch (err) {
+        extraSignals.push({ type: 'drift-check-error', description: `Drift validation failed: ${err.message}` });
       }
     }
 
@@ -491,11 +925,25 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       label = 'Inconclusive';
     }
 
+    if (remediationSuspected && !wafDetected) {
+      label = label === 'Confirmed' ? 'Likely' : label;
+      if (confidenceScore > 0.75) {
+        confidenceScore = Math.min(confidenceScore, 0.75);
+      }
+    }
+
     // DOM-based validation: only attempt if no WAF and method is GET-like (we mutate URL param)
     if (!wafDetected && method === 'GET') {
       try {
         const domRes = await domReflectionCheck({ url: targetUrl, parameter, requestContext });
         dom = { checked: true, ok: domRes.ok, reflected: !!domRes.reflected, matches: domRes.matches || [] };
+        evidence.dom = {
+          ok: domRes.ok,
+          reflected: !!domRes.reflected,
+          matches: Array.isArray(domRes.matches) ? domRes.matches.slice(0, 10) : [],
+          url: domRes.url || null,
+          screenshotCaptured: !!domRes.screenshotBuffer
+        };
         if (domRes.ok && domRes.reflected) {
           // If HTTP signals exist, DOM alignment allows upgrade within bounds
           if (confirmations.length >= 2) {
@@ -528,44 +976,169 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       }
     }
 
-    const signalSummary = `Signals: ${confirmations.join(', ') || 'none'}`;
+  const verificationCompletedAt = Date.now();
+
+  evidence.waf = {
+    detected: wafDetected,
+    indicators: wafDetected
+      ? {
+          ...wafFlags,
+          sources: Array.from(wafSources)
+        }
+      : null
+  };
+
+  const signalSummary = `Signals: ${confirmations.join(', ') || 'none'}`;
     const domSummary = `DOM: ${dom.checked ? (dom.reflected ? 'reflected' : 'not-reflected') : 'skipped'}`;
     const payloadSummary = seededPayloads.length > 0
       ? ` Payloads tested: ${seededPayloads.length}${confirmations.includes('payload') ? ' (variance detected)' : ' (no change observed)'}.`
       : '';
+    const remediationSummary = remediationSuspected
+      ? ' Baseline drift detected after attempts; target may have remediated or altered responses.'
+      : '';
+    const extraSummary = extraSignals.length > 0
+      ? ` Extra signals recorded (${extraSignals.length}).`
+      : '';
 
     const why = wafDetected
       ? 'WAF indicators detected; results inconclusive. Consider suggested tamper and slower settings.'
-      : `${signalSummary}; ${domSummary}.${payloadSummary} Score ${Math.round(confidenceScore * 100)}%.`;
+      : `${signalSummary}; ${domSummary}.${payloadSummary}${remediationSummary}${extraSummary} Score ${Math.round(confidenceScore * 100)}%.`;
 
-    // Diff view payload
-    const diffView = {
-      baseline: attempts.find(a => a.kind === 'baseline') || null,
-      boolean: attempts.find(a => a.kind === 'boolean') || null,
-      time: attempts.find(a => a.kind === 'time') || null,
-      error: attempts.find(a => a.kind === 'error') || null,
-      payload: payloadAttempts.length > 0 ? payloadAttempts : null
-    };
+    const baselineAttempt = attempts.find(a => a.kind === 'baseline') || null;
+    const booleanAttempt = attempts.find(a => a.kind === 'boolean') || null;
+    const timeAttempt = attempts.find(a => a.kind === 'time') || null;
+    const errorAttempt = attempts.find(a => a.kind === 'error') || null;
 
-    // Return minimal PoC pairs and cURL
+    // Return PoC entries enriched with expected signal metadata
     const poc = [];
-    if (diffView.boolean?.true?.url && diffView.boolean?.false?.url) {
-      poc.push({ name: 'boolean-true', curl: curlSnippet(diffView.boolean.true.url) });
-      poc.push({ name: 'boolean-false', curl: curlSnippet(diffView.boolean.false.url) });
+    const booleanTrueCurl = curlSnippet(booleanAttempt?.trueVariant);
+    const booleanFalseCurl = curlSnippet(booleanAttempt?.falseVariant);
+    const booleanTrueAttempt = booleanAttempt ? booleanAttempt.true : null;
+    const booleanFalseAttempt = booleanAttempt ? booleanAttempt.false : null;
+    const booleanEvidence = evidence.signals.boolean;
+    if (booleanTrueCurl && booleanFalseCurl) {
+      const lengthDelta = booleanEvidence?.lengthDelta ?? null;
+      poc.push({
+        name: 'boolean-true',
+        curl: booleanTrueCurl,
+        expectedSignal: {
+          type: 'boolean',
+          summary: lengthDelta && lengthDelta !== 0
+            ? `Injected payload should shift response length by ${lengthDelta} characters`
+            : 'Injected payload should alter response fingerprint or status',
+          metrics: {
+            status: booleanTrueAttempt?.status ?? null,
+            timeMs: booleanTrueAttempt?.timeMs ?? null,
+            lengthDelta
+          }
+        },
+        evidencePreview: booleanEvidence?.responses?.true?.preview || null,
+        rawKey: booleanEvidence?.responses?.true?.rawKey || null
+      });
+      poc.push({
+        name: 'boolean-false',
+        curl: booleanFalseCurl,
+        expectedSignal: {
+          type: 'boolean-control',
+          summary: 'Control payload should preserve baseline response',
+          metrics: {
+            status: booleanFalseAttempt?.status ?? null,
+            timeMs: booleanFalseAttempt?.timeMs ?? null
+          }
+        },
+        evidencePreview: booleanEvidence?.responses?.false?.preview || null,
+        rawKey: booleanEvidence?.responses?.false?.rawKey || null
+      });
     }
-    if (diffView.time?.delayed?.url) {
-      poc.push({ name: 'time-delay', curl: curlSnippet(diffView.time.delayed.url) });
+    const timeCurl = curlSnippet(timeAttempt?.delayedVariant);
+    if (timeCurl) {
+      poc.push({
+        name: 'time-delay',
+        curl: timeCurl,
+        expectedSignal: {
+          type: 'time',
+          summary: 'Injected payload should incur measurable delay (>1.8s)',
+          metrics: {
+            baselineMs: timeAttempt?.baseline?.timeMs ?? null,
+            delayedMs: timeAttempt?.delayed?.timeMs ?? null,
+            deltaMs: evidence.signals.time?.deltaMs ?? null
+          }
+        },
+        evidencePreview: evidence.signals.time?.responses?.delayed?.preview || null,
+        rawKey: evidence.signals.time?.responses?.delayed?.rawKey || null
+      });
     }
-    if (diffView.error?.url) {
-      poc.push({ name: 'error-trigger', curl: curlSnippet(diffView.error.url) });
+    const errorCurl = curlSnippet(errorAttempt?.variant);
+    if (errorCurl) {
+      poc.push({
+        name: 'error-trigger',
+        curl: errorCurl,
+        expectedSignal: {
+          type: 'error',
+          summary: evidence.signals.error?.keywordMatch
+            ? 'Payload should surface database error banners'
+            : 'Payload expected to probe for error disclosure',
+          metrics: {
+            status: errorAttempt?.status ?? null
+          }
+        },
+        evidencePreview: evidence.signals.error?.preview || null,
+        rawKey: evidence.signals.error?.rawKey || null
+      });
     }
     if (payloadAttempts.length > 0) {
       payloadAttempts.slice(0, 2).forEach((attempt, idx) => {
-        if (attempt?.url) {
-          poc.push({ name: `payload-${idx + 1}`, curl: curlSnippet(attempt.url) });
+        const curl = curlSnippet(attempt.variant);
+        if (curl) {
+          const payloadEvidence = evidence.signals.payloads[idx] || null;
+          poc.push({
+            name: `payload-${idx + 1}`,
+            curl,
+            expectedSignal: {
+              type: 'payload-replay',
+              summary: payloadEvidence?.keywordHit
+                ? 'Replay payload should reproduce SQL banner keywords'
+                : 'Replay payload should alter fingerprint relative to baseline',
+              metrics: {
+                status: attempt.status ?? null,
+                timeMs: attempt.timeMs ?? null,
+                diffChanged: attempt.diff?.changed ?? null
+              }
+            },
+            evidencePreview: payloadEvidence?.preview || attempt.preview || null,
+            rawKey: payloadEvidence?.rawKey || attempt.rawKey || null
+          });
         }
       });
     }
+
+    // Diff view payload (sanitized)
+  const sanitizedPayloadAttempts = payloadAttempts.map(({ variant: _variant, ...rest }) => rest);
+    const diffView = {
+      baseline: baselineAttempt,
+      boolean: booleanAttempt
+        ? {
+            true: booleanAttempt.true,
+            false: booleanAttempt.false,
+            diff: booleanAttempt.diff,
+            fingerprintDiff: booleanAttempt.fingerprintDiff
+          }
+        : null,
+      time: timeAttempt
+        ? {
+            baseline: timeAttempt.baseline,
+            delayed: timeAttempt.delayed,
+            fingerprintDiff: timeAttempt.fingerprintDiff
+          }
+        : null,
+      error: errorAttempt
+        ? {
+            url: errorAttempt.url,
+            status: errorAttempt.status
+          }
+        : null,
+      payload: sanitizedPayloadAttempts.length > 0 ? sanitizedPayloadAttempts : null
+    };
 
     return {
       ok: true,
@@ -573,6 +1146,9 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       confidenceScore,
       confirmations,
       signalsTested,
+      remediationSuspected,
+      verificationStartedAt,
+  verificationCompletedAt,
       diffView,
       poc,
       wafDetected,
@@ -581,8 +1157,13 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       why,
       dom,
       seededPayloads: seededPayloads.length > 0 ? seededPayloads : undefined,
-      payloadAttempts: payloadAttempts.length > 0 ? payloadAttempts : undefined,
-      baselineConfidence: baselineConfidence || undefined
+      payloadAttempts: sanitizedPayloadAttempts.length > 0 ? sanitizedPayloadAttempts : undefined,
+      baselineConfidence: baselineConfidence || undefined,
+      extraSignals: extraSignals.length > 0 ? extraSignals : undefined,
+      bestPayload: bestPayload || undefined,
+      driftCheck: postDriftCheck || undefined,
+      evidence,
+      rawBodies: captureRawBodies && rawBodies ? rawBodies : undefined
     };
   } catch (e) {
     Logger.warn('verifyFinding failed', { error: e.message });
