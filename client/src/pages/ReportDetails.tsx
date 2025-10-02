@@ -13,7 +13,6 @@ import {
   type VerifyFindingResult,
   type QuickVerifyConsentPreference,
   type QuickVerifyConsentInput,
-  type QuickVerifyEvidencePreview,
   type QuickVerifyEvidenceSummary,
   listQuickVerifyEvidence
 } from '../utils/api';
@@ -1118,7 +1117,9 @@ export default function ReportDetails() {
               </label>
               <button
                 className="btn-secondary text-sm px-3 py-1 disabled:opacity-60"
-                onClick={onVerifyAll}
+                onClick={() => {
+                  void onVerifyAll();
+                }}
                 disabled={verifyAllRunning || (report.vulnerabilities?.findings || []).length === 0}
                 title="Run verification for all findings"
               >
