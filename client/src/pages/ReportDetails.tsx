@@ -356,6 +356,27 @@ export default function ReportDetails() {
     };
   }, []);
 
+  const refreshEvidenceList = useCallback(async (findingId: string, options: { silent?: boolean } = {}) => {
+    const currentReportId = report?.id;
+    if (!currentReportId) return;
+    const { silent = false } = options;
+    setEvidenceLoading((prev) => ({ ...prev, [findingId]: true }));
+    try {
+      const list = await listQuickVerifyEvidence(currentReportId, findingId);
+      setEvidenceSummaries((prev) => ({ ...prev, [findingId]: list }));
+      setEvidenceErrors((prev) => ({ ...prev, [findingId]: null }));
+      if (!silent && list.length === 0) {
+        toast('No stored responses yet for this finding.', { icon: 'ℹ️' });
+      }
+    } catch (err: any) {
+      const message = err?.message || 'Failed to load stored responses';
+      setEvidenceErrors((prev) => ({ ...prev, [findingId]: message }));
+      if (!silent) toast.error(message);
+    } finally {
+      setEvidenceLoading((prev) => ({ ...prev, [findingId]: false }));
+    }
+  }, [report?.id]);
+
   useEffect(() => {
     if (!report?.id) return;
     for (const [findingId, result] of Object.entries(verifyResult)) {
@@ -858,27 +879,6 @@ export default function ReportDetails() {
     return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
   };
 
-  const refreshEvidenceList = useCallback(async (findingId: string, options: { silent?: boolean } = {}) => {
-    const currentReportId = report?.id;
-    if (!currentReportId) return;
-    const { silent = false } = options;
-    setEvidenceLoading((prev) => ({ ...prev, [findingId]: true }));
-    try {
-      const list = await listQuickVerifyEvidence(currentReportId, findingId);
-      setEvidenceSummaries((prev) => ({ ...prev, [findingId]: list }));
-      setEvidenceErrors((prev) => ({ ...prev, [findingId]: null }));
-      if (!silent && list.length === 0) {
-        toast('No stored responses yet for this finding.', { icon: 'ℹ️' });
-      }
-    } catch (err: any) {
-      const message = err?.message || 'Failed to load stored responses';
-      setEvidenceErrors((prev) => ({ ...prev, [findingId]: message }));
-      if (!silent) toast.error(message);
-    } finally {
-      setEvidenceLoading((prev) => ({ ...prev, [findingId]: false }));
-    }
-  }, [report?.id]);
-  
   // Helper to fetch a protected URL with Authorization and return a blob
   const fetchWithAuth = async (path: string): Promise<Response> => {
     const token = localStorage.getItem('authToken') || '';
