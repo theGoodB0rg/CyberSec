@@ -219,6 +219,7 @@ For csv dumps produced by sqlmap (tables content), use:
 #### **PDF Export Details**
 
 - PDF export uses Puppeteer (headless Chromium). If Puppeteer is not available or fails, the server returns a styled HTML with header `X-PDF-Fallback: true`. The UI will save this as `.html` and prompt you to print to PDF via your browser.
+- A legacy Markdown-to-PDF workflow powered by `markdown-pdf`/PhantomJS is still bundled for future use. The Docker image now installs the PhantomJS prerequisites (`bzip2`, font libraries, GTK stack) so this path can be re-enabled without additional setup.
 - All binary downloads set correct `Content-Type` and `Content-Disposition` headers for professional compatibility.
 
 #### **CSV Export Details**
@@ -232,6 +233,7 @@ For csv dumps produced by sqlmap (tables content), use:
 - **Malformed PDF or unopenable file?**
    - Ensure Puppeteer/Chromium is installed and accessible on the server.
    - If you receive an HTML file instead of PDF, check for the `X-PDF-Fallback: true` header. Open in browser and print to PDF.
+   - If you reinstate the Markdown/PhantomJS export, keep the Dockerfile’s `bzip2`/font stack in place so `phantomjs-prebuilt` can extract successfully during image builds.
 - **Empty CSV file?**
    - Ensure the scan produced findings. The `/export/csv` endpoint only exports findings, not raw dumps.
    - For raw SQLMap CSVs, verify the file exists in the scan output directory and use the `/files/:filename` endpoint.
@@ -359,6 +361,32 @@ Settings can be configured through the web interface:
 ```http
 GET /api/health
 ```
+
+Returns `200 OK` when core subsystems (SQLite, job queue, SQLMap integration) are healthy and responds with `503 Service Unavailable` plus `status: "degraded"` when any dependency is offline. Example response:
+
+```json
+{
+   "status": "healthy",
+   "uptimeSeconds": 123,
+   "environment": "production",
+   "timestamp": "2025-10-02T22:28:16.000Z",
+   "database": { "ok": true },
+   "queue": {
+      "enabled": true,
+      "running": true,
+      "timerActive": true,
+      "pollIntervalMs": 3000,
+      "ok": true
+   },
+   "sqlmap": {
+      "available": true,
+      "path": "/usr/bin/sqlmap",
+      "ok": true
+   }
+}
+```
+
+When `sqlmap.available` is `false` or the queue is paused, the endpoint reports `status: "degraded"` so load balancers can mark the instance unhealthy.
 
 ### Auth
 ```http

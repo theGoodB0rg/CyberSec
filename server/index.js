@@ -37,17 +37,23 @@ const io = socketIo(server, {
 
 // Configuration
 const PORT = process.env.PORT || 3001;
-const DB_PATH = path.join(__dirname, 'data', 'cybersecurity.db');
+const resolveAppPath = (inputPath, fallback) => {
+  const candidate = typeof inputPath === 'string' ? inputPath.trim() : '';
+  if (!candidate) return fallback;
+  return path.isAbsolute(candidate) ? candidate : path.join(__dirname, candidate);
+};
 
-// Ensure data directory exists
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
+const DB_PATH = resolveAppPath(process.env.DB_PATH, path.join(__dirname, 'data', 'cybersecurity.db'));
+const DATA_DIR = path.dirname(DB_PATH);
+const APP_TEMP_DIR = resolveAppPath(process.env.TEMP_DIR, path.join(__dirname, 'temp'));
+const QUICK_VERIFY_EVIDENCE_DIR = resolveAppPath(process.env.EVIDENCE_DIR, path.join(APP_TEMP_DIR, 'quick-verify-evidence'));
+const VERIFICATIONS_DIR = path.join(APP_TEMP_DIR, 'verifications');
 
-const QUICK_VERIFY_EVIDENCE_DIR = path.join(__dirname, 'temp', 'quick-verify-evidence');
-if (!fs.existsSync(QUICK_VERIFY_EVIDENCE_DIR)) {
-  fs.mkdirSync(QUICK_VERIFY_EVIDENCE_DIR, { recursive: true });
+// Ensure required directories exist
+for (const dir of [DATA_DIR, APP_TEMP_DIR, QUICK_VERIFY_EVIDENCE_DIR, VERIFICATIONS_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 // Trust proxy configuration (pre-middleware):
@@ -153,8 +159,47 @@ app.use('/api/auth', createAuthRouter(database));
 app.use('/api/targets', createTargetsRouter(database));
 
 // API Routes
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  const response = {
+    status: 'healthy',
+    uptimeSeconds: Math.round(process.uptime()),
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    database: { ok: true },
+    queue: queueRunner ? { enabled: true, ...(queueRunner.getStatus?.() || {}) } : { enabled: false },
+    sqlmap: {
+      available: Boolean(sqlmapIntegration?.sqlmapPath),
+      path: sqlmapIntegration?.sqlmapPath || null
+    }
+  };
+
+  let statusCode = 200;
+
+  try {
+    await database.healthCheck();
+  } catch (error) {
+    response.database = { ok: false, error: error.message };
+    response.status = 'degraded';
+    statusCode = 503;
+  }
+
+  if (response.queue.enabled && !response.queue.timerActive) {
+    response.queue.ok = false;
+    response.status = 'degraded';
+    statusCode = Math.max(statusCode, 503);
+  } else if (response.queue.enabled) {
+    response.queue.ok = true;
+  }
+
+  if (!response.sqlmap.available) {
+    response.sqlmap.ok = false;
+    response.status = 'degraded';
+    statusCode = Math.max(statusCode, 503);
+  } else {
+    response.sqlmap.ok = true;
+  }
+
+  res.status(statusCode).json(response);
 });
 
 
@@ -936,7 +981,7 @@ app.get('/api/reports/:id/proof/:filename', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const baseDir = path.join(__dirname, 'temp', 'verifications', String(id));
+  const baseDir = path.join(VERIFICATIONS_DIR, String(id));
     const filePath = path.join(baseDir, filename);
     const normalizedBase = path.normalize(baseDir);
     const normalizedPath = path.normalize(filePath);
@@ -1297,12 +1342,13 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
     let domProof = null;
     try {
       if (result.dom && result.dom.screenshotBuffer) {
-        const outRoot = require('path').join(__dirname, 'temp');
-        const fs = require('fs');
-        const reportDir = require('path').join(outRoot, 'verifications', String(reportId));
+  const outRoot = VERIFICATIONS_DIR;
+  const fs = require('fs');
+  const pathLib = require('path');
+  const reportDir = pathLib.join(outRoot, String(reportId));
         fs.mkdirSync(reportDir, { recursive: true });
         const fname = `dom-proof-${findingId}-${Date.now()}.png`;
-        const fpath = require('path').join(reportDir, fname);
+  const fpath = pathLib.join(reportDir, fname);
         fs.writeFileSync(fpath, result.dom.screenshotBuffer);
         domProof = { path: fpath, filename: fname };
         // Remove buffer from response

@@ -33,12 +33,24 @@ class SQLMapIntegration {
     } else {
       this.sqlmapPath = this.findSQLMapPath();
     }
-    this.tempDir = path.join(os.tmpdir(), 'cybersec-sqlmap');
+
+    const resolveTempRoot = () => {
+      const candidate = (process.env.SQLMAP_TEMP_DIR || process.env.TEMP_DIR || '').trim();
+      if (!candidate) {
+        return path.join(os.tmpdir(), 'cybersec-temp');
+      }
+  return path.isAbsolute(candidate) ? candidate : path.join(__dirname, candidate);
+    };
+
+    this.baseTempDir = resolveTempRoot();
+    this.tempDir = path.join(this.baseTempDir, 'sqlmap');
     this.runningProcesses = new Map();
     
     // Ensure temp directory exists
-    if (!fs.existsSync(this.tempDir)) {
-      fs.mkdirSync(this.tempDir, { recursive: true });
+    for (const dir of [this.baseTempDir, this.tempDir]) {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
     }
 
     // Initialize scan profiles
@@ -326,9 +338,9 @@ class SQLMapIntegration {
   }
 
   async startScan(target, options = {}, scanProfile = 'basic', userId = 'system') {
-    const sessionId = uuidv4();
-    // Use per-user directory inside system temp directory
-    const outputDir = path.join(os.tmpdir(), 'cybersec-sqlmap', String(userId), sessionId);
+  const sessionId = uuidv4();
+  // Use per-user directory inside the configured temp directory
+  const outputDir = path.join(this.tempDir, String(userId), sessionId);
     
     // Ensure output directory exists
     if (!fs.existsSync(outputDir)) {

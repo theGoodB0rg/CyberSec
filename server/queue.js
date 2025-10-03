@@ -14,8 +14,9 @@ class QueueRunner {
     this.reportGenerator = reportGenerator || new ReportGenerator(database);
     // Reference to the in-memory map in index.js for visibility/termination
     this.scanProcesses = scanProcessesRef;
-    this.timer = null;
-    this.running = false;
+  this.timer = null;
+  this.running = false;
+  this.pollIntervalMs = Math.max(1000, parseInt(process.env.JOB_POLL_INTERVAL_MS || '3000', 10));
   }
 
   // Count active running scans for a given user (from shared map)
@@ -192,9 +193,17 @@ class QueueRunner {
   start() {
     if (this.running) return;
     this.running = true;
-    const intervalMs = Math.max(1000, parseInt(process.env.JOB_POLL_INTERVAL_MS || '3000', 10));
+    const intervalMs = this.pollIntervalMs;
     this.timer = setInterval(() => this.tick(), intervalMs);
     Logger.info(`QueueRunner started with poll interval ${intervalMs}ms`);
+  }
+
+  getStatus() {
+    return {
+      running: this.running,
+      timerActive: !!this.timer,
+      pollIntervalMs: this.pollIntervalMs
+    };
   }
 
   stop() {

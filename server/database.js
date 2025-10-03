@@ -1846,6 +1846,21 @@ class Database {
     });
   }
 
+  async healthCheck() {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return reject(new Error('Database not initialized'));
+      }
+      this.db.get('SELECT 1', [], (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(true);
+        }
+      });
+    });
+  }
+
   // Database maintenance
   async vacuum() {
     return new Promise((resolve, reject) => {

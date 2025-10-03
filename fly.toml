@@ -1,0 +1,37 @@
+# fly.toml app configuration file generated for cybersec-app on 2025-10-02T22:40:54+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'cybersec-app'
+primary_region = 'jnb'
+
+[build]
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+
+[[mounts]]
+  source = "app_data"
+  destination = "/data"
+
+[env]
+  PORT = "3001"
+  DB_PATH = "/data/cybersecurity.db"
+  TEMP_DIR = "/data/temp"
+  EVIDENCE_DIR = "/data/evidence"
+  SQLMAP_PATH = "/usr/bin/sqlmap"
+  PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"
+  TRUST_PROXY = "loopback,linklocal,uniquelocal"
+  ENABLE_JOB_QUEUE = "true"
+  ALLOW_UNVERIFIED_TARGETS = "false"
