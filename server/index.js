@@ -23,55 +23,99 @@ const QueueRunner = require('./queue');
 const { sanitizeOptionsForStorage, prepareAuthContext } = require('./helpers/scanHelpers');
 const { persistQuickVerifyRawBodies, summarizeRawBodies, remapEvidenceRawKeys } = require('./helpers/evidenceStorage');
 
-const computeAllowedOrigins = () => {
-  const raw = process.env.ALLOWED_ORIGINS || '';
-  const entries = raw
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((origin) => {
-      if (origin === '*') return '*';
-      try {
-        const parsed = new URL(origin);
-        return `${parsed.protocol}//${parsed.host}`;
-      } catch (error) {
-        const sanitized = origin.replace(/\/$/, '');
-        if (/^https?:\/\//i.test(sanitized)) {
-          return sanitized;
-        }
-        Logger.warn('Ignoring invalid origin in ALLOWED_ORIGINS', { origin });
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  if (entries.includes('*')) {
-    return true;
+const normalizeOrigin = (value) => {
+  if (!value) return '';
+  const trimmed = String(value).trim().replace(/\/$/, '');
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.protocol}//${parsed.host}`.toLowerCase();
+  } catch (error) {
+    return trimmed.toLowerCase();
   }
-
-  if (entries.length > 0) {
-    return entries;
-  }
-
-  if (process.env.NODE_ENV === 'production') {
-    return false;
-  }
-
-  return /http:\/\/localhost:\d+/;
 };
 
-const allowedOrigins = computeAllowedOrigins();
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const buildOriginPolicy = () => {
+  const raw = process.env.ALLOWED_ORIGINS || '';
+  const tokens = raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  const exact = new Set();
+  const wildcardPatterns = [];
+  const wildcardRegex = [];
+  let allowAll = false;
+
+  for (const token of tokens) {
+    if (token === '*') {
+      allowAll = true;
+      break;
+    }
+
+    if (token.includes('*')) {
+      const pattern = token.replace(/\/$/, '').toLowerCase();
+      wildcardPatterns.push(pattern);
+      const regexPattern = '^' + escapeRegex(pattern).replace(/\\\*/g, '.*') + '$';
+      wildcardRegex.push(new RegExp(regexPattern, 'i'));
+      continue;
+    }
+
+    const normalized = normalizeOrigin(token);
+    if (!normalized) {
+      Logger.warn('Ignoring invalid origin in ALLOWED_ORIGINS', { origin: token });
+      continue;
+    }
+    exact.add(normalized);
+  }
+
+  if (allowAll) {
+    return { mode: 'allow-all', allowAll: true, exact, wildcardPatterns, wildcardRegex };
+  }
+
+  if (exact.size === 0 && wildcardRegex.length === 0) {
+    if (process.env.NODE_ENV === 'production') {
+      return { mode: 'same-origin-only', allowAll: false, exact, wildcardPatterns, wildcardRegex };
+    }
+    wildcardRegex.push(/^http:\/\/localhost:\d+$/i);
+    wildcardPatterns.push('http://localhost:*');
+    return { mode: 'dev-localhost', allowAll: false, exact, wildcardPatterns, wildcardRegex };
+  }
+
+  return { mode: 'configured', allowAll: false, exact, wildcardPatterns, wildcardRegex };
+};
+
+const originPolicy = buildOriginPolicy();
+
+const isOriginAllowed = (origin) => {
+  if (!originPolicy) return false;
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return true; // Same-origin or non-browser client
+  if (originPolicy.allowAll) return true;
+  if (originPolicy.exact.has(normalized)) return true;
+  return originPolicy.wildcardRegex.some((re) => re.test(normalized));
+};
+
+const createOriginCallback = (context) => (origin, callback) => {
+  if (isOriginAllowed(origin)) {
+    return callback(null, true);
+  }
+  try { Logger.warn(`Blocked ${context} request from disallowed origin`, { origin }); } catch (_) {}
+  return callback(null, false);
+};
+
+const corsOriginCallback = createOriginCallback('HTTP');
+const socketOriginCallback = createOriginCallback('WebSocket');
 
 try {
-  if (allowedOrigins === true) {
-    Logger.info('CORS origin set to reflect request origin');
-  } else if (allowedOrigins === false) {
-    Logger.info('CORS disabled for cross-origin requests (production default)');
-  } else if (allowedOrigins instanceof RegExp) {
-    Logger.info('CORS origin set to development pattern', { pattern: allowedOrigins.toString() });
-  } else if (Array.isArray(allowedOrigins)) {
-    Logger.info('CORS whitelist applied', { origins: allowedOrigins });
-  }
+  Logger.info('CORS policy configured', {
+    mode: originPolicy.mode,
+    allowAll: originPolicy.allowAll,
+    exact: Array.from(originPolicy.exact.values()),
+    wildcards: originPolicy.wildcardPatterns,
+  });
 } catch (_) {}
 
 // Initialize Express app
@@ -79,7 +123,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: socketOriginCallback,
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -172,7 +216,7 @@ const telemetryLimiter = rateLimit({
 
 // CORS configuration (allow any localhost port while developing)
 app.use(cors({
-  origin: allowedOrigins,
+  origin: corsOriginCallback,
   credentials: true,
 }));
 
