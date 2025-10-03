@@ -2,7 +2,7 @@
 
 FROM node:20-bookworm-slim AS client-builder
 WORKDIR /app
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=1
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bzip2 \
@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV NODE_ENV=production \
     SQLMAP_PATH=/usr/bin/sqlmap \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PUPPETEER_SKIP_DOWNLOAD=true \
     PORT=3001
 
 COPY package*.json ./
