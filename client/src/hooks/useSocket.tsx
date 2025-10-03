@@ -47,12 +47,32 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
   // Derive WS host once
   const WS_HOST = useMemo(() => {
-    // Prefer explicit override if provided
-    if (import.meta.env.VITE_WS_URL) return String(import.meta.env.VITE_WS_URL)
-    const host = window.location.hostname
-    // Force http for localhost to ensure ws:// is used (avoid extensions auto-upgrading to wss://)
-    const scheme = (host === 'localhost' || host === '127.0.0.1') ? 'http' : (window.location.protocol === 'https:' ? 'https' : 'http')
-    return `${scheme}://${host}:3001`
+    const sanitize = (value: string) => value.replace(/\/$/, '')
+
+    if (import.meta.env.VITE_WS_URL) {
+      return sanitize(String(import.meta.env.VITE_WS_URL))
+    }
+
+    const apiBase = import.meta.env.VITE_API_BASE_URL
+    if (apiBase) {
+      try {
+        return new URL(apiBase).origin
+      } catch {
+        return sanitize(apiBase)
+      }
+    }
+
+    const { protocol, hostname, port } = window.location
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1'
+    const resolvedProtocol = protocol === 'https:' ? 'https' : 'http'
+
+    if (isLocal) {
+      const wsPort = import.meta.env.VITE_WS_PORT || '3001'
+      return `${resolvedProtocol}://${hostname}:${wsPort}`
+    }
+
+    const formattedHost = port ? `${hostname}:${port}` : hostname
+    return `${resolvedProtocol}://${formattedHost}`
   }, [])
 
   useEffect(() => {

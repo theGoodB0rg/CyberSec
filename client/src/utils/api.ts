@@ -1,5 +1,28 @@
 export type ApiOptions = RequestInit & { auth?: boolean };
 
+const API_BASE_URL = (() => {
+  const raw = import.meta.env?.VITE_API_BASE_URL;
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  try {
+    const url = new URL(trimmed);
+    return url.href.replace(/\/$/, '');
+  } catch {
+    return trimmed.replace(/\/$/, '');
+  }
+})();
+
+const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(value);
+
+const resolveUrl = (input: string) => {
+  if (isAbsoluteUrl(input)) return input;
+  if (!API_BASE_URL) return input;
+  return input.startsWith('/')
+    ? `${API_BASE_URL}${input}`
+    : `${API_BASE_URL}/${input}`;
+};
+
 function getToken() {
   try {
     return localStorage.getItem('authToken') || undefined;
@@ -19,7 +42,8 @@ export async function apiFetch<T = any>(input: string, init: ApiOptions = {}): P
     (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(input, { ...init, headers });
+  const url = resolveUrl(input);
+  const res = await fetch(url, { ...init, headers });
   const contentType = res.headers.get('content-type') || '';
   const isJson = contentType.includes('application/json');
   const body = isJson ? await res.json().catch(() => ({})) : await res.text();
