@@ -31,7 +31,9 @@ Thumbs.db
 # Ignore other non-code folders (customize as needed)
 assets/
 media/
-docs/
+docs/**
+!docs/
+!docs/.keep
 node_modules/
 client/node_modules/
 server/node_modules/

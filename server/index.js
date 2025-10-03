@@ -23,15 +23,65 @@ const QueueRunner = require('./queue');
 const { sanitizeOptionsForStorage, prepareAuthContext } = require('./helpers/scanHelpers');
 const { persistQuickVerifyRawBodies, summarizeRawBodies, remapEvidenceRawKeys } = require('./helpers/evidenceStorage');
 
+const computeAllowedOrigins = () => {
+  const raw = process.env.ALLOWED_ORIGINS || '';
+  const entries = raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((origin) => {
+      if (origin === '*') return '*';
+      try {
+        const parsed = new URL(origin);
+        return `${parsed.protocol}//${parsed.host}`;
+      } catch (error) {
+        const sanitized = origin.replace(/\/$/, '');
+        if (/^https?:\/\//i.test(sanitized)) {
+          return sanitized;
+        }
+        Logger.warn('Ignoring invalid origin in ALLOWED_ORIGINS', { origin });
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  if (entries.includes('*')) {
+    return true;
+  }
+
+  if (entries.length > 0) {
+    return entries;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return false;
+  }
+
+  return /http:\/\/localhost:\d+/;
+};
+
+const allowedOrigins = computeAllowedOrigins();
+
+try {
+  if (allowedOrigins === true) {
+    Logger.info('CORS origin set to reflect request origin');
+  } else if (allowedOrigins === false) {
+    Logger.info('CORS disabled for cross-origin requests (production default)');
+  } else if (allowedOrigins instanceof RegExp) {
+    Logger.info('CORS origin set to development pattern', { pattern: allowedOrigins.toString() });
+  } else if (Array.isArray(allowedOrigins)) {
+    Logger.info('CORS whitelist applied', { origins: allowedOrigins });
+  }
+} catch (_) {}
+
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' 
-      ? false 
-      : /http:\/\/localhost:\d+/, // Allow all localhost ports in dev
-    methods: ["GET", "POST"]
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
@@ -122,7 +172,7 @@ const telemetryLimiter = rateLimit({
 
 // CORS configuration (allow any localhost port while developing)
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? false : /http:\/\/localhost:\d+/,
+  origin: allowedOrigins,
   credentials: true,
 }));
 
