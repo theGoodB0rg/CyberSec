@@ -98,7 +98,40 @@ npm run build
 npm start
 ```
 
-## 🎯 Usage (Typical Flow)
+## 🌍 Deployment
+
+The repository now ships with a Dockerfile, Fly launch configuration (`fly.toml`), and an automated workflow for deploying the backend to Fly.io. See [`docs/deployment/fly.md`](docs/deployment/fly.md) for a full walkthrough.
+
+### Fly.io quick start
+
+1. Install and authenticate the Fly CLI: `fly auth login`.
+2. Initialize the app (non-destructive):
+   ```powershell
+   fly launch --name cybersec-backend --no-deploy
+   ```
+3. Provision persistent storage for SQLite, temp artifacts, and evidence bundles:
+   ```powershell
+   fly volumes create app_data --region <your-region> --size 1
+   ```
+4. Update `fly.toml` to mount the volume at `/data` and set:
+   - `DB_PATH = "/data/cybersecurity.db"`
+   - `TEMP_DIR = "/data/temp"`
+   - `EVIDENCE_DIR = "/data/evidence"`
+   - `SQLMAP_PATH = "/usr/bin/sqlmap"`
+   - `PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"`
+5. Configure secrets for the initial admin and JWT signing key:
+   ```powershell
+   fly secrets set JWT_SECRET=<secure-value> ADMIN_EMAIL=<admin-email> ADMIN_PASSWORD=<strong-password>
+   ```
+6. Deploy and tail logs to confirm the service boots and the health checks pass:
+   ```powershell
+   fly deploy
+   fly logs
+   ```
+
+The `/api/health` endpoint returns a JSON object with status for SQLite, job queue, and SQLMap. If any dependency is unavailable, the endpoint returns `status: "degraded"` and Fly will mark the instance unhealthy for auto-recovery.
+
+## �🎯 Usage (Typical Flow)
 
 ### Basic Workflow
 
