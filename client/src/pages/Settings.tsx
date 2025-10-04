@@ -1,6 +1,7 @@
 import { CogIcon } from '@heroicons/react/24/outline'
 import { Disclosure } from '@headlessui/react'
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getServerSqlmapProfiles, getUserScanSettings, listUserProfiles, updateUserScanSettings, validateSqlmap, createUserProfile, getQuickVerifyPreference, updateQuickVerifyPreference, clearQuickVerifyPreference } from '../utils/api'
 import type { QuickVerifyConsentPreference } from '../utils/api'
 
@@ -352,6 +353,12 @@ export default function Settings() {
                   ) : (
                     <div className="text-sm text-gray-400">Type flags to see validation…</div>
                   )}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                  <span>Need to confirm what the platform adds automatically?</span>
+                  <Link to="/terminal#base-flags" className="inline-flex items-center rounded border border-blue-500/40 bg-blue-900/20 px-2 py-1 text-[11px] text-blue-200 hover:bg-blue-900/40">
+                    View base scan defaults
+                  </Link>
                 </div>
                 <div className="mt-3 flex gap-2 items-center">
                   <button onClick={() => setCreatingProfile({ name: '', description: '' })} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded">Save as New Profile</button>

@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const Logger = require('./utils/logger');
+const { DEMO_HOSTNAMES } = require('./utils/demoTargets');
 
 class Database {
   constructor(dbPath) {
@@ -1274,6 +1275,218 @@ class Database {
         resolve(rows || []);
       });
     });
+  }
+
+  async getAnalyticsSummary({
+    userId,
+    orgId = null,
+    isAdmin = false,
+    dailyWindowDays = 7,
+    statusWindowDays = 30,
+    demoWindowDays = 30,
+    feedbackWindowDays = 30,
+    demoHostnames = DEMO_HOSTNAMES,
+  } = {}) {
+    const clampWindow = (value, fallback, min = 1, max = 90) => {
+      const num = Number.isFinite(value) ? Number(value) : Number(fallback);
+      if (!Number.isFinite(num) || num <= 0) return fallback;
+      return Math.max(min, Math.min(max, Math.round(num)));
+    };
+
+    const dailyWindow = clampWindow(dailyWindowDays, 7, 1, 30);
+    const statusWindow = clampWindow(statusWindowDays, 30, 1, 90);
+    const demoWindow = clampWindow(demoWindowDays, 30, 1, 90);
+    const feedbackWindow = clampWindow(feedbackWindowDays, 30, 1, 365);
+
+    const daysAgoIso = (daysAgo) => {
+      const date = new Date();
+      date.setUTCHours(0, 0, 0, 0);
+      if (Number.isFinite(daysAgo) && daysAgo > 0) {
+        date.setUTCDate(date.getUTCDate() - daysAgo);
+      }
+      return date.toISOString();
+    };
+
+    const buildDayRange = (length) => {
+      return Array.from({ length }, (_, index) => {
+        const offset = length - 1 - index;
+        const day = new Date();
+        day.setUTCHours(0, 0, 0, 0);
+        if (offset > 0) {
+          day.setUTCDate(day.getUTCDate() - offset);
+        }
+        return day.toISOString().slice(0, 10);
+      });
+    };
+
+    const normalizeHost = (value) => {
+      if (!value) return '';
+      const raw = String(value).trim();
+      if (!raw) return '';
+      try {
+        const parsed = new URL(raw.includes('://') ? raw : `http://${raw}`);
+        return (parsed.hostname || '').toLowerCase();
+      } catch (error) {
+        const cleaned = raw.replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+        return cleaned.toLowerCase();
+      }
+    };
+
+    const scanScopeClauses = [];
+    const scanScopeParams = [];
+    if (!isAdmin) {
+      if (orgId) {
+        scanScopeClauses.push('scans.org_id = ?');
+        scanScopeParams.push(orgId);
+      } else if (userId) {
+        scanScopeClauses.push('scans.user_id = ?');
+        scanScopeParams.push(userId);
+      }
+    }
+
+    const buildScanWhere = (extraClause, extraParams = []) => {
+      const clauses = scanScopeClauses.slice();
+      if (extraClause) clauses.push(extraClause);
+      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+      return { where, params: [...scanScopeParams, ...extraParams] };
+    };
+
+    const results = {
+      dailyScans: { total: 0, trend: [], windowDays: dailyWindow },
+      successErrorRatio: { success: 0, error: 0, pending: 0, successRate: 0, errorRate: 0, windowDays: statusWindow },
+      demoUsage: { total: 0, breakdown: [], windowDays: demoWindow },
+      feedbackSubmissions: { total: 0, trend: [], windowDays: feedbackWindow },
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Daily scans trend
+    const dailySinceIso = daysAgoIso(Math.max(0, dailyWindow - 1));
+    const { where: dailyWhere, params: dailyParams } = buildScanWhere('scans.created_at >= ?', [dailySinceIso]);
+    const dailySql = `
+      SELECT substr(scans.created_at, 1, 10) AS day, COUNT(*) AS count
+      FROM scans
+      ${dailyWhere}
+      GROUP BY day
+      ORDER BY day ASC
+    `;
+
+    const dailyRows = await new Promise((resolve, reject) => {
+      this.db.all(dailySql, dailyParams, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+
+    const dailyMap = new Map(dailyRows.map((row) => [row.day, Number(row.count) || 0]));
+    const dailyRange = buildDayRange(dailyWindow);
+    results.dailyScans.trend = dailyRange.map((day) => ({ day, count: dailyMap.get(day) || 0 }));
+    results.dailyScans.total = results.dailyScans.trend.reduce((sum, entry) => sum + entry.count, 0);
+
+    // Success vs error ratio
+    const statusSinceIso = daysAgoIso(Math.max(0, statusWindow - 1));
+    const { where: statusWhere, params: statusParams } = buildScanWhere('scans.created_at >= ?', [statusSinceIso]);
+    const statusSql = `
+      SELECT
+        SUM(CASE WHEN scans.status = 'completed' THEN 1 ELSE 0 END) AS completed,
+        SUM(CASE WHEN scans.status IN ('failed', 'interrupted', 'terminated') THEN 1 ELSE 0 END) AS failed,
+        COUNT(*) AS total
+      FROM scans
+      ${statusWhere}
+    `;
+
+    const statusData = await new Promise((resolve, reject) => {
+      this.db.get(statusSql, statusParams, (err, row) => {
+        if (err) return reject(err);
+        resolve(row || { completed: 0, failed: 0, total: 0 });
+      });
+    });
+
+    const successCount = Number(statusData.completed) || 0;
+    const errorCount = Number(statusData.failed) || 0;
+    const totalCount = Number(statusData.total) || 0;
+    const pendingCount = Math.max(0, totalCount - successCount - errorCount);
+    const denominator = successCount + errorCount;
+    const successRate = denominator === 0 ? 0 : Math.round((successCount / denominator) * 1000) / 10;
+    const errorRate = denominator === 0 ? 0 : Math.round((errorCount / denominator) * 1000) / 10;
+
+    results.successErrorRatio = {
+      success: successCount,
+      error: errorCount,
+      pending: pendingCount,
+      successRate,
+      errorRate,
+      windowDays: statusWindow,
+    };
+
+    // Demo usage breakdown
+    const demoSinceIso = daysAgoIso(Math.max(0, demoWindow - 1));
+    const { where: demoWhere, params: demoParams } = buildScanWhere('scans.created_at >= ?', [demoSinceIso]);
+    const demoSql = `
+      SELECT scans.target AS target, COUNT(*) AS count
+      FROM scans
+      ${demoWhere}
+      GROUP BY scans.target
+    `;
+
+    const demoRows = await new Promise((resolve, reject) => {
+      this.db.all(demoSql, demoParams, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+
+    const demoCounts = new Map();
+    let demoTotal = 0;
+    const canonicalHost = (host) => {
+      if (!host) return null;
+      const normalized = host.toLowerCase();
+      for (const demoHost of demoHostnames || []) {
+        const candidate = String(demoHost || '').toLowerCase();
+        if (!candidate) continue;
+        if (normalized === candidate || normalized.endsWith(`.${candidate}`)) {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
+    demoRows.forEach((row) => {
+      const host = normalizeHost(row.target);
+      const canonical = canonicalHost(host);
+      if (!canonical) return;
+      const increment = Number(row.count) || 0;
+      demoTotal += increment;
+      demoCounts.set(canonical, (demoCounts.get(canonical) || 0) + increment);
+    });
+
+    results.demoUsage.total = demoTotal;
+    results.demoUsage.breakdown = Array.from(demoCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([host, count]) => ({ host, count }));
+
+    // Feedback submissions trend
+    const feedbackSinceIso = daysAgoIso(Math.max(0, feedbackWindow - 1));
+    const feedbackSql = `
+      SELECT substr(at, 1, 10) AS day, COUNT(*) AS count
+      FROM telemetry_events
+      WHERE event_type = 'feedback-submitted' AND at >= ?
+      GROUP BY day
+      ORDER BY day ASC
+    `;
+
+    const feedbackRows = await new Promise((resolve, reject) => {
+      this.db.all(feedbackSql, [feedbackSinceIso], (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+
+    const feedbackMap = new Map(feedbackRows.map((row) => [row.day, Number(row.count) || 0]));
+    const feedbackRange = buildDayRange(feedbackWindow);
+    results.feedbackSubmissions.trend = feedbackRange.map((day) => ({ day, count: feedbackMap.get(day) || 0 }));
+    results.feedbackSubmissions.total = results.feedbackSubmissions.trend.reduce((sum, entry) => sum + entry.count, 0);
+
+    return results;
   }
 
   // Verified targets helpers

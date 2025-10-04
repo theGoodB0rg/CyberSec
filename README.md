@@ -25,6 +25,7 @@ A practical, developer-friendly web app for running focused SQL injection assess
 - Modern React + Tailwind UI (Dashboard, Targets, Reports, Report Details, Terminal, Usage, Settings)
 - Dark theme, responsive layout, scan history and details
  - Settings page with collapsible sections: My Defaults, Custom Builder (live server validation), Preconfigured Types, Saved Profiles
+- Terminal view includes an authenticated-only accordion that enumerates the server-enforced base SQLMap flags with a copy-to-clipboard summary for audit trails, plus per-profile overlays and a quick link from the Settings builder for consistent transparency
 - Landing contact form with consent gating that launches the visitor’s email client by default (SMTP delivery available via optional backend integration)
 
 ### Technical

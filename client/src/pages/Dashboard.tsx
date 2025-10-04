@@ -8,12 +8,106 @@ import {
   CheckCircleIcon,
   ClockIcon,
   ShieldCheckIcon,
-  ComputerDesktopIcon
+  ComputerDesktopIcon,
+  ArrowTrendingUpIcon,
+  CheckBadgeIcon,
+  EnvelopeOpenIcon,
+  BookmarkIcon
 } from '@heroicons/react/24/outline'
 import { useAppStore } from '../store/appStore'
 import clsx from 'clsx'
 import { apiFetch } from '@/utils/api'
 import { parseServerDate } from '@/utils/dates'
+
+type TrendPoint = {
+  day: string
+  count: number
+}
+
+type AnalyticsSummary = {
+  dailyScans: {
+    total: number
+    trend: TrendPoint[]
+    windowDays: number
+  }
+  successErrorRatio: {
+    success: number
+    error: number
+    pending: number
+    successRate: number
+    errorRate: number
+    windowDays: number
+  }
+  demoUsage: {
+    total: number
+    breakdown: Array<{ host: string; count: number }>
+    windowDays: number
+  }
+  feedbackSubmissions: {
+    total: number
+    trend: TrendPoint[]
+    windowDays: number
+  }
+  updatedAt: string
+}
+
+const numberFormatter = new Intl.NumberFormat()
+const formatNumber = (value: number) => numberFormatter.format(value)
+
+interface SparklineProps {
+  data: TrendPoint[]
+  color?: string
+}
+
+function Sparkline({ data, color = '#22d3ee' }: SparklineProps) {
+  if (!data || data.length === 0) {
+    return <div className="h-10 text-xs text-gray-500 flex items-center">No data</div>
+  }
+
+  const counts = data.map(point => point.count)
+  const max = Math.max(...counts, 0)
+  const min = Math.min(...counts, 0)
+  const range = Math.max(1, max - min)
+
+  const coordinates = data.map((point, index) => {
+    const x = data.length === 1 ? 50 : (index / (data.length - 1)) * 100
+    const y = 100 - ((point.count - min) / range) * 100
+    return { x, y }
+  })
+
+  let linePoints: string
+  if (coordinates.length === 1) {
+    const { y } = coordinates[0]
+    linePoints = `0,${y.toFixed(2)} 100,${y.toFixed(2)}`
+  } else {
+    linePoints = coordinates.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ')
+  }
+
+  const last = coordinates[coordinates.length - 1]
+
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-10">
+      <polyline
+        points={linePoints}
+        fill="none"
+        stroke={color}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {last && (
+        <circle
+          cx={last.x.toFixed(2)}
+          cy={last.y.toFixed(2)}
+          r={2.7}
+          stroke={color}
+          strokeWidth={1.5}
+          fill="#111827"
+        />
+      )}
+    </svg>
+  )
+}
 
 export default function Dashboard() {
   const { 
@@ -30,6 +124,9 @@ export default function Dashboard() {
     usage: { scans_started: number; scans_completed: number; total_runtime_ms: number };
     limits: { concurrent: number; monthly: number };
   }>(null)
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
 
   useEffect(() => {
     const loadUsage = async () => {
@@ -41,6 +138,36 @@ export default function Dashboard() {
       }
     }
     loadUsage()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadAnalytics = async () => {
+      setAnalyticsLoading(true)
+      try {
+        const data = await apiFetch<AnalyticsSummary>('/api/analytics/summary')
+        if (!cancelled) {
+          setAnalytics(data)
+          setAnalyticsError(null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : 'Failed to load analytics insights'
+          setAnalyticsError(message)
+        }
+      } finally {
+        if (!cancelled) {
+          setAnalyticsLoading(false)
+        }
+      }
+    }
+
+    loadAnalytics()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -66,6 +193,25 @@ export default function Dashboard() {
     const cap = usage.limits.monthly || 1
     return Math.min(100, Math.round((used / cap) * 100))
   })()
+
+  const dailyTrend = analytics?.dailyScans.trend ?? []
+  const latestDailyCount = dailyTrend.length > 0 ? dailyTrend[dailyTrend.length - 1].count : 0
+  const previousDailyCount = dailyTrend.length > 1 ? dailyTrend[dailyTrend.length - 2].count : 0
+  const dailyDelta = latestDailyCount - previousDailyCount
+
+  const feedbackTrend = analytics?.feedbackSubmissions.trend ?? []
+  const latestFeedbackCount = feedbackTrend.length > 0 ? feedbackTrend[feedbackTrend.length - 1].count : 0
+  const previousFeedbackCount = feedbackTrend.length > 1 ? feedbackTrend[feedbackTrend.length - 2].count : 0
+  const feedbackDelta = latestFeedbackCount - previousFeedbackCount
+
+  const ratio = analytics?.successErrorRatio
+  const successDenominator = ratio ? ratio.success + ratio.error : 0
+  const successProgress = successDenominator === 0 || !ratio ? 0 : ratio.success / successDenominator
+  const errorProgress = successDenominator === 0 || !ratio ? 0 : ratio.error / successDenominator
+
+  const demoBreakdown = analytics?.demoUsage.breakdown ? analytics.demoUsage.breakdown.slice(0, 2) : []
+  const demoTopSum = demoBreakdown.reduce((sum, item) => sum + item.count, 0)
+  const demoOther = Math.max(0, (analytics?.demoUsage.total ?? 0) - demoTopSum)
 
   // Format time ago
   const formatTimeAgo = (input: string | Date | null | undefined) => {
@@ -164,6 +310,164 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+        {/* Analytics Insights */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <ChartBarIcon className="h-6 w-6 text-cyan-400" />
+              <h2 className="text-lg font-semibold text-white">Insights</h2>
+            </div>
+            {analytics?.updatedAt && (
+              <span className="text-xs text-gray-500">
+                Updated {formatTimeAgo(analytics.updatedAt)}
+              </span>
+            )}
+          </div>
+
+          {analyticsError && (
+            <div className="mb-4 rounded border border-red-800 bg-red-900/40 px-4 py-3 text-sm text-red-300">
+              {analyticsError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {analytics ? (
+              <>
+                <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 flex flex-col">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Daily Scans</p>
+                      <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(analytics.dailyScans.total)}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Last {analytics.dailyScans.windowDays} days · Today {formatNumber(latestDailyCount)}
+                      </p>
+                      {dailyTrend.length > 1 && (
+                        <p
+                          className={clsx(
+                            'mt-1 text-xs font-medium',
+                            dailyDelta >= 0 ? 'text-emerald-400' : 'text-amber-300'
+                          )}
+                        >
+                          {dailyDelta >= 0 ? '+' : ''}{formatNumber(Math.abs(dailyDelta))} vs prev day
+                        </p>
+                      )}
+                    </div>
+                    <span className="bg-cyan-900/40 text-cyan-300 rounded-md p-2">
+                      <ArrowTrendingUpIcon className="h-6 w-6" />
+                    </span>
+                  </div>
+                  <div className="mt-4 flex-1 flex items-end">
+                    <Sparkline data={dailyTrend} color="#22d3ee" />
+                  </div>
+                </div>
+
+                <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 flex flex-col">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Success Rate</p>
+                      <p className="mt-2 text-2xl font-semibold text-white">
+                        {ratio && Number.isFinite(ratio.successRate) ? `${ratio.successRate.toFixed(1)}%` : '0.0%'}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {formatNumber(ratio?.success ?? 0)} success · {formatNumber(ratio?.error ?? 0)} errors
+                      </p>
+                    </div>
+                    <span className="bg-emerald-900/40 text-emerald-300 rounded-md p-2">
+                      <CheckBadgeIcon className="h-6 w-6" />
+                    </span>
+                  </div>
+                  <div className="mt-4 space-y-2 text-xs text-gray-400">
+                    <div className="flex items-center justify-between">
+                      <span className="text-emerald-300 font-medium">Success share</span>
+                      <span>{Math.round((successProgress || 0) * 100)}%</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-amber-300 font-medium">Error share</span>
+                      <span>{Math.round((errorProgress || 0) * 100)}%</span>
+                    </div>
+                    {ratio && ratio.pending > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500">Pending scans</span>
+                        <span>{formatNumber(ratio.pending)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 flex flex-col">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Demo Usage</p>
+                      <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(analytics.demoUsage.total)}</p>
+                      <p className="mt-1 text-xs text-gray-500">Last {analytics.demoUsage.windowDays} days</p>
+                    </div>
+                    <span className="bg-blue-900/40 text-blue-300 rounded-md p-2">
+                      <BookmarkIcon className="h-6 w-6" />
+                    </span>
+                  </div>
+                  <div className="mt-4 space-y-2 text-xs text-gray-300">
+                    {demoBreakdown.length > 0 ? (
+                      <>
+                        {demoBreakdown.map(({ host, count }) => (
+                          <div key={host} className="flex items-center justify-between gap-2">
+                            <span className="truncate">{host}</span>
+                            <span className="text-gray-400">{formatNumber(count)}</span>
+                          </div>
+                        ))}
+                        {demoOther > 0 && (
+                          <div className="flex items-center justify-between text-gray-500">
+                            <span>Other demo hosts</span>
+                            <span>{formatNumber(demoOther)}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-gray-500">Run a curated demo scan to populate this metric.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 flex flex-col">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Feedback Received</p>
+                      <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(analytics.feedbackSubmissions.total)}</p>
+                      <p className="mt-1 text-xs text-gray-500">Last {analytics.feedbackSubmissions.windowDays} days</p>
+                      {feedbackTrend.length > 1 && (
+                        <p
+                          className={clsx(
+                            'mt-1 text-xs font-medium',
+                            feedbackDelta >= 0 ? 'text-emerald-400' : 'text-amber-300'
+                          )}
+                        >
+                          {feedbackDelta >= 0 ? '+' : ''}{formatNumber(Math.abs(feedbackDelta))} vs prev day
+                        </p>
+                      )}
+                    </div>
+                    <span className="bg-purple-900/40 text-purple-300 rounded-md p-2">
+                      <EnvelopeOpenIcon className="h-6 w-6" />
+                    </span>
+                  </div>
+                  <div className="mt-4 flex-1 flex items-end">
+                    <Sparkline data={feedbackTrend} color="#c084fc" />
+                  </div>
+                </div>
+              </>
+            ) : analyticsLoading ? (
+              [0, 1, 2, 3].map((idx) => (
+                <div
+                  key={idx}
+                  className="bg-gray-800 border border-gray-700 rounded-lg h-36 animate-pulse"
+                ></div>
+              ))
+            ) : (
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 text-sm text-gray-500 sm:col-span-2 lg:col-span-4">
+                Analytics tiles will populate after scans and feedback activity start flowing.
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">

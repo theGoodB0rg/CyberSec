@@ -6,6 +6,138 @@ const { v4: uuidv4 } = require('uuid');
 const Logger = require('./utils/logger');
 const killTree = require('tree-kill');
 
+const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+
+const BASE_FLAG_DISPLAY = [
+  {
+    flag: '--batch',
+    category: 'Stability',
+    description: 'Skip interactive prompts so scans remain non-blocking in automation contexts.'
+  },
+  {
+    flag: '--random-agent',
+    category: 'Stealth',
+    description: 'Rotate user-agents to reduce basic detection heuristics.'
+  },
+  {
+    flag: '--output-dir "<per-scan temp dir>"',
+    category: 'Evidence',
+    description: 'Persist scan artefacts in an isolated, per-run directory managed server-side.',
+    caution: 'Directory path never leaves the server and is unique per user session.'
+  },
+  {
+    flag: '-s "<session.sqlite>"',
+    category: 'Evidence',
+    description: 'Capture SQLMap session data to support resume operations and auditing.'
+  },
+  {
+    flag: '-t "<traffic.log>"',
+    category: 'Evidence',
+    description: 'Log HTTP traffic for traceability and post-scan review.'
+  },
+  {
+    flag: '--hex',
+    category: 'Data Handling',
+    description: 'Return extracted data in hexadecimal to avoid encoding ambiguity.'
+  },
+  {
+    flag: '--flush-session',
+    category: 'Freshness',
+    description: 'Clear prior SQLMap caches to guarantee new queries on every run.'
+  },
+  {
+    flag: '--delay=1',
+    category: 'Operational Safety',
+    description: 'Add a one second delay between requests to temper load on the target.'
+  },
+  {
+    flag: '--timeout=30',
+    category: 'Resilience',
+    description: 'Abort individual HTTP requests after 30 seconds to avoid hanging scans.'
+  },
+  {
+    flag: '--retries=3',
+    category: 'Resilience',
+    description: 'Retry failed requests up to three times before abandoning them.'
+  },
+  {
+    flag: '--keep-alive',
+    category: 'Performance',
+    description: 'Reuse HTTP connections when targets support persistent sessions.'
+  },
+  {
+    flag: '--threads=1',
+    category: 'Stability',
+    description: 'Restrict to a single worker thread for predictable behaviour on fragile targets.'
+  },
+  {
+    flag: `--user-agent="${DEFAULT_USER_AGENT}"`,
+    category: 'Stealth',
+    description: 'Spoof a modern desktop browser user-agent string to blend with normal traffic.'
+  },
+  {
+    flag: '--skip-heuristics',
+    category: 'Performance',
+    description: 'Disable heuristic checks for marginally faster reconnaissance.'
+  },
+  {
+    flag: '--banner',
+    category: 'Enumeration',
+    description: 'Request DBMS banner information for reporting context.'
+  },
+  {
+    flag: '--current-user',
+    category: 'Enumeration',
+    description: 'Identify the database account being used in the session.'
+  },
+  {
+    flag: '--current-db',
+    category: 'Enumeration',
+    description: 'Reveal the name of the current database context.'
+  },
+  {
+    flag: '--hostname',
+    category: 'Enumeration',
+    description: 'Capture the database server hostname when possible.'
+  },
+  {
+    flag: '--is-dba',
+    category: 'Enumeration',
+    description: 'Confirm whether the current DB user has DBA privileges.'
+  },
+  {
+    flag: '--passwords',
+    category: 'Extraction',
+    description: 'Attempt to enumerate password hashes for credential audits.',
+    caution: 'May increase the volume of retrieved sensitive data; ensure authorisation covers this scope.'
+  },
+  {
+    flag: '--privileges',
+    category: 'Enumeration',
+    description: 'List database privileges assigned to discovered accounts.'
+  },
+  {
+    flag: '--roles',
+    category: 'Enumeration',
+    description: 'Enumerate database roles tied to the compromised context.'
+  },
+  {
+    flag: '--schema',
+    category: 'Enumeration',
+    description: 'Collect schema information (databases, tables, columns).'
+  },
+  {
+    flag: '--count',
+    category: 'Enumeration',
+    description: 'Count table entries to gauge data volume.'
+  },
+  {
+    flag: '--fresh-queries',
+    category: 'Freshness',
+    description: 'Bypass cached results to ensure live verification of findings.'
+  }
+];
+
 class SQLMapIntegration {
   constructor() {
     // Allow environment override
@@ -86,6 +218,8 @@ class SQLMapIntegration {
         flags: ['--level=2', '--risk=2', '--technique=BEUSTQ']
       }
     };
+
+    this.baseFlagDisplay = BASE_FLAG_DISPLAY;
 
     // Log the detected SQLMap path
     Logger.info(`SQLMap integration initialized with path: ${this.sqlmapPath}`);
@@ -224,6 +358,90 @@ class SQLMapIntegration {
     return true;
   }
 
+  buildBaseFlags(outputDir) {
+    const quotedOutputDir = `"${outputDir}"`;
+    const sessionFile = `"${path.join(outputDir, 'session.sqlite')}"`;
+    const trafficLog = `"${path.join(outputDir, 'traffic.log')}"`;
+
+    return [
+      '--batch',
+      '--random-agent',
+      '--output-dir', quotedOutputDir,
+      '-s', sessionFile,
+      '-t', trafficLog,
+      '--hex',
+      '--flush-session',
+      '--delay=1',
+      '--timeout=30',
+      '--retries=3',
+      '--keep-alive',
+      '--threads=1',
+      `--user-agent="${DEFAULT_USER_AGENT}"`,
+      '--skip-heuristics',
+      '--banner',
+      '--current-user',
+      '--current-db',
+      '--hostname',
+      '--is-dba',
+      '--passwords',
+      '--privileges',
+      '--roles',
+      '--schema',
+      '--count',
+      '--fresh-queries'
+    ];
+  }
+
+  getBaseFlagsMetadata() {
+    const baseFlags = this.baseFlagDisplay || [];
+    const baseFlagTokens = this.buildBaseFlags(path.join(this.tempDir, '__metadata__'));
+    const normalizeFlag = (flag) => {
+      if (typeof flag !== 'string') return flag;
+      const trimmed = flag.trim();
+      if (!trimmed.startsWith('-')) return trimmed;
+      const eqIndex = trimmed.indexOf('=');
+      return eqIndex > 0 ? trimmed.slice(0, eqIndex) : trimmed;
+    };
+
+    const baseFlagSet = new Set(
+      baseFlagTokens
+        .filter((token) => typeof token === 'string' && token.trim().startsWith('-'))
+        .map((token) => normalizeFlag(token))
+    );
+
+    const profileInsights = Object.entries(this.scanProfiles).map(([key, profile]) => {
+      const profileFlags = Array.isArray(profile.flags) ? [...profile.flags] : [];
+      const normalizedProfile = profileFlags.map((flag) => ({
+        flag,
+        normalized: normalizeFlag(flag)
+      }));
+
+      const overlaps = normalizedProfile
+        .filter((entry) => baseFlagSet.has(entry.normalized))
+        .map((entry) => entry.flag);
+
+      const additionalFlags = normalizedProfile
+        .filter((entry) => !baseFlagSet.has(entry.normalized))
+        .map((entry) => entry.flag);
+
+      return {
+        id: key,
+        name: profile.name,
+        description: profile.description,
+        flags: profileFlags,
+        overlaps,
+        additionalFlags,
+      };
+    });
+
+    return {
+      baseFlags,
+      joined: baseFlags.map((item) => item.flag).join(' '),
+      total: baseFlags.length,
+      profiles: profileInsights
+    };
+  }
+
   buildSQLMapCommand(target, options = {}, scanProfile = 'basic') {
     this.validateTarget(target);
 
@@ -241,6 +459,12 @@ class SQLMapIntegration {
 
     // Add target URL
     command.push('-u', target);
+
+    // Add output directory and base flags
+    const outputDir = path.join(this.tempDir, uuidv4());
+    fs.mkdirSync(outputDir, { recursive: true });
+    const baseFlags = this.buildBaseFlags(outputDir);
+    command.push(...baseFlags);
 
     // Add profile flags
     command.push(...profile.flags);
@@ -285,11 +509,6 @@ class SQLMapIntegration {
       const customFlags = this.parseCustomFlags(options.customFlags);
       command.push(...customFlags);
     }
-
-    // Add output directory
-    const outputDir = path.join(this.tempDir, uuidv4());
-    fs.mkdirSync(outputDir, { recursive: true });
-    command.push('--output-dir', outputDir);
 
     return { command, outputDir };
   }
@@ -350,33 +569,7 @@ class SQLMapIntegration {
     // Get profile flags (now includes enhanced defaults)
     const profile = this.scanProfiles[scanProfile] || this.scanProfiles.basic;
     
-    const defaultFlags = [
-      '--batch',        // Never ask for user input
-      '--random-agent', // Use a random user-agent
-      '--output-dir', `"${outputDir}"`,  // Quote the path for Windows compatibility
-      '-s', `"${path.join(outputDir, 'session.sqlite')}"`,  // Session file for resuming
-      '-t', `"${path.join(outputDir, 'traffic.log')}"`,     // HTTP traffic log
-      '--hex',          // Use hex conversion for data retrieval
-      '--flush-session', // Flush session files for fresh start
-      '--delay=1',      // Reduced delay for faster scans
-      '--timeout=30',   // Timeout for requests
-      '--retries=3',    // Retry failed requests 3 times
-      '--keep-alive',   // Use persistent connections
-      '--threads=1',    // Conservative threading for stability
-      '--user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"',  // Updated user-agent
-      '--skip-heuristics', // Skip heuristic checks for faster results
-      '--banner',       // Try to retrieve DBMS banner
-      '--current-user', // Get current database user
-      '--current-db',   // Get current database name
-      '--hostname',     // Get database server hostname
-      '--is-dba',       // Check if current user is DBA
-      '--passwords',    // Enumerate password hashes
-      '--privileges',   // Enumerate user privileges
-      '--roles',        // Enumerate user roles
-      '--schema',       // Enumerate database schema
-      '--count',        // Count entries in tables
-      '--fresh-queries' // Ignore query results stored in session
-    ];
+    const defaultFlags = this.buildBaseFlags(outputDir);
     
     // Merge profile flags with any custom options
     const profileFlags = profile.flags || [];

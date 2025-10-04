@@ -299,7 +299,7 @@ app.get('/api/health', async (req, res) => {
   res.status(statusCode).json(response);
 });
 
-app.use('/api/contact', createContactRouter(contactMailer));
+app.use('/api/contact', createContactRouter(contactMailer, database));
 
 
 // Authenticated routes
@@ -419,6 +419,17 @@ app.get('/api/sqlmap/profiles', async (req, res) => {
   } catch (e) {
     Logger.error('Failed to fetch sqlmap profiles', e);
     res.status(500).json({ error: 'Failed to fetch profiles' });
+  }
+});
+
+// Expose server-enforced base flags for transparency (authenticated users only)
+app.get('/api/sqlmap/base-flags', (req, res) => {
+  try {
+    const payload = sqlmapIntegration.getBaseFlagsMetadata();
+    res.json(payload);
+  } catch (e) {
+    Logger.error('Failed to fetch sqlmap base flags', e);
+    res.status(500).json({ error: 'Failed to fetch base flags' });
   }
 });
 
@@ -876,6 +887,31 @@ app.get('/api/usage', async (req, res) => {
   } catch (e) {
     Logger.error('Usage endpoint error', e);
     res.status(500).json({ error: 'Failed to retrieve usage' });
+  }
+});
+
+app.get('/api/analytics/summary', async (req, res) => {
+  try {
+    const parseWindow = (value) => {
+      if (value === undefined) return undefined;
+      const num = Number(value);
+      return Number.isFinite(num) ? num : undefined;
+    };
+
+    const summary = await database.getAnalyticsSummary({
+      userId: req.user.id,
+      orgId: req.user.orgId || null,
+      isAdmin: req.user.role === 'admin',
+      dailyWindowDays: parseWindow(req.query.dailyWindowDays),
+      statusWindowDays: parseWindow(req.query.statusWindowDays),
+      demoWindowDays: parseWindow(req.query.demoWindowDays),
+      feedbackWindowDays: parseWindow(req.query.feedbackWindowDays),
+    });
+
+    res.json(summary);
+  } catch (error) {
+    Logger.error('Analytics summary error', error);
+    res.status(500).json({ error: 'Failed to load analytics summary' });
   }
 });
 

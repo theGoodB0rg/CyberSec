@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Terminal as XTerm } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
-import { PlayIcon, StopIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
+import { PlayIcon, StopIcon, ArrowPathIcon, ChevronDownIcon, DocumentDuplicateIcon, CheckIcon } from '@heroicons/react/24/outline'
 import { useScanSocket } from '../hooks/useSocket'
 import { useAppStore } from '../store/appStore'
 import { validateFlagsString, wafPreset } from '../utils/sqlmapFlags'
@@ -17,8 +18,32 @@ const SCAN_PROFILES = [
   { value: 'custom', label: 'Custom Scan', description: 'Advanced user options' },
 ]
 
+type BaseFlagMeta = {
+  flag: string
+  category: string
+  description: string
+  caution?: string
+}
+
+type BaseFlagProfile = {
+  id: string
+  name: string
+  description: string
+  flags: string[]
+  overlaps: string[]
+  additionalFlags: string[]
+}
+
+type BaseFlagResponse = {
+  baseFlags: BaseFlagMeta[]
+  joined: string
+  total: number
+  profiles: BaseFlagProfile[]
+}
+
 export default function Terminal() {
   const terminalRef = useRef<HTMLDivElement>(null)
+  const location = useLocation()
   const { clearTerminalOutput } = useAppStore()
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -46,6 +71,13 @@ export default function Terminal() {
   const [scheduleAt, setScheduleAt] = useState<string>('')
   const [jobs, setJobs] = useState<any[]>([])
   const [loadingJobs, setLoadingJobs] = useState(false)
+
+  const isAuthenticated = useAppStore(s => s.isAuthenticated)
+  const [baseFlagPanelOpen, setBaseFlagPanelOpen] = useState(false)
+  const [baseFlagData, setBaseFlagData] = useState<BaseFlagResponse | null>(null)
+  const [baseFlagLoading, setBaseFlagLoading] = useState(false)
+  const [baseFlagError, setBaseFlagError] = useState<string | null>(null)
+  const [baseFlagCopyState, setBaseFlagCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   
   const { on, off, startScan: sendStartScan, terminateScan, restartScan: emitRestart } = useScanSocket()
   const { addScan, updateScan, isConnected, upsertScanFromEvent } = useAppStore()
@@ -113,6 +145,48 @@ export default function Terminal() {
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    let active = true
+
+    const loadBaseFlags = async () => {
+      try {
+        setBaseFlagLoading(true)
+        const payload = await apiFetch<BaseFlagResponse>('/api/sqlmap/base-flags')
+        if (active) {
+          setBaseFlagData(payload)
+          setBaseFlagError(null)
+        }
+      } catch (err: any) {
+        if (active) {
+          setBaseFlagError(err?.message || 'Failed to load base flags')
+        }
+      } finally {
+        if (active) {
+          setBaseFlagLoading(false)
+        }
+      }
+    }
+
+    loadBaseFlags()
+
+    return () => {
+      active = false
+    }
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    if (baseFlagCopyState === 'idle') return
+    const timeout = setTimeout(() => setBaseFlagCopyState('idle'), baseFlagCopyState === 'copied' ? 2000 : 3000)
+    return () => clearTimeout(timeout)
+  }, [baseFlagCopyState])
+
+  useEffect(() => {
+    if (location.hash === '#base-flags') {
+      setBaseFlagPanelOpen(true)
+    }
+  }, [location.hash])
 
   // Socket event handlers
   useEffect(() => {
@@ -405,6 +479,21 @@ export default function Terminal() {
     }
   }
 
+  const handleCopyBaseFlags = async () => {
+    if (!baseFlagData?.joined) return
+    try {
+      if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+        throw new Error('Clipboard API unavailable')
+      }
+      await navigator.clipboard.writeText(baseFlagData.joined)
+      setBaseFlagCopyState('copied')
+      toast.success('Base scan defaults copied to clipboard')
+    } catch (err) {
+      setBaseFlagCopyState('error')
+      toast.error('Unable to copy the base scan defaults')
+    }
+  }
+
   const clearTerminal = () => {
     if (xtermRef.current) {
       xtermRef.current.clear()
@@ -647,6 +736,125 @@ export default function Terminal() {
             </div>
           )}
         </div>
+
+        {isAuthenticated && (
+          <div className="mt-4 px-6">
+            <div className="overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
+              <button
+                type="button"
+                onClick={() => setBaseFlagPanelOpen((prev) => !prev)}
+                className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-gray-200 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+              >
+                <span>Base scan flags (always applied)</span>
+                <ChevronDownIcon
+                  className={`h-5 w-5 transition-transform ${baseFlagPanelOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {baseFlagPanelOpen && (
+                <div className="border-t border-gray-700 px-4 py-4 text-sm text-gray-300">
+                  {baseFlagLoading ? (
+                    <p className="text-gray-400">Loading defaults…</p>
+                  ) : baseFlagError ? (
+                    <p className="text-red-400">{baseFlagError}</p>
+                  ) : baseFlagData ? (
+                    <>
+                      <p className="text-gray-300">
+                        These {baseFlagData.total} safeguards are appended to every scan to balance coverage, evidence collection, and safety.
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <span className="text-xs text-gray-500">
+                          Defaults tracked on the server • total defaults: {baseFlagData.total}
+                        </span>
+                        {baseFlagData.joined && (
+                          <button
+                            type="button"
+                            onClick={handleCopyBaseFlags}
+                            className="inline-flex items-center gap-2 rounded-md border border-gray-600 bg-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+                          >
+                            {baseFlagCopyState === 'copied' ? (
+                              <>
+                                <CheckIcon className="h-4 w-4 text-green-400" />
+                                Copied
+                              </>
+                            ) : baseFlagCopyState === 'error' ? (
+                              <>
+                                <DocumentDuplicateIcon className="h-4 w-4 text-red-400" />
+                                Try again
+                              </>
+                            ) : (
+                              <>
+                                <DocumentDuplicateIcon className="h-4 w-4 text-gray-300" />
+                                Copy defaults
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <ul className="mt-4 space-y-3">
+                        {baseFlagData.baseFlags.map((flag) => (
+                          <li key={flag.flag} className="rounded-lg border border-gray-700 bg-gray-900/70 px-3 py-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <code className="break-all text-xs text-blue-300">{flag.flag}</code>
+                              <span className="rounded-full bg-gray-900 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-400">
+                                {flag.category}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-xs text-gray-400">{flag.description}</p>
+                            {flag.caution ? (
+                              <p className="mt-1 text-xs text-amber-400">{flag.caution}</p>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                        {baseFlagData.profiles?.length ? (
+                          <div className="mt-6">
+                            <h3 className="text-sm font-semibold text-gray-200">Profile adjustments</h3>
+                            <p className="mt-1 text-xs text-gray-400">
+                              Each profile inherits the defaults above and may add or override additional flags to match its strategy.
+                            </p>
+                            <div className="mt-3 space-y-3">
+                              {baseFlagData.profiles.map((profile) => (
+                                <div key={profile.id} className="rounded-lg border border-gray-700 bg-gray-900/60 p-3">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                      <div className="text-sm font-medium text-gray-200">{profile.name}</div>
+                                      <div className="text-xs text-gray-500">{profile.id}</div>
+                                    </div>
+                                    <span className="text-[11px] uppercase tracking-wide text-gray-400">{profile.additionalFlags.length} custom flag{profile.additionalFlags.length === 1 ? '' : 's'}</span>
+                                  </div>
+                                  {profile.description && (
+                                    <p className="mt-1 text-xs text-gray-400">{profile.description}</p>
+                                  )}
+                                  {profile.additionalFlags.length > 0 ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {profile.additionalFlags.map((flag) => (
+                                        <span key={flag} className="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] text-blue-200 border border-blue-700/40">
+                                          {flag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="mt-2 text-xs text-gray-500">No extras—relies solely on the base defaults.</p>
+                                  )}
+                                  {profile.overlaps.length > 0 && (
+                                    <div className="mt-2 text-[11px] text-gray-500">
+                                      Shares defaults: {profile.overlaps.join(', ')}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                    </>
+                  ) : (
+                    <p className="text-gray-400">No base flags are currently configured.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Custom Flags (only for custom profile) */}
         {selectedProfile === 'custom' && (

@@ -28,7 +28,7 @@ const normalizeMessage = input =>
 const MIN_MESSAGE_LENGTH = 40
 const MAX_MESSAGE_LENGTH = 4000
 
-module.exports = function createContactRouter(mailer) {
+module.exports = function createContactRouter(mailer, database) {
   const router = express.Router()
 
   if (!mailer || typeof mailer.send !== 'function') {
@@ -88,6 +88,25 @@ module.exports = function createContactRouter(mailer) {
           ip: meta.ip,
         })
       } catch (_) {}
+
+      if (database && typeof database.logTelemetry === 'function') {
+        database
+          .logTelemetry({
+            event_type: 'feedback-submitted',
+            metadata: {
+              delivered: Boolean(result.delivered),
+              stored: Boolean(result.stored),
+              organisation: cleanedOrganisation || null,
+              consent: Boolean(consent),
+              approximateLength: cleanedMessage.length,
+            },
+          })
+          .catch((error) => {
+            try {
+              Logger.warn('Failed to record feedback telemetry', { error: error.message })
+            } catch (_) {}
+          })
+      }
 
       const statusCode = result.delivered ? 200 : 202
       return res.status(statusCode).json({ ok: true, delivered: result.delivered, fallback: result.stored })
