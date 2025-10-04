@@ -25,6 +25,10 @@ A practical, developer-friendly web app for running focused SQL injection assess
 - Modern React + Tailwind UI (Dashboard, Targets, Reports, Report Details, Terminal, Usage, Settings)
 - Dark theme, responsive layout, scan history and details
  - Settings page with collapsible sections: My Defaults, Custom Builder (live server validation), Preconfigured Types, Saved Profiles
+- Academic-first landing page with a hero CTA (“Launch Demo Scan”), dual-track explanation, and frictionless signposting into real or guided experiences
+- Five-step methodology timeline that walks new researchers through discovery → verification → reporting with plain-language guidance
+- Expandable FAQ covering ethics approvals, data handling, supervisor oversight, and project workflow expectations
+- Persistent legal disclaimer emphasising authorised use, plus a discreet researcher profile drawer that introduces the supervising analyst
 - Terminal view includes an authenticated-only accordion that enumerates the server-enforced base SQLMap flags with a copy-to-clipboard summary for audit trails, plus per-profile overlays and a quick link from the Settings builder for consistent transparency
 - Landing contact form with consent gating that launches the visitor’s email client by default (SMTP delivery available via optional backend integration)
 
@@ -132,6 +136,19 @@ The repository now ships with a Dockerfile, Fly launch configuration (`fly.toml`
    ```
 
 The `/api/health` endpoint returns a JSON object with status for SQLite, job queue, and SQLMap. If any dependency is unavailable, the endpoint returns `status: "degraded"` and Fly will mark the instance unhealthy for auto-recovery.
+
+## 🏁 Landing Page Overview
+
+The default landing experience now guides both academic learners and professional operators from the very first screen:
+
+- **Hero CTA** – The primary “Launch Demo Scan” button opens the app with a preconfigured safe target queue so new users can experiment without provisioning their own host. Supporting links highlight the research methodology and documentation trails.
+- **Learning vs Pro tracks** – An above-the-fold explainer clarifies that the Masters learning path emphasises explainability and guided practice, while the professional mode enables full SQLMap orchestration with team workflows.
+- **Methodology timeline** – A five-step strip (Discover → Prepare → Execute → Verify → Report) outlines what the platform automates at each phase, with cues pointing to relevant in-app pages.
+- **Ethics & safety FAQ** – Collapsible FAQ items cover supervisor approvals, data-handling guarantees, consent-driven evidence storage, and how we handle demo targets. Each entry links deeper into the README or in-app settings when appropriate.
+- **Legal disclaimer & researcher profile** – A fixed footer card reiterates the authorised-use policy, while an unobtrusive drawer introduces the supervising analyst/researcher for credibility and contact context.
+- **Visual polish** – Updated illustrations, subtle motion, and the existing colour palette make the educational focus clear without sacrificing the pro tooling aesthetic.
+
+👉 Tip: Pair the landing page with the in-app `Settings → Custom Command Builder` and the Terminal defaults accordion to reinforce what the platform adds automatically during live scans.
 
 ## �🎯 Usage (Typical Flow)
 
