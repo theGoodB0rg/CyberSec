@@ -123,20 +123,20 @@ export function ContactSection({ onSubmit }: ContactSectionProps) {
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           <div className="space-y-6">
             <span className="inline-flex items-center gap-2 rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-200">
-              <AcademicCapIcon className="h-4 w-4" aria-hidden /> Cohort partnerships
+              <AcademicCapIcon className="h-4 w-4" aria-hidden /> SQLi cohort partnerships
             </span>
             <h2 id="contact-heading" className="text-3xl font-semibold text-white sm:text-4xl">
-              Coordinate supervised pilots or request an ethics briefing.
+              Coordinate supervised SQL injection pilots or request an ethics briefing.
             </h2>
             <p className="text-sm text-gray-300 sm:text-base">
-              Outline your intended use case, institutional requirements, and timeframe. We&apos;ll share consent templates,
-              demo target playbooks, and facilitation support tailored to academic cohorts.
+              Outline how you plan to teach SQL injection, your institutional requirements, and timeframe. We&apos;ll share consent templates,
+              demo target playbooks, and facilitation support tailored to academic cohorts that need hands-on SQLi experience.
             </p>
             <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-6 text-sm text-blue-100">
               <p className="font-semibold uppercase tracking-wide text-[0.65rem]">What to include</p>
               <ul className="mt-3 space-y-2 text-blue-50">
-                <li className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-200" aria-hidden /><span>Programme or research context and key learning outcomes.</span></li>
-                <li className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-200" aria-hidden /><span>Preferred pilot window plus cohort size expectations.</span></li>
+                <li className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-200" aria-hidden /><span>Programme or research context and the SQL injection learning outcomes you want to hit.</span></li>
+                <li className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-200" aria-hidden /><span>Preferred pilot window, cohort size, and existing penetration testing experience.</span></li>
                 <li className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-200" aria-hidden /><span>Any institutional review processes or policies we should align with.</span></li>
               </ul>
             </div>

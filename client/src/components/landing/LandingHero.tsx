@@ -15,9 +15,9 @@ interface LandingHeroProps {
 }
 
 const trustSignals = [
-  'Designed for postgraduate cybersecurity cohorts',
-  'Guided SQLMap workflows with auditable flag presets',
-  'Ethical-first framing with consent capture baked in',
+  'University-ready SQL injection (SQLi) lab environment',
+  'Guided SQLMap workflows with mitigation checklists',
+  'Ethics, consent, and audit logging in every exercise',
 ]
 
 export function LandingHero({ onLaunchDemo, onViewMethodology, onOpenProfile }: LandingHeroProps) {
@@ -34,12 +34,18 @@ export function LandingHero({ onLaunchDemo, onViewMethodology, onOpenProfile }: 
         </span>
         <div className="space-y-6">
           <h1 className="text-3xl font-semibold text-white sm:text-4xl lg:text-5xl">
-            Academic-grade penetration testing labs with provable ethics scaffolding.
+            CyberSec is the university platform for hands-on SQL injection (SQLi) training with provable ethics
+            scaffolding.
           </h1>
           <p className="max-w-2xl text-base text-gray-200 sm:text-lg">
-            CyberSec brings responsible offensive tooling into the classroom, pairing safe demo targets with
-            guided SQL injection narratives. Each cohort receives auditable activity logs, consent checkpoints,
-            and methodology briefings aligned to institutional review boards.
+            Our purpose is to demystify SQL injection—often shortened to SQLi—the database exploitation technique
+            responsible for some of the most damaging breaches on record. CyberSec pairs sandboxed demo targets with
+            narrative walkthroughs that expose how hostile queries bypass weak validation and how teams can harden
+            their defences.
+          </p>
+          <p className="max-w-2xl text-base text-gray-200 sm:text-lg">
+            Every lab blends ethical hacking practice, defensive countermeasures, and report-ready documentation so
+            universities can teach high-impact penetration testing without risking production systems.
           </p>
         </div>
         <div className="flex flex-wrap gap-3 text-sm text-gray-200">
@@ -90,7 +96,8 @@ export function LandingHero({ onLaunchDemo, onViewMethodology, onOpenProfile }: 
                   New for the Autumn pilot
                 </p>
                 <p className="mt-1 text-sm text-blue-50">
-                  Rapid ethics briefing downloads and reflective journaling prompts woven into each lab.
+                  Fresh quickstart packs break down SQLi payload anatomy, defensive fixes, and classroom discussion
+                  prompts for every lab.
                 </p>
               </div>
             </div>

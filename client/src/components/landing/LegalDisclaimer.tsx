@@ -19,7 +19,7 @@ export function LegalDisclaimer() {
                   Educational-use only environment
                 </h2>
                 <p className="mt-2 text-sm text-amber-200/80 sm:text-base">
-                  Access is restricted to sanctioned academic cohorts. Running scans against any system outside the
+                  Access is restricted to sanctioned academic cohorts. Running SQL injection drills or any scan against systems outside the
                   curated demo catalogue without explicit written permission is prohibited and logged.
                 </p>
               </div>
@@ -74,7 +74,7 @@ export function LegalDisclaimer() {
                       <p>
                         CyberSec is provided exclusively for accredited academic programmes and supervised research. By
                         using the platform you affirm that you have obtained the necessary institutional approvals and
-                        that all testing will target assets explicitly designated as safe demo systems or owned by your
+                        that all testing will target assets explicitly designated as safe SQL injection (SQLi) demo systems or owned by your
                         organisation with written authorization.
                       </p>
                       <p>

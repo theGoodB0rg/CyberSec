@@ -53,18 +53,18 @@ export default function Login() {
   const evidenceHighlights = [
     {
       icon: AcademicCapIcon,
-      title: 'Curriculum ready',
-      description: 'Slides, lab briefs, and assessment rubrics aligned with postgraduate cyber modules.',
+      title: 'SQL injection curriculum ready',
+      description: 'Slides, lab briefs, and assessment rubrics align SQLi exploitation and defence exercises with postgraduate cyber modules.',
     },
     {
       icon: ScaleIcon,
       title: 'Ethics defensible',
-      description: 'Consent logging, legal disclaimers, and IRB language shipped as defaults.',
+      description: 'Consent logging, legal disclaimers, and IRB language are shipped as defaults so SQL injection drills stay fully accountable.',
     },
     {
       icon: BanknotesIcon,
       title: 'Budget friendly',
-      description: 'No per-seat surprises—deployable for capstone cohorts and research sprints alike.',
+      description: 'No per-seat surprises—scale SQLi lab access across capstone cohorts and research sprints alike.',
     },
   ]
 
@@ -186,14 +186,14 @@ export default function Login() {
               <div className="space-y-4">
                 <h2 className="text-2xl font-semibold text-white sm:text-3xl">Structured for ethics boards, ready for classrooms</h2>
                 <p className="text-sm text-gray-300 sm:text-base">
-                  Every scan action is logged, every demo host is vetted, and every flag bundle ships with explanatory
-                  prose. Export audit packs before assessments or research write-ups to demonstrate full compliance.
+                  Every SQLi scan action is logged, every demo host is vetted, and every flag bundle ships with explanatory
+                  prose. Export audit packs before assessments or research write-ups to demonstrate full compliance to supervisors and accreditation teams.
                 </p>
               </div>
               <ul className="space-y-3 rounded-2xl border border-blue-400/30 bg-blue-500/5 p-6 text-sm text-blue-100">
                 {[
                   'Download ethics briefing templates for professors and teaching assistants.',
-                  'Share quick reference cards mapping SQLMap toggles to academic learning outcomes.',
+                  'Share quick reference cards mapping SQLMap toggles and SQLi payload types to academic learning outcomes.',
                   'Bundle anonymised evidence for moderation and second-marking in minutes.',
                 ].map(point => (
                   <li key={point} className="flex items-start gap-3">
@@ -204,7 +204,7 @@ export default function Login() {
               </ul>
             </div>
             <div className="mt-8 flex flex-wrap justify-between gap-4 text-xs text-gray-500">
-              <span>IRB-aligned | GDPR mindful | Safe demo targets only</span>
+              <span>IRB-aligned | GDPR mindful | Safe SQLi demo targets only</span>
               <span>Version 1.0.0 &middot; Autumn semester pilot</span>
             </div>
           </div>

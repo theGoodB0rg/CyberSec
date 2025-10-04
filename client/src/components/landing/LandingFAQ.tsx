@@ -3,29 +3,39 @@ import { MinusSmallIcon, PlusSmallIcon } from '@heroicons/react/24/outline'
 
 const faqEntries = [
   {
+    question: 'What is SQL injection (SQLi)?',
+    answer:
+      'SQL injection—commonly shortened to SQLi—is a web application attack where malicious database commands are slipped into input fields that are not properly validated. The payload lets an attacker read, alter, or delete data by hijacking the SQL queries your site already runs. CyberSec recreates these failure points in a supervised lab so learners can see how the exploit works end to end.',
+  },
+  {
+    question: 'Why does SQL injection still matter in 2025?',
+    answer:
+      'SQLi remains on the OWASP Top 10 because legacy code, rapid prototyping, and overlooked integrations continue to expose databases. Regulators now expect teams to evidence secure coding practices, especially for research environments that store personal or institutional data. Practising SQLi detection in CyberSec shows stakeholders that your cohort can spot and remediate the risk before adversaries do.',
+  },
+  {
     question: 'What ethical guardrails are enforced during teaching labs?',
     answer:
-      'Every scan is tied to an authenticated cohort member, logged with ISO 8601 timestamps, and scoped to pre-approved demo environments. Consent prompts and researcher attestations fire before any offensive command is executed.',
+      'Every SQLi drill is tied to an authenticated cohort member, logged with ISO 8601 timestamps, and scoped to pre-approved demo environments. Consent prompts and researcher attestations fire before any offensive command is executed, keeping investigations defensible for ethics boards.',
   },
   {
     question: 'How is student or target data handled?',
     answer:
-      'Captured evidence stays within the encrypted course workspace. Personally identifiable information is scrubbed from terminal transcripts, and administrators can purge artefacts on demand once assessments conclude.',
+      'Captured evidence stays within the encrypted course workspace. Personally identifiable information is scrubbed from terminal transcripts, and administrators can purge artefacts on demand once assessments conclude—so SQLi metadata never leaves the sandbox without approval.',
   },
   {
     question: 'Do learners need supervisor approval before running scans?',
     answer:
-      'Yes. The platform ships with a supervisor sign-off template and locks the terminal until the supervising academic has granted explicit authorization inside the consent workflow.',
+      'Yes. The platform ships with a supervisor sign-off template and locks the terminal until the supervising academic has granted explicit authorization inside the consent workflow. That ensures SQL injection experiments only proceed under the right oversight.',
   },
   {
     question: 'What is the recommended workflow for SQLMap experiments?',
     answer:
-      'Learners start with the baseline preset, justify flag adjustments in reflective notes, and submit peer reviews of findings before exporting final reports. Faculty can inject feedback at each checkpoint.',
+      'Learners start with the baseline preset, justify flag adjustments in reflective notes, and submit peer reviews of findings before exporting final reports. Faculty can inject feedback at each checkpoint, reinforcing secure coding fixes alongside SQLi exploitation steps.',
   },
   {
     question: 'How can students request feedback or raise concerns?',
     answer:
-      'The feedback banner routes to a monitored academic inbox. Submissions capture cohort metadata, consent state, and optional attachments so teaching staff can respond quickly and maintain audit logs.',
+      'The feedback banner routes to a monitored academic inbox. Submissions capture cohort metadata, consent state, and optional attachments so teaching staff can respond quickly and maintain audit logs while SQL injection drills are in motion.',
   },
 ]
 

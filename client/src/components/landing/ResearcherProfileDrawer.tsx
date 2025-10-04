@@ -5,6 +5,7 @@ import {
   BuildingLibraryIcon,
   UsersIcon,
   ShieldCheckIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline'
 import { Fragment } from 'react'
 
@@ -71,7 +72,7 @@ export function ResearcherProfileDrawer({ open, onClose }: ResearcherProfileDraw
                     <div className="flex items-start justify-between">
                       <div>
                         <Dialog.Title className="text-lg font-semibold text-white">
-                          Dr. Maya Addison
+                          Dr. O.D Adeniji
                         </Dialog.Title>
                         <p className="text-sm text-blue-200/90">
                           Lead Researcher & Programme Architect
@@ -82,9 +83,8 @@ export function ResearcherProfileDrawer({ open, onClose }: ResearcherProfileDraw
                       </span>
                     </div>
                     <p className="mt-4 text-sm text-gray-300">
-                      Maya drives the academic framing of CyberSec. She has spent the last decade building
-                      postgraduate security curricula that balance offensive experimentation with rigorous compliance
-                      controls.
+                      Dr. Adeniji advises on the academic framing of CyberSec, helping ensure the platform aligns with
+                      postgraduate research expectations and ethical review processes.
                     </p>
                   </div>
 
@@ -155,6 +155,15 @@ export function ResearcherProfileDrawer({ open, onClose }: ResearcherProfileDraw
                           theregalstarlite@gmail.com
                         </a>
                       </div>
+                      <a
+                        className="flex items-center gap-2 text-blue-200 transition hover:text-blue-100"
+                        href="https://www.linkedin.com/in/john-olorunfemi/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden />
+                        <span>Connect on LinkedIn</span>
+                      </a>
                       <button
                         type="button"
                         onClick={() => onClose()}

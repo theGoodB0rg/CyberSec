@@ -12,21 +12,21 @@ const steps = [
     id: 'Stage 02',
     title: 'Baseline reconnaissance walkthrough',
     description:
-      'We guide cohorts through passive fingerprinting, asset scoping, and identification of safe demo targets seeded by the platform.',
+      'We guide cohorts through passive fingerprinting, asset scoping, and identification of safe demo targets seeded by the platform—pinpointing where SQLi weaknesses could surface in real estates.',
     icon: SparklesIcon,
   },
   {
     id: 'Stage 03',
     title: 'Guided SQLMap execution & tuning',
     description:
-      'Pre-curated flag presets illustrate injection classes while preventing destructive operations. Learners justify each toggle they apply.',
+      'Pre-curated flag presets illustrate SQL injection classes while preventing destructive operations. Learners see exactly how crafted payloads alter database responses and justify every toggle they apply.',
     icon: CommandLineIcon,
   },
   {
     id: 'Stage 04',
     title: 'Evidence curation & peer review',
     description:
-      'Generated findings are annotated with academic context. Students tag impact narratives, mitigation strategies, and confidence levels.',
+      'Generated findings are annotated with academic context. Students tag SQLi impact narratives, mitigation strategies, and confidence levels.',
     icon: ClipboardDocumentCheckIcon,
   },
   {
@@ -46,7 +46,7 @@ export function MethodologyTimeline() {
         <div className="mb-10 max-w-2xl">
           <h2 className="text-2xl font-semibold text-white sm:text-3xl">Five-step methodology designed for academic defensibility</h2>
           <p className="mt-3 text-sm text-gray-300 sm:text-base">
-            Each cohort journey couples offensive experimentation with institutional safeguards. Every step is documented,
+            Each cohort journey couples offensive SQL injection experimentation with institutional safeguards. Every step is documented,
             reviewable, and auditable—ready for ethics committees and accreditation reviews.
           </p>
         </div>

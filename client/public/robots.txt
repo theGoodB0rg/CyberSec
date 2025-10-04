@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /terminal
+Disallow: /reports
+Disallow: /reports/
+Disallow: /settings
+Disallow: /targets
+Disallow: /usage
+Disallow: /admin
+Disallow: /api/
+Sitemap: https://cybersec-app.fly.dev/sitemap.xml
