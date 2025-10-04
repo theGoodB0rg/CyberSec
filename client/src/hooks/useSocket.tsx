@@ -44,6 +44,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     dismissReportNotification,
     authToken,
     isAuthenticated,
+    setActiveTerminalSession,
   } = useAppStore()
 
   // Derive WS host once
@@ -144,6 +145,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       // Optionally refresh running scans list shortly after start
       setTimeout(() => { loadRunningScans().catch(()=>{}) }, 500)
       toast.success('Scan started successfully')
+      if (data?.scanId) {
+        setActiveTerminalSession(data.scanId)
+      }
     })
 
     socketInstance.on('scan-output', (data) => {
@@ -163,6 +167,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         endTime: new Date().toISOString(),
         exitCode: exitCode ?? undefined,
       })
+
+      if (scanId && useAppStore.getState().activeTerminalSession === scanId) {
+        setActiveTerminalSession(null)
+      }
 
       if (isAuthenticated) {
         setTimeout(() => {
@@ -267,6 +275,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       })
       
       toast('Scan terminated')
+
+      if (scanId && useAppStore.getState().activeTerminalSession === scanId) {
+        setActiveTerminalSession(null)
+      }
     })
 
     socketInstance.on('scan-error', (data) => {
@@ -280,6 +292,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
           error: msg,
           endTime: new Date().toISOString(),
         })
+
+        if (useAppStore.getState().activeTerminalSession === scanId) {
+          setActiveTerminalSession(null)
+        }
       }
 
       // Friendly messages for common race/limit scenarios
@@ -310,6 +326,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
           })
           const count = running.length
           toast(`Restored ${count} running scan${count > 1 ? 's' : ''} after reconnect`, { icon: '🔄' })
+          const active = useAppStore.getState().activeTerminalSession
+          if (!active && running[0]?.scanId) {
+            setActiveTerminalSession(running[0].scanId)
+          }
         }
       } catch (e) {
         console.warn('Failed to rehydrate running scans:', e)
@@ -349,6 +369,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     enqueueReportNotification,
     dismissReportNotification,
     loadScans,
+    setActiveTerminalSession,
   ])
 
   const emit = (event: string, data?: any) => {

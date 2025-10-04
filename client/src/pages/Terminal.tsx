@@ -4,7 +4,7 @@ import { Terminal as XTerm } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { PlayIcon, StopIcon, ArrowPathIcon, ChevronDownIcon, DocumentDuplicateIcon, CheckIcon } from '@heroicons/react/24/outline'
 import { useScanSocket } from '../hooks/useSocket'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, isScanRunning } from '../store/appStore'
 import { validateFlagsString, wafPreset } from '../utils/sqlmapFlags'
 import toast from 'react-hot-toast'
 import 'xterm/css/xterm.css'
@@ -81,16 +81,25 @@ export default function Terminal() {
   
   const { on, off, startScan: sendStartScan, terminateScan, restartScan: emitRestart } = useScanSocket()
   const { addScan, updateScan, isConnected, upsertScanFromEvent } = useAppStore()
+  const scans = useAppStore(s => s.scans)
+  const activeTerminalSession = useAppStore(s => s.activeTerminalSession)
 
   // Initialize terminal
   const lastStartedTargetRef = useRef<string>('')
   const lastStartedOptionsRef = useRef<any>({})
   const lastStartedProfileRef = useRef<string>('basic')
   const lastScanIdRef = useRef<string>('')
+  const pendingScanRef = useRef(false)
 
   useEffect(() => {
-    if (terminalRef.current && !xtermRef.current) {
-      const term = new XTerm({
+    const container = terminalRef.current
+    if (!container) return
+
+    let term = xtermRef.current
+    let fitAddon = fitAddonRef.current
+
+    if (!term) {
+      term = new XTerm({
         cursorBlink: true,
         convertEol: true,
         fontFamily: `'Fira Code', monospace`,
@@ -101,21 +110,29 @@ export default function Terminal() {
           cursor: '#60a5fa', // blue-400
         },
       })
-      const fitAddon = new FitAddon()
-      
+      fitAddon = new FitAddon()
+      term.loadAddon(fitAddon)
       xtermRef.current = term
       fitAddonRef.current = fitAddon
 
-      term.loadAddon(fitAddon)
-      term.open(terminalRef.current)
-      
-      // Use a small timeout to ensure the container is sized before fitting
+      term.open(container)
       setTimeout(() => {
-        fitAddon.fit()
+        fitAddon?.fit()
       }, 1)
-      
-      term.write('Welcome to the CyberSec SQLMap Terminal!\\r\\n')
-      term.write('Use the form above to start a scan.\\r\\n')
+
+      term.write('Welcome to the CyberSec SQLMap Terminal!\r\n')
+      term.write('Use the form above to start a scan.\r\n')
+    } else {
+      if (!fitAddon) {
+        fitAddon = new FitAddon()
+        term.loadAddon(fitAddon)
+        fitAddonRef.current = fitAddon
+      }
+      container.innerHTML = ''
+      term.open(container)
+      setTimeout(() => {
+        fitAddonRef.current?.fit()
+      }, 1)
     }
 
     const handleResize = () => {
@@ -126,9 +143,33 @@ export default function Terminal() {
 
     return () => {
       window.removeEventListener('resize', handleResize)
-      // Do not dispose of the terminal on unmount to preserve state
     }
   }, [])
+
+  useEffect(() => {
+    const activeScan = activeTerminalSession
+      ? scans.find((scan) => scan.id === activeTerminalSession && isScanRunning(scan.status))
+      : null
+    const fallbackScan = activeScan || scans.find((scan) => isScanRunning(scan.status)) || null
+
+    if (fallbackScan) {
+      pendingScanRef.current = false
+      lastScanIdRef.current = fallbackScan.id
+      lastStartedTargetRef.current = fallbackScan.target || ''
+      lastStartedProfileRef.current = fallbackScan.scanProfile || 'basic'
+      lastStartedOptionsRef.current = fallbackScan.options || {}
+
+      if (!targetUrl && fallbackScan.target) {
+        setTargetUrl(fallbackScan.target)
+      }
+
+      if (!isScanning) {
+        setIsScanning(true)
+      }
+    } else if (!pendingScanRef.current && isScanning) {
+      setIsScanning(false)
+    }
+  }, [scans, activeTerminalSession, isScanning, targetUrl])
 
   // On mount, preload user's last used or default profile
   useEffect(() => {
@@ -200,6 +241,8 @@ export default function Terminal() {
 
     const handleScanStarted = (data: { scanId: string }) => {
       lastScanIdRef.current = data.scanId
+      pendingScanRef.current = false
+      setIsScanning(true)
       const now = new Date().toISOString()
       addScan({
         id: data.scanId,
@@ -216,6 +259,7 @@ export default function Terminal() {
 
   // Server emits 'scan-completed'; keep backward compatibility if older event name was used
   const handleScanComplete = (data: { scanId: string; status?: string; reportId?: string; exit_code?: number }) => {
+    pendingScanRef.current = false
       setIsScanning(false)
 
       if (xtermRef.current) {
@@ -237,6 +281,7 @@ export default function Terminal() {
     }
 
     const handleScanError = (data: { scanId?: string; message?: string; error?: string }) => {
+      pendingScanRef.current = false
       setIsScanning(false)
 
       const msg = (data?.message || data?.error || 'Unknown error').toString()
@@ -267,6 +312,7 @@ export default function Terminal() {
     on('scan-completed', handleScanComplete)
     on('scan-error', handleScanError)
     on('scan-terminated', () => {
+      pendingScanRef.current = false
       setIsScanning(false)
       if (xtermRef.current) {
         xtermRef.current.writeln('')
@@ -289,6 +335,8 @@ export default function Terminal() {
               status: 'running',
             } as any)
           })
+          pendingScanRef.current = false
+          setIsScanning(true)
           const count = running.length
           if (xtermRef.current) {
             xtermRef.current.writeln('')
@@ -358,6 +406,7 @@ export default function Terminal() {
     }
 
     try {
+      pendingScanRef.current = true
       setIsScanning(true)
       lastStartedTargetRef.current = targetUrl.trim()
       lastStartedProfileRef.current = selectedProfile
@@ -373,6 +422,7 @@ export default function Terminal() {
       
     } catch (error) {
       setIsScanning(false)
+      pendingScanRef.current = false
       toast.error('Failed to start scan')
       console.error('Scan start error:', error)
     }
@@ -429,6 +479,7 @@ export default function Terminal() {
         icon: '🛑',
       })
       setIsScanning(false)
+      pendingScanRef.current = false
     } else {
       toast.error('No active scan to stop.')
     }
@@ -453,6 +504,7 @@ export default function Terminal() {
       }
       // Small delay to allow server to process termination
       setTimeout(() => {
+        pendingScanRef.current = true
         setIsScanning(true)
         if (xtermRef.current) {
           xtermRef.current.writeln('')
@@ -465,6 +517,7 @@ export default function Terminal() {
     }
 
     // No active scan; just start again with last params
+    pendingScanRef.current = true
     setIsScanning(true)
     if (xtermRef.current) {
       xtermRef.current.writeln('')
