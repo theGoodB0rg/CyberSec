@@ -14,10 +14,11 @@ import {
   XMarkIcon,
   CheckCircleIcon,
 } from '@heroicons/react/24/outline'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, selectRunningScanCount, selectQueuedScanCount } from '../store/appStore'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import { apiFetch } from '@/utils/api'
+import { shallow } from 'zustand/shallow'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
@@ -31,8 +32,27 @@ const navigation = [
 export default function Layout() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { isConnected, runningScans, currentUser, logout, reportNotifications, dismissReportNotification } = useAppStore()
+  const { isConnected, currentUser, logout, reportNotifications, dismissReportNotification } = useAppStore(
+    (state) => ({
+      isConnected: state.isConnected,
+      currentUser: state.currentUser,
+      logout: state.logout,
+      reportNotifications: state.reportNotifications,
+      dismissReportNotification: state.dismissReportNotification,
+    }),
+    shallow
+  )
+  const runningScanCount = useAppStore(selectRunningScanCount)
+  const queuedScanCount = useAppStore(selectQueuedScanCount)
   const location = useLocation()
+
+  const pluralize = (count: number, singular: string, plural?: string) => (
+    count === 1 ? `${count} ${singular}` : `${count} ${plural ?? `${singular}s`}`
+  )
+
+  const scanStatusLabel = queuedScanCount > 0
+    ? `${pluralize(runningScanCount, 'running scan')} · ${pluralize(queuedScanCount, 'queued scan')}`
+    : pluralize(runningScanCount, 'running scan')
 
   // Minimal telemetry: send a visit event on route change (privacy-respecting)
   useEffect(() => {
@@ -150,7 +170,7 @@ export default function Layout() {
                 />
                 <div className="text-sm">
                   <p className="text-white font-medium">{isConnected ? 'Connected' : 'Disconnected'}</p>
-                  <p className="text-gray-400">{runningScans.length} active scans</p>
+                  <p className="text-gray-400">{scanStatusLabel}</p>
                 </div>
               </div>
             </div>
@@ -253,7 +273,7 @@ export default function Layout() {
                   />
                   <div className="text-sm flex-1">
                     <p className="text-white font-medium">{isConnected ? 'Connected' : 'Disconnected'}</p>
-                    <p className="text-gray-400">{runningScans.length} active scans</p>
+                    <p className="text-gray-400">{scanStatusLabel}</p>
                   </div>
                   <div className="text-right">
                     {currentUser && (
@@ -277,13 +297,13 @@ export default function Layout() {
                   </div>
                 </div>
               ) : (
-                <div
-                  className={clsx(
-                    'w-3 h-3 rounded-full mx-auto',
-                    isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-                  )}
-                  title={`${isConnected ? 'Connected' : 'Disconnected'} - ${runningScans.length} active scans`}
-                />
+                 <div
+                   className={clsx(
+                     'w-3 h-3 rounded-full mx-auto',
+                     isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                   )}
+                   title={`${isConnected ? 'Connected' : 'Disconnected'} · ${scanStatusLabel}`}
+                 />
               )}
             </div>
           </div>

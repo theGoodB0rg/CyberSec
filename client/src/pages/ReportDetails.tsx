@@ -16,7 +16,7 @@ import {
   type QuickVerifyEvidenceSummary,
   listQuickVerifyEvidence
 } from '../utils/api';
-import { useAppStore } from '../store/appStore';
+import { useAppStore, selectRunningScanCount } from '../store/appStore';
 import { useScanSocket } from '../hooks/useSocket';
 import { wafPreset } from '../utils/sqlmapFlags';
 
@@ -240,7 +240,7 @@ const ErrorDisplay = ({ message }: { message: string }) => (
 
 export default function ReportDetails() {
   const applyWafSuggestions = useAppStore(s => s.applyWafSuggestions);
-  const runningScans = useAppStore(s => s.runningScans);
+  const runningScanCount = useAppStore(selectRunningScanCount);
   const { startScan, terminateScan } = useScanSocket();
   const navigate = useNavigate();
   const { reportId } = useParams<{ reportId: string }>();
@@ -2105,8 +2105,7 @@ export default function ReportDetails() {
                                             toast.error(e?.message || 'Failed to start scan');
                                           }
                                         };
-                                        const running = Array.isArray(runningScans) ? runningScans.length : 0;
-                                        if (running > 0) {
+                                        if (runningScanCount > 0) {
                                           const confirmStop = window.confirm('A scan appears to be running. Terminate the current scan and start a new one with WAF-friendly settings?');
                                           if (confirmStop) {
                                             terminateScan();

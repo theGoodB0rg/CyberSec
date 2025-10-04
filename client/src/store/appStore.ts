@@ -104,7 +104,7 @@ export interface Settings {
   apiTimeout: number
 }
 
-interface AppState {
+export interface AppState {
   // Connection state
   isConnected: boolean
   connectionError: string | null
@@ -142,9 +142,6 @@ interface AppState {
 
   // Report notifications
   reportNotifications: ReportNotification[]
-  
-  // Computed properties
-  runningScans: Scan[]
 }
 
 interface AppActions {
@@ -254,7 +251,9 @@ const defaultScanProfiles: ScanProfile[] = [
   },
 ]
 
-export const useAppStore = create<AppState & AppActions>()(
+export type AppStore = AppState & AppActions
+
+export const useAppStore = create<AppStore>()(
   devtools(
     persist(
       immer((set, get) => ({
@@ -279,11 +278,6 @@ export const useAppStore = create<AppState & AppActions>()(
   terminalCustomFlags: '',
   lastCustomFlagsByUser: {},
     reportNotifications: [],
-
-        // Computed properties
-        get runningScans() {
-          return get().scans.filter(scan => scan.status === 'running')
-        },
 
         // Actions
         initialize: async () => {
@@ -651,3 +645,21 @@ export const useAppStore = create<AppState & AppActions>()(
     }
   )
 ) 
+
+const RUNNING_SCAN_STATUSES = new Set(['running'])
+const QUEUED_SCAN_STATUSES = new Set(['pending', 'scheduled', 'queued', 'retrying'])
+const ACTIVE_SCAN_STATUSES = new Set([...RUNNING_SCAN_STATUSES, ...QUEUED_SCAN_STATUSES])
+
+const normalizeStatus = (status?: string | null) => (status ?? '').trim().toLowerCase()
+
+export const isScanActive = (status?: string | null) => ACTIVE_SCAN_STATUSES.has(normalizeStatus(status))
+export const isScanRunning = (status?: string | null) => RUNNING_SCAN_STATUSES.has(normalizeStatus(status))
+export const isScanQueued = (status?: string | null) => QUEUED_SCAN_STATUSES.has(normalizeStatus(status))
+
+export const selectActiveScans = (state: AppStore) => state.scans.filter((scan) => isScanActive(scan.status))
+export const selectRunningScans = (state: AppStore) => state.scans.filter((scan) => isScanRunning(scan.status))
+export const selectQueuedScans = (state: AppStore) => state.scans.filter((scan) => isScanQueued(scan.status))
+
+export const selectActiveScanCount = (state: AppStore) => selectActiveScans(state).length
+export const selectRunningScanCount = (state: AppStore) => selectRunningScans(state).length
+export const selectQueuedScanCount = (state: AppStore) => selectQueuedScans(state).length

@@ -14,7 +14,8 @@ import {
   EnvelopeOpenIcon,
   BookmarkIcon
 } from '@heroicons/react/24/outline'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, selectRunningScans, selectQueuedScans } from '../store/appStore'
+import { shallow } from 'zustand/shallow'
 import clsx from 'clsx'
 import { apiFetch } from '@/utils/api'
 import { parseServerDate } from '@/utils/dates'
@@ -110,14 +111,23 @@ function Sparkline({ data, color = '#22d3ee' }: SparklineProps) {
 }
 
 export default function Dashboard() {
-  const { 
-    runningScans, 
-    reports, 
-    scans, 
-    isConnected, 
+  const runningScans = useAppStore(selectRunningScans)
+  const queuedScans = useAppStore(selectQueuedScans)
+  const {
+    reports,
+    scans,
+    isConnected,
     initialize,
     isLoading
-  } = useAppStore()
+  } = useAppStore(state => ({
+    reports: state.reports,
+    scans: state.scans,
+    isConnected: state.isConnected,
+    initialize: state.initialize,
+    isLoading: state.isLoading,
+  }), shallow)
+  const runningScanCount = runningScans.length
+  const queuedScanCount = queuedScans.length
 
   const [usage, setUsage] = useState<null | {
     period: string;
@@ -181,10 +191,17 @@ export default function Dashboard() {
   }, 0)
 
   const stats = [
-    { name: 'Total Scans', stat: scans.length.toString(), icon: ChartBarIcon, color: 'text-blue-400' },
-    { name: 'Active Scans', stat: runningScans.length.toString(), icon: PlayIcon, color: 'text-green-400' },
-    { name: 'Vulnerabilities Found', stat: totalVulnerabilities.toString(), icon: ExclamationTriangleIcon, color: 'text-red-400' },
-    { name: 'Reports Generated', stat: reports.length.toString(), icon: DocumentTextIcon, color: 'text-purple-400' },
+    { name: 'Total Scans', stat: scans.length.toString(), icon: ChartBarIcon, color: 'text-blue-400', href: '/reports' },
+    {
+      name: 'Running Scans',
+      stat: runningScanCount.toString(),
+      icon: PlayIcon,
+      color: 'text-green-400',
+      href: '/terminal',
+      description: queuedScanCount > 0 ? `${queuedScanCount} ${queuedScanCount === 1 ? 'queued scan' : 'queued scans'}` : undefined,
+    },
+    { name: 'Vulnerabilities Found', stat: totalVulnerabilities.toString(), icon: ExclamationTriangleIcon, color: 'text-red-400', href: '/reports' },
+    { name: 'Reports Generated', stat: reports.length.toString(), icon: DocumentTextIcon, color: 'text-purple-400', href: '/reports' },
   ]
 
   const usageProgress = (() => {
@@ -482,14 +499,15 @@ export default function Dashboard() {
                 </div>
                 <p className="ml-16 text-sm font-medium text-gray-400 truncate">{item.name}</p>
               </div>
-              <div className="ml-16 pb-6 flex items-baseline sm:pb-7">
+              <div className="ml-16 pb-6 sm:pb-7">
                 <p className="text-2xl font-semibold text-white">{item.stat}</p>
+                {item.description && (
+                  <p className="mt-1 text-sm text-gray-400">{item.description}</p>
+                )}
                 <div className="absolute bottom-0 inset-x-0 bg-gray-700 px-4 py-4 sm:px-6">
                   <div className="text-sm">
                     <Link
-                      to={item.name === 'Reports Generated' ? '/reports' : 
-                          item.name === 'Active Scans' ? '/terminal' : 
-                          '/reports'}
+                      to={item.href ?? '/reports'}
                       className="font-medium text-blue-400 hover:text-blue-300 transition-colors"
                     >
                       View all
@@ -695,12 +713,19 @@ export default function Dashboard() {
               </div>
               
               <div>
-                <dt className="text-sm font-medium text-gray-400">Active Scans</dt>
+                <dt className="text-sm font-medium text-gray-400">Running Scans</dt>
                 <dd className="mt-1 text-sm font-medium text-white">
-                  {runningScans.length}
+                  {runningScanCount}
                 </dd>
               </div>
-              
+
+              <div>
+                <dt className="text-sm font-medium text-gray-400">Queued Scans</dt>
+                <dd className="mt-1 text-sm font-medium text-white">
+                  {queuedScanCount}
+                </dd>
+              </div>
+
               <div>
                 <dt className="text-sm font-medium text-gray-400">Total Reports</dt>
                 <dd className="mt-1 text-sm font-medium text-white">
