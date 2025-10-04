@@ -505,7 +505,7 @@ export default function Terminal() {
   return (
     <div className="h-full flex flex-col bg-gray-900">
       {/* Header */}
-      <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
+      <div className="bg-gray-800 border-b border-gray-700 px-4 py-4 sm:px-6">
         <h1 className="text-2xl font-bold text-white flex items-center">
           <PlayIcon className="h-6 w-6 mr-3 text-green-400" />
           SQLMap Terminal
@@ -550,56 +550,56 @@ export default function Terminal() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-end space-x-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
             {!isScanning ? (
               <button
                 onClick={startScan}
                 disabled={!isConnected || !targetUrl.trim()}
-                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="btn-success"
               >
-                <PlayIcon className="h-4 w-4 mr-2" />
+                <PlayIcon className="h-4 w-4" />
                 Start Scan
               </button>
             ) : (
               <button
                 onClick={stopScan}
-                className="flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                className="btn-danger"
               >
-                <StopIcon className="h-4 w-4 mr-2" />
+                <StopIcon className="h-4 w-4" />
                 Stop Scan
               </button>
             )}
             <button
               onClick={restartScan}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-primary"
               disabled={!isConnected || !lastStartedTargetRef.current}
               title={lastStartedTargetRef.current ? `Restart last scan for ${lastStartedTargetRef.current}` : 'Start a scan first to enable restart'}
             >
-              <ArrowPathIcon className="h-4 w-4 mr-2" />
+              <ArrowPathIcon className="h-4 w-4" />
               Restart
             </button>
             
             <button
               onClick={clearTerminal}
-              className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+              className="btn-secondary"
               disabled={isScanning}
             >
-              <ArrowPathIcon className="h-4 w-4 mr-2" />
+              <ArrowPathIcon className="h-4 w-4" />
               Clear
             </button>
             {/* Schedule */}
-            <div className="flex items-center space-x-2 ml-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 sm:ml-4 w-full sm:w-auto">
               <label htmlFor="scheduleAt" className="sr-only">Schedule At</label>
               <input
                 id="scheduleAt"
                 type="datetime-local"
                 value={scheduleAt}
                 onChange={(e)=>setScheduleAt(e.target.value)}
-                className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full sm:w-56 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 aria-label="Schedule At"
               />
-              <button onClick={scheduleScan} className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Schedule</button>
-              <button onClick={refreshJobs} className="px-3 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600">Queue</button>
+              <button onClick={scheduleScan} className="btn-primary">Schedule</button>
+              <button onClick={refreshJobs} className="btn-secondary">Queue</button>
             </div>
           </div>
         </div>
@@ -686,7 +686,7 @@ export default function Terminal() {
         </div>
 
         {/* Queue Panel */}
-        <div className="mt-4 px-6">
+  <div className="mt-4 px-4 sm:px-6">
           <div className="flex items-center justify-between">
             <h2 className="text-white font-semibold">Queue</h2>
             <button onClick={refreshJobs} className="text-sm px-2 py-1 bg-gray-700 text-white rounded">Refresh</button>
@@ -738,7 +738,7 @@ export default function Terminal() {
         </div>
 
         {isAuthenticated && (
-          <div className="mt-4 px-6">
+          <div className="mt-4 px-4 sm:px-6">
             <div className="overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
               <button
                 type="button"
@@ -909,7 +909,7 @@ export default function Terminal() {
       </div>
 
       {/* Status Bar */}
-      <div className="bg-gray-800 border-t border-gray-700 px-6 py-2">
+  <div className="bg-gray-800 border-t border-gray-700 px-4 py-2 sm:px-6">
         <div className="flex justify-between items-center text-sm">
           <div className="flex items-center space-x-4">
             <div className="flex items-center">

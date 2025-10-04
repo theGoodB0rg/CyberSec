@@ -34,7 +34,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const {
     setConnected,
     upsertScanFromEvent,
-    loadRunningScans,
+  loadRunningScans,
+  loadScans,
     loadReports,
     updateScan,
     addReport,
@@ -100,6 +101,14 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       setIsConnected(true)
       setConnected(true)
       toast.success('Connected to server')
+
+      if (isAuthenticated) {
+        Promise.allSettled([
+          loadScans(),
+          loadRunningScans(),
+        ])
+          .catch(() => {})
+      }
     })
 
     socketInstance.on('auth-ok', (data) => {
@@ -154,6 +163,15 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         endTime: new Date().toISOString(),
         exitCode: exitCode ?? undefined,
       })
+
+      if (isAuthenticated) {
+        setTimeout(() => {
+          Promise.allSettled([
+            loadScans(),
+            loadRunningScans(),
+          ]).catch(() => {})
+        }, 750)
+      }
 
       if (status === 'completed') {
         const hasReportId = typeof reportId === 'string' && reportId.length > 0
@@ -330,6 +348,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     addTerminalOutput,
     enqueueReportNotification,
     dismissReportNotification,
+    loadScans,
   ])
 
   const emit = (event: string, data?: any) => {

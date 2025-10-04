@@ -51,7 +51,7 @@ server/dist/
 *.log
 logs/
 server/logs/
-
+issues.md
 # Package manager debug logs
 npm-debug.log*
 yarn-debug.log*
