@@ -92,3 +92,6 @@ coverage/
 
 # Windows temp
 %TEMP%/
+CHANGELOG.md
+ROADMAP.md
+TODO.md
