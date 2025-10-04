@@ -32,18 +32,20 @@ function getToken() {
 }
 
 export async function apiFetch<T = any>(input: string, init: ApiOptions = {}): Promise<T> {
+  const { auth = true, headers: initHeaders, ...rest } = init;
+
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    ...(init.headers || {}),
+    ...(initHeaders || {}),
   };
 
-  const token = getToken();
+  const token = auth ? getToken() : undefined;
   if (token) {
     (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
 
   const url = resolveUrl(input);
-  const res = await fetch(url, { ...init, headers });
+  const res = await fetch(url, { ...rest, headers });
   const contentType = res.headers.get('content-type') || '';
   const isJson = contentType.includes('application/json');
   const body = isJson ? await res.json().catch(() => ({})) : await res.text();
@@ -64,6 +66,22 @@ export async function apiFetch<T = any>(input: string, init: ApiOptions = {}): P
     throw new Error(message || `HTTP ${res.status}`);
   }
   return body as T;
+}
+
+export type ContactRequestPayload = {
+  name: string
+  email: string
+  organisation?: string
+  message: string
+  consent: boolean
+}
+
+export async function submitContactRequest(payload: ContactRequestPayload): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/contact`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    auth: false,
+  })
 }
 
 // Scan Events types and helper

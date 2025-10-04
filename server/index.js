@@ -18,10 +18,12 @@ const createAuthRouter = require('./routes/auth');
 const Logger = require('./utils/logger');
 const ReconEngine = require('./recon');
 const createTargetsRouter = require('./routes/targets');
+const createContactRouter = require('./routes/contact');
 const { verifyFinding } = require('./verifier');
 const QueueRunner = require('./queue');
 const { sanitizeOptionsForStorage, prepareAuthContext } = require('./helpers/scanHelpers');
 const { persistQuickVerifyRawBodies, summarizeRawBodies, remapEvidenceRawKeys } = require('./helpers/evidenceStorage');
+const { createContactMailer } = require('./utils/contactMailer');
 
 const normalizeOrigin = (value) => {
   if (!value) return '';
@@ -234,6 +236,7 @@ const database = new Database(DB_PATH);
 const sqlmapIntegration = new SQLMapIntegration();
 const reportGenerator = new ReportGenerator(database);
 const reconEngine = new ReconEngine();
+const contactMailer = createContactMailer();
 
 // Track running scans and their output directories and ownership
 let scanProcesses = new Map();
@@ -295,6 +298,8 @@ app.get('/api/health', async (req, res) => {
 
   res.status(statusCode).json(response);
 });
+
+app.use('/api/contact', createContactRouter(contactMailer));
 
 
 // Authenticated routes

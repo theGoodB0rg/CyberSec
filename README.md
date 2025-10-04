@@ -25,6 +25,7 @@ A practical, developer-friendly web app for running focused SQL injection assess
 - Modern React + Tailwind UI (Dashboard, Targets, Reports, Report Details, Terminal, Usage, Settings)
 - Dark theme, responsive layout, scan history and details
  - Settings page with collapsible sections: My Defaults, Custom Builder (live server validation), Preconfigured Types, Saved Profiles
+- Landing contact form with consent gating that launches the visitor’s email client by default (SMTP delivery available via optional backend integration)
 
 ### Technical
 - Node/Express + Socket.io backend; SQLite persistence with indices/migrations
@@ -376,6 +377,24 @@ JOB_FETCH_BATCH=10
 JOB_BACKOFF_BASE_SECONDS=10
 JOB_BACKOFF_FACTOR=2.0
 JOB_BACKOFF_MAX_SECONDS=600
+```
+
+#### Contact form email routing
+
+By default the landing page opens a prefilled email in the visitor’s mail client. Configure the following variables if
+you prefer the backend to deliver submissions directly to your inbox. Without SMTP credentials the server will
+continue to log any API-originating requests under `server/logs/contact-submissions.log` for manual follow-up.
+
+```env
+CONTACT_EMAIL_TO=theregalstarlite@gmail.com
+CONTACT_EMAIL_FROM=cybersec-contact@example.com
+CONTACT_SMTP_SERVICE=gmail
+# or specify host/port instead of service
+CONTACT_SMTP_HOST=
+CONTACT_SMTP_PORT=587
+CONTACT_SMTP_SECURE=false
+CONTACT_SMTP_USER=
+CONTACT_SMTP_PASSWORD=
 ```
 
 ### Application Settings

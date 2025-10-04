@@ -4,6 +4,10 @@ import { useAppStore } from '@/store/appStore'
 import toast from 'react-hot-toast'
 import { LandingHero } from '@/components/landing/LandingHero'
 import { MethodologyTimeline } from '@/components/landing/MethodologyTimeline'
+import { LegalDisclaimer } from '@/components/landing/LegalDisclaimer'
+import { LandingFAQ } from '@/components/landing/LandingFAQ'
+import { ResearcherProfileDrawer } from '@/components/landing/ResearcherProfileDrawer'
+import { ContactSection } from '@/components/landing/ContactSection'
 import { AcademicCapIcon, ScaleIcon, BanknotesIcon } from '@heroicons/react/24/outline'
 
 export default function Login() {
@@ -13,6 +17,7 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const authCardRef = useRef<HTMLDivElement | null>(null)
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -69,7 +74,11 @@ export default function Login() {
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-blue-500 via-cyan-400 to-indigo-500" aria-hidden />
         <div className="relative z-10 mx-auto flex max-w-7xl flex-col gap-16 px-4 pt-16 sm:px-6 lg:px-8 lg:pt-20">
           <div className="grid items-start gap-14 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-            <LandingHero onLaunchDemo={scrollToAuthCard} onViewMethodology={scrollToMethodology} />
+            <LandingHero
+              onLaunchDemo={scrollToAuthCard}
+              onViewMethodology={scrollToMethodology}
+              onOpenProfile={() => setProfileOpen(true)}
+            />
             <div
               ref={authCardRef}
               id="auth-card"
@@ -160,7 +169,15 @@ export default function Login() {
         <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-gray-950 via-gray-950/80 to-transparent" aria-hidden />
       </div>
 
+      <LegalDisclaimer />
+
       <MethodologyTimeline />
+
+      <LandingFAQ />
+
+  <ContactSection />
+
+      <ResearcherProfileDrawer open={profileOpen} onClose={() => setProfileOpen(false)} />
 
       <section className="bg-gray-950 pb-20">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
