@@ -16,27 +16,27 @@ interface ResearcherProfileDrawerProps {
 
 const highlights = [
   {
-    label: 'Programmes advised',
-    value: '14 postgraduate cohorts',
+    label: 'Academic background',
+    value: 'MSc Cybersecurity, University of Ibadan',
     icon: AcademicCapIcon,
   },
   {
-    label: 'Ethics approvals guided',
-    value: '22 IRB submissions',
+    label: 'Hands-on workshops',
+    value: 'Community SQLi labs since 2023',
     icon: BuildingLibraryIcon,
   },
   {
-    label: 'Learner impact',
-    value: '180+ supervised researchers',
+    label: 'Mentorship focus',
+    value: 'Peer learning & feedback sessions',
     icon: UsersIcon,
   },
 ]
 
 const focusAreas = [
-  'Offensive security education & lab design',
-  'SQL injection detection & mitigation strategies',
-  'Responsible disclosure process coaching',
-  'Ethics-first penetration testing methodology',
+  'Accessible SQL injection learning for academics and students',
+  'Hands-on lab design with guided mitigation steps',
+  'Collaborative feedback loops with peers and supervisors',
+  'Ethics-first penetration testing for academic pilots',
 ]
 
 export function ResearcherProfileDrawer({ open, onClose }: ResearcherProfileDrawerProps) {
@@ -72,10 +72,10 @@ export function ResearcherProfileDrawer({ open, onClose }: ResearcherProfileDraw
                     <div className="flex items-start justify-between">
                       <div>
                         <Dialog.Title className="text-lg font-semibold text-white">
-                          Dr. O.D Adeniji
+                          Mr. Olorunfemi John
                         </Dialog.Title>
                         <p className="text-sm text-blue-200/90">
-                          Lead Researcher & Programme Architect
+                          CyberSec creator & facilitator · MSc Cybersecurity (University of Ibadan)
                         </p>
                       </div>
                       <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-blue-500/40 bg-blue-500/10 text-blue-200">
@@ -83,8 +83,11 @@ export function ResearcherProfileDrawer({ open, onClose }: ResearcherProfileDraw
                       </span>
                     </div>
                     <p className="mt-4 text-sm text-gray-300">
-                      Dr. Adeniji advises on the academic framing of CyberSec, helping ensure the platform aligns with
-                      postgraduate research expectations and ethical review processes.
+                      Mr. John created CyberSec after teaching SQL injection tutorials and seeing learners struggle to
+                      connect theory with practice. He hasn&apos;t held formal lecturer posts; instead, he draws on his MSc
+                      Cybersecurity experience to shape approachable, hands-on labs that demystify SQLi for fellow
+                      researchers and supervisors—and he&apos;s always open to feedback and collaboration that keep the
+                      journey relevant.
                     </p>
                   </div>
 
@@ -129,16 +132,16 @@ export function ResearcherProfileDrawer({ open, onClose }: ResearcherProfileDraw
                       </h3>
                       <div className="mt-3 space-y-3 text-sm text-gray-300">
                         <p>
-                          • Authored the responsible-use charter and consent checklist embedded in CyberSec&apos;s terminal
-                          workflow.
+                          • Built modular SQLi lab guides that pair offensive steps with defensive fixes, keeping every
+                          exercise simple without losing rigour.
                         </p>
                         <p>
-                          • Facilitated cross-discipline research sprints aligning SQL injection techniques with business
-                          risk narratives.
+                          • Facilitates community workshops and invites continuous feedback to refine each cohort&apos;s
+                          experience and consent workflows.
                         </p>
                         <p>
-                          • Led collaborations with legal teams to streamline IRB submissions for offensive security
-                          coursework.
+                          • Shares living documentation and walkthroughs—books will come later—while collaborating with
+                          universities ready to pilot CyberSec.
                         </p>
                       </div>
                     </section>
