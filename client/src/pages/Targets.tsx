@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ShieldCheckIcon,
   PlusIcon,
@@ -9,7 +9,7 @@ import {
   ClockIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline'
-import { apiFetch } from '@/utils/api'
+import { apiFetch, getSafeHostnames } from '@/utils/api'
 import toast from 'react-hot-toast'
 import { useAppStore } from '@/store/appStore'
 
@@ -26,6 +26,19 @@ type SafeTarget = {
 type RecentTarget = {
   hostname: string
   addedAt: string
+}
+
+type SafeHostConfig = {
+  builtin: string[]
+  additional: string[]
+  all: string[]
+}
+
+const normalizeHostArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(item => String(item || '').trim())
+    .filter(Boolean)
 }
 
 const SAFE_TARGETS: SafeTarget[] = [
@@ -105,16 +118,83 @@ export default function Targets() {
   const [method, setMethod] = useState<'http-file' | 'dns-txt'>('http-file')
   const [showOptionalMirrors, setShowOptionalMirrors] = useState(false)
   const [recentTargets, setRecentTargets] = useState<RecentTarget[]>([])
+  const [safeHostConfig, setSafeHostConfig] = useState<SafeHostConfig>({ builtin: [], additional: [], all: [] })
+  const [safeHostLoading, setSafeHostLoading] = useState(true)
+  const [safeHostError, setSafeHostError] = useState<string | null>(null)
 
   const historyKey = useMemo(
     () => `targetHistory:${currentUser?.id ?? 'anonymous'}`,
     [currentUser?.id]
   )
 
-  const safeTargets = useMemo(
-    () => SAFE_TARGETS.filter(target => showOptionalMirrors || !target.optional),
-    [showOptionalMirrors]
+  const setConfigFromResponse = useCallback((config: Partial<SafeHostConfig> | null | undefined) => {
+    const builtin = normalizeHostArray(config?.builtin)
+    const additional = normalizeHostArray(config?.additional)
+    const providedAll = normalizeHostArray(config?.all)
+    const mergedAll = providedAll.length > 0
+      ? providedAll
+      : Array.from(new Set([...builtin, ...additional]))
+
+    setSafeHostConfig({ builtin, additional, all: mergedAll })
+  }, [])
+
+  const curatedTargets = useMemo(() => {
+    const base = SAFE_TARGETS.filter(target => showOptionalMirrors || !target.optional)
+    if (safeHostConfig.all.length === 0) return base
+    const allowed = new Set(safeHostConfig.all.map(host => host.toLowerCase()))
+    return base.filter(target => allowed.has(target.hostname.toLowerCase()))
+  }, [showOptionalMirrors, safeHostConfig.all])
+
+  const additionalSafeHosts = useMemo(() => {
+    if (safeHostConfig.all.length === 0) return []
+    const curatedHostnames = new Set(SAFE_TARGETS.map(target => target.hostname.toLowerCase()))
+    return safeHostConfig.all.filter(host => !curatedHostnames.has(host.toLowerCase()))
+  }, [safeHostConfig.all])
+
+  const additionalHostSet = useMemo(
+    () => new Set(safeHostConfig.additional.map(host => host.toLowerCase())),
+    [safeHostConfig.additional]
   )
+
+  const refreshSafeHosts = useCallback(async () => {
+    setSafeHostLoading(true)
+    try {
+      const config = await getSafeHostnames()
+      setConfigFromResponse(config)
+      setSafeHostError(null)
+    } catch (error: any) {
+      setSafeHostError(error?.message || 'Unable to fetch safe host list')
+    } finally {
+      setSafeHostLoading(false)
+    }
+  }, [setConfigFromResponse])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const load = async () => {
+      setSafeHostLoading(true)
+      try {
+        const config = await getSafeHostnames()
+        if (cancelled) return
+        setConfigFromResponse(config)
+        setSafeHostError(null)
+      } catch (error: any) {
+        if (cancelled) return
+        setSafeHostError(error?.message || 'Unable to fetch safe host list')
+      } finally {
+        if (!cancelled) {
+          setSafeHostLoading(false)
+        }
+      }
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [setConfigFromResponse])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -159,7 +239,7 @@ export default function Targets() {
     setHostname(targetHostname)
     setMethod('http-file')
     saveHistory(targetHostname)
-    toast.success('Hostname populated from curated demo list')
+    toast.success('Hostname populated from safe host list')
   }
 
   const load = async () => {
@@ -267,52 +347,153 @@ export default function Targets() {
             </div>
 
             <div className="mt-4 space-y-4">
-              {safeTargets.map(target => (
-                <div key={target.hostname} className="border border-gray-700 rounded-lg p-4 bg-gray-900/60">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-white font-medium flex items-center gap-2">
-                        <span>{target.name}</span>
-                        <span className="text-[0.65rem] uppercase tracking-wide bg-gray-800 text-gray-300 px-2 py-0.5 rounded">
-                          {target.focus}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-400 mt-1">{target.description}</p>
-                      <div className="text-xs text-gray-500 mt-2">
-                        Hostname:{' '}
-                        <code className="bg-gray-800 px-1.5 py-0.5 rounded">{target.hostname}</code>
-                      </div>
-                      {target.notes && (
-                        <p className="text-xs text-gray-500 mt-1">{target.notes}</p>
-                      )}
-                      {target.docsUrl && (
-                        <a
-                          href={target.docsUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1 mt-2"
-                        >
-                          Learn more ↗
-                        </a>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                      {target.optional && (
-                        <span className="text-[0.65rem] uppercase tracking-wide text-amber-300 bg-amber-900/30 px-2 py-0.5 rounded">
-                          Optional
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleSelectSafeTarget(target.hostname)}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
-                      >
-                        Use host
-                      </button>
-                    </div>
-                  </div>
+              {safeHostLoading && (
+                <div className="text-sm text-gray-400 bg-gray-900/60 border border-gray-700 rounded-lg p-4">
+                  Loading curated targets…
                 </div>
-              ))}
+              )}
+              {!safeHostLoading && !safeHostError && curatedTargets.length === 0 && (
+                <div className="text-sm text-gray-400 bg-gray-900/60 border border-gray-700 rounded-lg p-4">
+                  No curated targets are currently available for your workspace configuration.
+                </div>
+              )}
+              {!safeHostLoading && !safeHostError && curatedTargets.length > 0 && (
+                <div className="space-y-4">
+                  {curatedTargets.map(target => (
+                    <div key={target.hostname} className="border border-gray-700 rounded-lg p-4 bg-gray-900/60">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-white font-medium flex items-center gap-2">
+                            <span>{target.name}</span>
+                            <span className="text-[0.65rem] uppercase tracking-wide bg-gray-800 text-gray-300 px-2 py-0.5 rounded">
+                              {target.focus}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-400 mt-1">{target.description}</p>
+                          <div className="text-xs text-gray-500 mt-2">
+                            Hostname{' '}
+                            <code className="bg-gray-800 px-1.5 py-0.5 rounded">{target.hostname}</code>
+                          </div>
+                          {target.notes && (
+                            <p className="text-xs text-gray-500 mt-1">{target.notes}</p>
+                          )}
+                          {target.docsUrl && (
+                            <a
+                              href={target.docsUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1 mt-2"
+                            >
+                              Learn more ↗
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          {additionalHostSet.has(target.hostname.toLowerCase()) && (
+                            <span className="text-[0.65rem] uppercase tracking-wide text-emerald-300 bg-emerald-900/30 px-2 py-0.5 rounded">
+                              Workspace Safe Host
+                            </span>
+                          )}
+                          {target.optional && (
+                            <span className="text-[0.65rem] uppercase tracking-wide text-amber-300 bg-amber-900/30 px-2 py-0.5 rounded">
+                              Optional
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleSelectSafeTarget(target.hostname)}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+                          >
+                            Use host
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <ShieldCheckIcon className="w-6 h-6 text-emerald-400" />
+                  Preapproved Safe Hostnames
+                </h2>
+                <p className="text-sm text-gray-400 mt-1">
+                  Combined list of built-in demo targets and any workspace overrides provisioned by your admins.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={refreshSafeHosts}
+                className="text-xs px-3 py-1.5 rounded border border-gray-600 text-gray-200 hover:bg-gray-700 disabled:opacity-50"
+                disabled={safeHostLoading}
+              >
+                {safeHostLoading ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {safeHostError && (
+                <div className="text-sm text-amber-300 bg-amber-900/20 border border-amber-500/40 rounded-lg p-4">
+                  {safeHostError}
+                </div>
+              )}
+
+              {safeHostLoading && (
+                <div className="text-sm text-gray-400 bg-gray-900/60 border border-gray-700 rounded-lg p-4">
+                  Loading safe host list…
+                </div>
+              )}
+
+              {!safeHostLoading && !safeHostError && (
+                <>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-gray-400 mb-2">Built-in training catalog</div>
+                    {safeHostConfig.builtin.length > 0 ? (
+                      <ul className="grid gap-2 sm:grid-cols-2">
+                        {safeHostConfig.builtin.map(host => (
+                          <li key={`builtin-${host}`} className="flex items-center gap-2 text-sm text-gray-200 bg-gray-900/60 border border-gray-800 rounded px-3 py-2">
+                            <CheckCircleIcon className="w-4 h-4 text-blue-400" />
+                            <code className="text-gray-100">{host}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="text-xs text-gray-500 bg-gray-900/60 border border-gray-800 rounded px-3 py-2">
+                        No built-in hosts are currently enabled.
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-gray-400 mb-2">Workspace safe hosts</div>
+                    {additionalSafeHosts.length > 0 ? (
+                      <ul className="grid gap-2 sm:grid-cols-2">
+                        {additionalSafeHosts.map(host => (
+                          <li key={`workspace-${host}`} className="flex items-center gap-2 text-sm text-gray-200 bg-emerald-900/20 border border-emerald-700/50 rounded px-3 py-2">
+                            <SparklesIcon className="w-4 h-4 text-emerald-300" />
+                            <code className="text-gray-100">{host}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="text-xs text-gray-500 bg-gray-900/60 border border-gray-800 rounded px-3 py-2">
+                        No workspace-specific hosts have been configured yet.
+                      </div>
+                    )}
+                  </div>
+
+                  {safeHostConfig.all.length > 0 && (
+                    <div className="text-xs text-gray-500">
+                      Total safe hosts: {safeHostConfig.all.length}. Workspace overrides appear with the green accent.
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
 

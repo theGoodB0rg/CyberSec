@@ -24,6 +24,12 @@ const QueueRunner = require('./queue');
 const { sanitizeOptionsForStorage, prepareAuthContext } = require('./helpers/scanHelpers');
 const { persistQuickVerifyRawBodies, summarizeRawBodies, remapEvidenceRawKeys } = require('./helpers/evidenceStorage');
 const { createContactMailer } = require('./utils/contactMailer');
+const {
+  isSafeTargetHostname,
+  getAdditionalSafeHostnames,
+  getAllSafeHostnames,
+  DEMO_HOSTNAMES
+} = require('./utils/demoTargets');
 
 const normalizeOrigin = (value) => {
   if (!value) return '';
@@ -38,6 +44,15 @@ const normalizeOrigin = (value) => {
 };
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const extractHostname = (target) => {
+  if (!target) return null;
+  try {
+    return new URL(target).hostname.toLowerCase();
+  } catch (_) {
+    return null;
+  }
+};
 
 const buildOriginPolicy = () => {
   const raw = process.env.ALLOWED_ORIGINS || '';
@@ -238,6 +253,34 @@ const reportGenerator = new ReportGenerator(database);
 const reconEngine = new ReconEngine();
 const contactMailer = createContactMailer();
 
+const logSafeHostUsage = async ({ userId, orgId = null, hostname, target, via, email }) => {
+  try {
+    const actor = email || (userId ? `user:${userId}` : 'unknown-user');
+    Logger.audit('safe-host-used', actor, hostname, {
+      via,
+      target,
+      orgId
+    });
+  } catch (error) {
+    Logger.debug('Safe host audit logging failed', { error: error.message, hostname, via });
+  }
+
+  try {
+    await database.logTelemetry({
+      user_id: userId || null,
+      event_type: 'safe-host-used',
+      metadata: {
+        hostname,
+        target,
+        via,
+        orgId: orgId || null
+      }
+    });
+  } catch (error) {
+    Logger.debug('Safe host telemetry logging failed', { error: error.message, hostname, via });
+  }
+};
+
 // Track running scans and their output directories and ownership
 let scanProcesses = new Map();
 let queueRunner = null;
@@ -305,6 +348,18 @@ app.use('/api/contact', createContactRouter(contactMailer, database));
 // Authenticated routes
 app.use('/api', AuthMiddleware.requireAuth);
 
+app.get('/api/config/safe-hosts', (req, res) => {
+  try {
+    const builtin = [...DEMO_HOSTNAMES];
+    const additional = getAdditionalSafeHostnames();
+    const all = getAllSafeHostnames();
+    res.json({ builtin, additional, all });
+  } catch (error) {
+    Logger.error('Failed to fetch safe hosts', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch safe hosts' });
+  }
+});
+
 // Lightweight telemetry ingestion (privacy-respecting): page visits etc.
 app.post('/api/telemetry/visit', telemetryLimiter, async (req, res) => {
   try {
@@ -339,15 +394,26 @@ app.post('/api/scans/schedule', async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
     if (!allowUnverified && !isAdmin) {
-      try {
-        const hostname = new URL(target).hostname;
+      const hostname = extractHostname(target);
+      if (!hostname) {
+        return res.status(400).json({ error: 'Unable to parse target hostname for verification.' });
+      }
+      const safeHost = isSafeTargetHostname(hostname);
+      if (!safeHost) {
         const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
         if (!verified) {
           Logger.suspiciousActivity('unverified-target-schedule', { userId, orgId, hostname, target });
           return res.status(403).json({ error: `Target ${hostname} is not verified for your account. Verify ownership before scheduling.` });
         }
-      } catch (e) {
-        return res.status(400).json({ error: 'Unable to parse target hostname for verification.' });
+      } else {
+        logSafeHostUsage({
+          userId,
+          orgId,
+          hostname,
+          target,
+          via: 'api:scans:schedule',
+          email: req.user.email
+        }).catch(() => {});
       }
     }
 
@@ -657,15 +723,26 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
       // Require verified target unless explicitly allowed
       const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
       if (!allowUnverified && !isAdmin) {
-        try {
-          const hostname = new URL(target).hostname;
+        const hostname = extractHostname(target);
+        if (!hostname) {
+          return res.status(400).json({ error: 'Unable to parse target hostname for verification.' });
+        }
+        const safeHost = isSafeTargetHostname(hostname);
+        if (!safeHost) {
           const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
           if (!verified) {
             Logger.suspiciousActivity('unverified-target', { userId, orgId, hostname, target });
             return res.status(403).json({ error: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
           }
-        } catch (e) {
-          return res.status(400).json({ error: 'Unable to parse target hostname for verification.' });
+        } else {
+          logSafeHostUsage({
+            userId,
+            orgId,
+            hostname,
+            target,
+            via: 'api:scans:start',
+            email: req.user.email
+          }).catch(() => {});
         }
       }
 
@@ -1945,8 +2022,14 @@ io.on('connection', (socket) => {
       // Require verified target unless explicitly allowed
       const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
       if (!allowUnverified && !isAdmin) {
-        try {
-          const hostname = new URL(target).hostname;
+        const hostname = extractHostname(target);
+        if (!hostname) {
+          socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
+          releaseLock();
+          return;
+        }
+        const safeHost = isSafeTargetHostname(hostname);
+        if (!safeHost) {
           const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
           if (!verified) {
             // Log security event for visibility/audit
@@ -1955,10 +2038,15 @@ io.on('connection', (socket) => {
             releaseLock();
             return;
           }
-        } catch (e) {
-          socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
-          releaseLock();
-          return;
+        } else {
+          logSafeHostUsage({
+            userId,
+            orgId,
+            hostname,
+            target,
+            via: 'ws:scans:start',
+            email: socket.user?.email
+          }).catch(() => {});
         }
       }
 
@@ -2248,17 +2336,28 @@ io.on('connection', (socket) => {
         // Verified target policy unless explicitly allowed
         const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
         if (!allowUnverified && !isAdmin) {
-          try {
-            const hostname = new URL(target).hostname;
+          const hostname = extractHostname(target);
+          if (!hostname) {
+            socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
+            return;
+          }
+          const safeHost = isSafeTargetHostname(hostname);
+          if (!safeHost) {
             const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
             if (!verified) {
               Logger.suspiciousActivity('unverified-target-restart', { userId, orgId, hostname, target });
               socket.emit('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
               return;
             }
-          } catch (e) {
-            socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
-            return;
+          } else {
+            logSafeHostUsage({
+              userId,
+              orgId,
+              hostname,
+              target,
+              via: 'ws:scans:restart',
+              email: socket.user?.email
+            }).catch(() => {});
           }
         }
 

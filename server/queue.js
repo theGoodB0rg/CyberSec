@@ -3,6 +3,16 @@ const Logger = require('./utils/logger');
 const SQLMapIntegration = require('./sqlmap');
 const ReportGenerator = require('./reports');
 const { sanitizeOptionsForStorage, prepareAuthContext } = require('./helpers/scanHelpers');
+const { isSafeTargetHostname } = require('./utils/demoTargets');
+
+const extractHostname = (target) => {
+  if (!target) return null;
+  try {
+    return new URL(target).hostname.toLowerCase();
+  } catch (_) {
+    return null;
+  }
+};
 
 class QueueRunner {
   constructor({ database, io, scanProcessesRef, sqlmap, reportGenerator }) {
@@ -17,6 +27,35 @@ class QueueRunner {
   this.timer = null;
   this.running = false;
   this.pollIntervalMs = Math.max(1000, parseInt(process.env.JOB_POLL_INTERVAL_MS || '3000', 10));
+  }
+
+  async logSafeHostUsage({ userId, orgId = null, hostname, target, jobId }) {
+    try {
+      Logger.audit('safe-host-used', userId ? `user:${userId}` : 'unknown-user', hostname, {
+        via: 'queue:scans:start',
+        target,
+        orgId,
+        jobId
+      });
+    } catch (error) {
+      Logger.debug('Queue safe host audit logging failed', { error: error.message, hostname, jobId });
+    }
+
+    try {
+      await this.db.logTelemetry({
+        user_id: userId,
+        event_type: 'safe-host-used',
+        metadata: {
+          hostname,
+          target,
+          via: 'queue:scans:start',
+          orgId,
+          jobId
+        }
+      });
+    } catch (error) {
+      Logger.debug('Queue safe host telemetry logging failed', { error: error.message, hostname, jobId });
+    }
   }
 
   // Count active running scans for a given user (from shared map)
@@ -78,11 +117,20 @@ class QueueRunner {
             const allowUnverified = ['true','1','yes','on'].includes(String(process.env.ALLOW_UNVERIFIED_TARGETS).toLowerCase());
             const adminSkip = created_by_admin ? true : false;
             if (!allowUnverified && !adminSkip) {
-              const hostname = new URL(target).hostname;
-              const verified = await this.db.getVerifiedTargetForUser(hostname, userId, orgId, false);
-              if (!verified) {
-                await this.db.markJobFailed(jobId, `Target ${hostname} not verified (queue)`);
+              const hostname = extractHostname(target);
+              if (!hostname) {
+                await this.db.markJobFailed(jobId, 'Unable to parse target hostname for verification (queue)');
                 continue;
+              }
+              const safeHost = isSafeTargetHostname(hostname);
+              if (!safeHost) {
+                const verified = await this.db.getVerifiedTargetForUser(hostname, userId, orgId, false);
+                if (!verified) {
+                  await this.db.markJobFailed(jobId, `Target ${hostname} not verified (queue)`);
+                  continue;
+                }
+              } else {
+                this.logSafeHostUsage({ userId, orgId, hostname, target, jobId }).catch(() => {});
               }
             }
           } catch (_) {}

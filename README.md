@@ -16,7 +16,8 @@ A practical, developer-friendly web app for running focused SQL injection assess
 
 ### Security & Multi‑Tenancy
 - JWT auth (REST + Socket.io) with per‑user/org scoping
-- Target ownership verification (HTTP file or DNS TXT) enforced by default
+- Target ownership verification (HTTP file or DNS TXT) enforced by default, with built-in safe demo hosts (e.g. `testphp.vulnweb.com`) and optional `SAFE_PUBLIC_TARGETS` overrides for training environments
+- Safe demo hosts such as `testphp.vulnweb.com` remain usable by every account, and you can extend the shared list with `SAFE_PUBLIC_TARGETS`
 - Rate limiting, input validation/sanitization, and command whitelisting
 - Per‑user concurrency caps and monthly scan quotas
 - Audit/event logs for scan lifecycle and security events

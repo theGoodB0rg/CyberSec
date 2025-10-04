@@ -353,6 +353,16 @@ export async function updateUserScanSettings(payload: Partial<Pick<UserScanSetti
   return apiFetch<UserScanSettings>(`/api/user/scan-settings`, { method: 'PUT', body: JSON.stringify(payload) })
 }
 
+export type SafeHostConfigResponse = {
+  builtin: string[]
+  additional: string[]
+  all: string[]
+}
+
+export async function getSafeHostnames(): Promise<SafeHostConfigResponse> {
+  return apiFetch<SafeHostConfigResponse>(`/api/config/safe-hosts`)
+}
+
 export type ServerProfile = { key: string, name: string, description: string, flags: string[] }
 export async function getServerSqlmapProfiles(): Promise<ServerProfile[]> {
   return apiFetch<ServerProfile[]>(`/api/sqlmap/profiles`)
