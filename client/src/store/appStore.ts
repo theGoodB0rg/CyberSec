@@ -527,8 +527,12 @@ export const useAppStore = create<AppStore>()(
         },
 
         addTerminalOutput: (output) => {
+          const MAX_BUFFER = 50000
           set((state) => {
             state.terminalOutput += output
+            if (state.terminalOutput.length > MAX_BUFFER) {
+              state.terminalOutput = state.terminalOutput.slice(-MAX_BUFFER)
+            }
           })
         },
 

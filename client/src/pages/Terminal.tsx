@@ -44,7 +44,7 @@ type BaseFlagResponse = {
 export default function Terminal() {
   const terminalRef = useRef<HTMLDivElement>(null)
   const location = useLocation()
-  const { clearTerminalOutput } = useAppStore()
+  const clearTerminalOutput = useAppStore(s => s.clearTerminalOutput)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   
@@ -81,6 +81,8 @@ export default function Terminal() {
   
   const { on, off, startScan: sendStartScan, terminateScan, restartScan: emitRestart } = useScanSocket()
   const { addScan, updateScan, isConnected, upsertScanFromEvent } = useAppStore()
+  const addTerminalOutput = useAppStore(s => s.addTerminalOutput)
+  const terminalOutput = useAppStore(s => s.terminalOutput)
   const scans = useAppStore(s => s.scans)
   const activeTerminalSession = useAppStore(s => s.activeTerminalSession)
 
@@ -90,6 +92,7 @@ export default function Terminal() {
   const lastStartedProfileRef = useRef<string>('basic')
   const lastScanIdRef = useRef<string>('')
   const pendingScanRef = useRef(false)
+  const renderedLengthRef = useRef(0)
 
   useEffect(() => {
     const container = terminalRef.current
@@ -114,25 +117,24 @@ export default function Terminal() {
       term.loadAddon(fitAddon)
       xtermRef.current = term
       fitAddonRef.current = fitAddon
+    } else if (!fitAddon) {
+      fitAddon = new FitAddon()
+      term.loadAddon(fitAddon)
+      fitAddonRef.current = fitAddon
+    }
 
-      term.open(container)
-      setTimeout(() => {
-        fitAddon?.fit()
-      }, 1)
+    container.innerHTML = ''
+    term.open(container)
+    term.clear()
+    renderedLengthRef.current = 0
 
-      term.write('Welcome to the CyberSec SQLMap Terminal!\r\n')
-      term.write('Use the form above to start a scan.\r\n')
-    } else {
-      if (!fitAddon) {
-        fitAddon = new FitAddon()
-        term.loadAddon(fitAddon)
-        fitAddonRef.current = fitAddon
-      }
-      container.innerHTML = ''
-      term.open(container)
-      setTimeout(() => {
-        fitAddonRef.current?.fit()
-      }, 1)
+    setTimeout(() => {
+      fitAddonRef.current?.fit()
+    }, 1)
+
+    if (!useAppStore.getState().terminalOutput) {
+      addTerminalOutput('Welcome to the CyberSec SQLMap Terminal!\n')
+      addTerminalOutput('Use the form above to start a scan.\n')
     }
 
     const handleResize = () => {
@@ -144,7 +146,7 @@ export default function Terminal() {
     return () => {
       window.removeEventListener('resize', handleResize)
     }
-  }, [])
+  }, [addTerminalOutput])
 
   useEffect(() => {
     const activeScan = activeTerminalSession
@@ -170,6 +172,22 @@ export default function Terminal() {
       setIsScanning(false)
     }
   }, [scans, activeTerminalSession, isScanning, targetUrl])
+
+  useEffect(() => {
+    const term = xtermRef.current
+    if (!term) return
+
+    if (terminalOutput.length < renderedLengthRef.current) {
+      term.clear()
+      renderedLengthRef.current = 0
+    }
+
+    const nextChunk = terminalOutput.slice(renderedLengthRef.current)
+    if (nextChunk) {
+      term.write(nextChunk.replace(/\n/g, '\r\n'))
+      renderedLengthRef.current = terminalOutput.length
+    }
+  }, [terminalOutput])
 
   // On mount, preload user's last used or default profile
   useEffect(() => {
@@ -233,15 +251,19 @@ export default function Terminal() {
   useEffect(() => {
     if (!on) return
 
-    const handleScanOutput = (data: { scanId: string; output: string }) => {
-      if (xtermRef.current) {
-        xtermRef.current.write(data.output.replace(/\\n/g, '\\r\\n'))
-      }
-    }
-
-    const handleScanStarted = (data: { scanId: string }) => {
+    const handleScanStarted = (data: { scanId: string; target?: string }) => {
+      const wasPending = pendingScanRef.current
       lastScanIdRef.current = data.scanId
+      if (data.target) {
+        lastStartedTargetRef.current = data.target
+      }
       pendingScanRef.current = false
+      if (!wasPending) {
+        const bannerTarget = data.target || lastStartedTargetRef.current || data.scanId
+        addTerminalOutput('\n')
+        addTerminalOutput(`\x1b[1;36m→ Scan started for: ${bannerTarget}\x1b[0m\n`)
+        addTerminalOutput('\n')
+      }
       setIsScanning(true)
       const now = new Date().toISOString()
       addScan({
@@ -262,18 +284,16 @@ export default function Terminal() {
     pendingScanRef.current = false
       setIsScanning(false)
 
-      if (xtermRef.current) {
-        xtermRef.current.writeln('')
-        if (data.status === 'failed') {
-          xtermRef.current.writeln('\x1b[1;31m✗ Scan finished with a failure status. Review the report or logs for details.\x1b[0m')
-        } else {
-          xtermRef.current.writeln('\x1b[1;32m✓ Scan completed successfully!\x1b[0m')
-        }
-        if (data.reportId) {
-          xtermRef.current.writeln(`\x1b[36mReport ID: ${data.reportId}\x1b[0m`)
-        }
-        xtermRef.current.writeln('')
+      addTerminalOutput('\n')
+      if (data.status === 'failed') {
+        addTerminalOutput('\x1b[1;31m✗ Scan finished with a failure status. Review the report or logs for details.\x1b[0m\n')
+      } else {
+        addTerminalOutput('\x1b[1;32m✓ Scan completed successfully!\x1b[0m\n')
       }
+      if (data.reportId) {
+        addTerminalOutput(`\x1b[36mReport ID: ${data.reportId}\x1b[0m\n`)
+      }
+      addTerminalOutput('\n')
 
       if (data.scanId) {
         updateScan(data.scanId, { status: (data.status as any) || 'completed' })
@@ -285,11 +305,9 @@ export default function Terminal() {
       setIsScanning(false)
 
       const msg = (data?.message || data?.error || 'Unknown error').toString()
-      if (xtermRef.current) {
-        xtermRef.current.writeln('')
-        xtermRef.current.writeln(`\\x1b[1;31m✗ Scan failed: ${msg}\\x1b[0m`)
-        xtermRef.current.writeln('')
-      }
+      addTerminalOutput('\n')
+      addTerminalOutput(`\x1b[1;31m✗ Scan failed: ${msg}\x1b[0m\n`)
+      addTerminalOutput('\n')
 
       if (data?.scanId) {
         updateScan(data.scanId, { status: 'failed', error: msg })
@@ -307,18 +325,15 @@ export default function Terminal() {
       }
     }
 
-    on('scan-output', handleScanOutput)
     on('scan-started', handleScanStarted)
     on('scan-completed', handleScanComplete)
     on('scan-error', handleScanError)
     on('scan-terminated', () => {
       pendingScanRef.current = false
       setIsScanning(false)
-      if (xtermRef.current) {
-        xtermRef.current.writeln('')
-        xtermRef.current.writeln('\x1b[1;33m! Scan was terminated by user or server\x1b[0m')
-        xtermRef.current.writeln('')
-      }
+      addTerminalOutput('\n')
+      addTerminalOutput('\x1b[1;33m! Scan was terminated by user or server\x1b[0m\n')
+      addTerminalOutput('\n')
       toast('Scan terminated', { icon: '🛑' })
     })
 
@@ -338,11 +353,9 @@ export default function Terminal() {
           pendingScanRef.current = false
           setIsScanning(true)
           const count = running.length
-          if (xtermRef.current) {
-            xtermRef.current.writeln('')
-            xtermRef.current.writeln(`\\x1b[1;36m↻ Restored ${count} running scan${count > 1 ? 's' : ''} after reconnect\\x1b[0m`)
-            xtermRef.current.writeln('')
-          }
+          addTerminalOutput('\n')
+          addTerminalOutput(`\x1b[1;36m↻ Restored ${count} running scan${count > 1 ? 's' : ''} after reconnect\x1b[0m\n`)
+          addTerminalOutput('\n')
           toast(`Restored ${count} running scan${count > 1 ? 's' : ''}`, { icon: '🔄' })
         }
       } catch (e) {
@@ -351,7 +364,6 @@ export default function Terminal() {
     })
 
     return () => {
-    off('scan-output', handleScanOutput)
     off('scan-started', handleScanStarted)
     off('scan-completed', handleScanComplete)
     off('scan-error', handleScanError)
@@ -411,11 +423,9 @@ export default function Terminal() {
       lastStartedTargetRef.current = targetUrl.trim()
       lastStartedProfileRef.current = selectedProfile
       lastStartedOptionsRef.current = scanOptions
-      if (xtermRef.current) {
-        xtermRef.current.writeln('')
-        xtermRef.current.writeln(`\\x1b[1;36m→ Starting ${selectedProfile} scan for: ${targetUrl}\\x1b[0m`)
-        xtermRef.current.writeln('')
-      }
+      addTerminalOutput('\n')
+      addTerminalOutput(`\x1b[1;36m→ Starting ${selectedProfile} scan for: ${targetUrl}\x1b[0m\n`)
+      addTerminalOutput('\n')
 
       // Emit scan start event via socket
       sendStartScan(targetUrl, scanOptions, selectedProfile)
@@ -498,19 +508,15 @@ export default function Terminal() {
     // If a scan is currently running, send terminate first
     if (isScanning) {
       terminateScan(lastScanIdRef.current)
-      if (xtermRef.current) {
-        xtermRef.current.writeln('')
-        xtermRef.current.writeln('\x1b[1;33m! Terminating current scan before restart...\x1b[0m')
-      }
+      addTerminalOutput('\n')
+      addTerminalOutput('\x1b[1;33m! Terminating current scan before restart...\x1b[0m\n')
       // Small delay to allow server to process termination
       setTimeout(() => {
         pendingScanRef.current = true
         setIsScanning(true)
-        if (xtermRef.current) {
-          xtermRef.current.writeln('')
-          xtermRef.current.writeln(`\x1b[1;36m↻ Restarting ${lastProfile} scan for: ${lastTarget}\x1b[0m`)
-          xtermRef.current.writeln('')
-        }
+        addTerminalOutput('\n')
+        addTerminalOutput(`\x1b[1;36m↻ Restarting ${lastProfile} scan for: ${lastTarget}\x1b[0m\n`)
+        addTerminalOutput('\n')
         sendStartScan(lastTarget, lastOptions, lastProfile)
       }, 600)
       return
@@ -519,11 +525,9 @@ export default function Terminal() {
     // No active scan; just start again with last params
     pendingScanRef.current = true
     setIsScanning(true)
-    if (xtermRef.current) {
-      xtermRef.current.writeln('')
-      xtermRef.current.writeln(`\x1b[1;36m↻ Restarting ${lastProfile} scan for: ${lastTarget}\x1b[0m`)
-      xtermRef.current.writeln('')
-    }
+    addTerminalOutput('\n')
+    addTerminalOutput(`\x1b[1;36m↻ Restarting ${lastProfile} scan for: ${lastTarget}\x1b[0m\n`)
+    addTerminalOutput('\n')
     // Prefer server-side restart endpoint if we had a prior scanId
     if (lastScanIdRef.current) {
       emitRestart(lastScanIdRef.current, { target: lastTarget, options: lastOptions, scanProfile: lastProfile })
@@ -550,9 +554,10 @@ export default function Terminal() {
   const clearTerminal = () => {
     if (xtermRef.current) {
       xtermRef.current.clear()
-      xtermRef.current.writeln('\x1b[90m[terminal cleared]\x1b[0m')
     }
     clearTerminalOutput()
+    renderedLengthRef.current = 0
+    addTerminalOutput('\x1b[90m[terminal cleared]\x1b[0m\n')
   }
 
   return (
