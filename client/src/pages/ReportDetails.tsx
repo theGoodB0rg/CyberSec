@@ -129,7 +129,7 @@ const getSeverityStyles = (severity?: string): SeverityVisualStyle => {
   return SEVERITY_STYLE_MAP[key] || DEFAULT_SEVERITY_STYLE;
 };
 
-const VERDICT_OUTCOME_STYLES: Record<ScanVerdictOutcome, { label: string; card: string; badge: string; icon: React.ComponentType<{ className?: string; size?: number }>; description: string }> = {
+const VERDICT_OUTCOME_STYLES: Record<ScanVerdictOutcome, { label: string; card: string; badge: string; icon: React.ComponentType<{ className?: string; size?: string | number }>; description: string }> = {
   vulnerable: {
     label: 'Vulnerable',
     card: 'border border-red-800/70 bg-gradient-to-br from-red-950 via-red-900 to-red-800 text-red-100',
@@ -205,12 +205,7 @@ const formatTimelineLabel = (event: { type?: string; detail?: string; parameter?
   return parts.join(' · ');
 };
 
-const formatConfidence = (value: number): string => {
-  if (!Number.isFinite(value)) return '';
-  if (value <= 1) return `${Math.round(value * 100)}%`;
-  if (value <= 100) return `${value.toFixed(1)}%`;
-  return value.toFixed(1);
-};
+
 
 const slugifyForFilename = (raw: string | null | undefined, fallback: string): string => {
   if (typeof raw === 'string') {
@@ -1371,7 +1366,7 @@ export default function ReportDetails() {
                   </h3>
                   {Array.isArray(verdictMeta.parameters) && verdictMeta.parameters.length > 0 ? (
                     <div className="space-y-4">
-                      {verdictMeta.parameters.map((param, index) => {
+                      {verdictMeta.parameters.map((param: any, index: number) => {
                         const finalStatusKey = typeof param.finalStatus === 'string' ? param.finalStatus.toLowerCase() : 'unknown';
                         const badgeClass = PARAM_STATUS_STYLES[finalStatusKey] ?? PARAM_STATUS_STYLES.unknown;
                         const statusLabel = typeof param.finalStatus === 'string'
@@ -1406,7 +1401,7 @@ export default function ReportDetails() {
                             )}
                             {Array.isArray(param.techniques) && param.techniques.length > 0 && (
                               <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-wide text-blue-200">
-                                {param.techniques.slice(0, 6).map((tech, idx) => (
+                                {param.techniques.slice(0, 6).map((tech: string, idx: number) => (
                                   <span key={`${parameterKey}-tech-${idx}`} className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2 py-1">
                                     {tech}
                                   </span>
@@ -1420,7 +1415,7 @@ export default function ReportDetails() {
                               <div className="mt-3">
                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Payloads</h4>
                                 <ul className="mt-1 space-y-1 text-xs font-mono text-gray-300">
-                                  {param.payloads.slice(0, 3).map((payload, idx) => (
+                                  {param.payloads.slice(0, 3).map((payload: string, idx: number) => (
                                     <li key={`${parameterKey}-payload-${idx}`} className="break-all">{payload}</li>
                                   ))}
                                   {param.payloads.length > 3 && (
@@ -1431,7 +1426,7 @@ export default function ReportDetails() {
                             )}
                             {Array.isArray(param.statuses) && param.statuses.length > 0 && (
                               <ul className="mt-3 space-y-2 text-xs text-gray-300">
-                                {param.statuses.map((status, idx) => (
+                                {param.statuses.map((status: any, idx: number) => (
                                   <li key={`${parameterKey}-status-${idx}`} className="rounded border border-gray-700/60 bg-black/20 p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                       <span className="font-semibold text-white">{status.status || 'Status update'}</span>
@@ -1449,7 +1444,7 @@ export default function ReportDetails() {
                             )}
                             {Array.isArray(param.notes) && param.notes.length > 0 && (
                               <ul className="mt-3 space-y-1 text-xs text-gray-400">
-                                {param.notes.map((note, idx) => (
+                                {param.notes.map((note: string, idx: number) => (
                                   <li key={`${parameterKey}-note-${idx}`} className="flex gap-2">
                                     <span className="text-gray-600">•</span>
                                     <span>{note}</span>
@@ -1472,7 +1467,7 @@ export default function ReportDetails() {
                   </h3>
                   {Array.isArray(verdictMeta.timeline) && verdictMeta.timeline.length > 0 ? (
                     <ol className="space-y-3 text-sm text-gray-200">
-                      {verdictMeta.timeline.map((event, idx) => (
+                      {verdictMeta.timeline.map((event: any, idx: number) => (
                         <li key={`${event.type || 'event'}-${idx}`} className="rounded border border-gray-700/60 bg-black/20 p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span>{formatTimelineLabel(event)}</span>
