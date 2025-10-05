@@ -8,6 +8,10 @@ const killTree = require('tree-kill');
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_REGEX = /\u001b\[[0-9;]*m/g;
+const LEADING_DELIMITER_REGEX = /^(?:\[[^\]]+\]|\([^)]+\)|<[^>]+>)\s*/g;
+
 const BASE_FLAG_DISPLAY = [
   {
     flag: '--batch',
@@ -706,6 +710,7 @@ class SQLMapIntegration {
       databases: [],
       tables: [],
       vulnerabilities: [],
+      analysis: this.createEmptyAnalysis(sessionId),
       files: {
         session: path.join(outputDir, 'session.sqlite'),
         traffic: path.join(outputDir, 'traffic.log'),
@@ -746,6 +751,14 @@ class SQLMapIntegration {
         const csvData = fs.readFileSync(resultsFile, 'utf8');
         results.csvData = csvData;
         results.files.results = resultsFile;
+        try {
+          const parsedCsv = this.parseResultsCsv(csvData);
+          if (Array.isArray(parsedCsv) && parsedCsv.length > 0) {
+            this.integrateCsvAnalysis(results.analysis, parsedCsv);
+          }
+        } catch (csvError) {
+          Logger.warn('Failed to parse SQLMap CSV results', csvError?.message || csvError);
+        }
       }
 
       // Find and catalog dump files
@@ -774,9 +787,13 @@ class SQLMapIntegration {
         if (fs.existsSync(logFile)) {
           try {
             const logContent = fs.readFileSync(logFile, 'utf8');
-            // Parse SQLMap log for findings
-            const findings = this.parseLogFile(logContent);
-            results.findings.push(...findings);
+            const parsedLog = this.parseLogFile(logContent, sessionId);
+            if (parsedLog?.findings?.length) {
+              results.findings.push(...parsedLog.findings);
+            }
+            if (parsedLog?.analysis) {
+              this.mergeAnalyses(results.analysis, parsedLog.analysis);
+            }
           } catch (error) {
             Logger.error(`Error parsing log file: ${error.message}`);
           }
@@ -799,65 +816,598 @@ class SQLMapIntegration {
       Logger.error(`Error parsing SQLMap results: ${error.message}`);
     }
 
+    try {
+      this.finalizeAnalysis(results.analysis);
+    } catch (analysisError) {
+      Logger.warn('Failed to finalize SQLMap analysis', analysisError?.message || analysisError);
+    }
+
     return results;
   }
 
-  parseLogFile(logContent) {
-    const findings = [];
-    const lines = logContent.split('\n');
+  createEmptyAnalysis(sessionId = null) {
+    const analysis = {
+      sessionId,
+      generatedAt: new Date().toISOString(),
+      parameters: [],
+      heuristics: {
+        flaggedParameters: [],
+        dismissedParameters: []
+      },
+      timeline: [],
+      summary: {
+        outcome: 'unknown',
+        reason: null,
+        rawVerdictLine: null,
+        evidenceCount: 0
+      },
+      stats: {
+        confirmed: 0,
+        suspected: 0,
+        dismissed: 0,
+        totalTested: 0
+      }
+    };
 
-    for (const line of lines) {
-      // Parse vulnerability findings for patterns like "Parameter: foo" or "POST parameter 'foo' is vulnerable"
-      if ((line.includes('Parameter:') && line.toLowerCase().includes('is vulnerable')) || /\b(?:get|post)\s+parameter\s+(['"]) [^'"]+ \1\s+is\s+vulnerable/iu.test(line)) {
+    Object.defineProperty(analysis, '_paramIndex', {
+      enumerable: false,
+      configurable: true,
+      value: new Map()
+    });
+
+    return analysis;
+  }
+
+  ensureParameterEntry(analysis, name = 'unknown', place = 'unknown') {
+    const normalizedName = String(name || 'unknown').trim() || 'unknown';
+    const normalizedPlace = this.normalizeParameterPlace(place);
+    const key = `${normalizedPlace}::${normalizedName.toLowerCase()}`;
+    const paramIndex = analysis?._paramIndex;
+
+    if (!paramIndex.has(key)) {
+      paramIndex.set(key, {
+        name: normalizedName,
+        place: normalizedPlace,
+        finalStatus: 'unknown',
+        statuses: [],
+        techniques: [],
+        payloads: [],
+        confidence: null,
+        heuristics: {
+          flagged: false,
+          dismissed: false
+        },
+        notes: []
+      });
+      analysis.parameters.push(paramIndex.get(key));
+    } else {
+      const existing = paramIndex.get(key);
+      if (normalizedPlace !== 'unknown' && existing.place === 'unknown') {
+        existing.place = normalizedPlace;
+      }
+      if (normalizedName !== 'unknown' && existing.name === 'unknown') {
+        existing.name = normalizedName;
+      }
+    }
+
+    return paramIndex.get(key);
+  }
+
+  addTimelineEvent(analysis, event) {
+    if (!analysis || !event) return;
+    const cloned = {
+      ...event,
+      at: event.at || null
+    };
+    analysis.timeline.push(cloned);
+  }
+
+  setParameterStatus(parameterEntry, status, detail, at, meta = {}) {
+    if (!parameterEntry) return;
+    const resolvedStatus = this.resolveStatus(parameterEntry.finalStatus, status);
+    if (resolvedStatus !== parameterEntry.finalStatus) {
+      parameterEntry.finalStatus = resolvedStatus;
+    }
+    parameterEntry.statuses.push({
+      status,
+      detail,
+      at: at || null,
+      ...meta
+    });
+  }
+
+  addTechnique(parameterEntry, technique) {
+    if (!parameterEntry || !technique) return;
+    if (!parameterEntry.techniques.includes(technique)) {
+      parameterEntry.techniques.push(technique);
+    }
+  }
+
+  addPayload(parameterEntry, payload) {
+    if (!parameterEntry || !payload) return;
+    if (!parameterEntry.payloads.includes(payload)) {
+      parameterEntry.payloads.push(payload);
+    }
+  }
+
+  resolveStatus(existingStatus = 'unknown', incomingStatus = 'unknown') {
+    const weight = {
+      confirmed: 5,
+      dismissed: 4,
+      suspected: 3,
+      testing: 2,
+      unknown: 1
+    };
+    const currentWeight = weight[existingStatus] ?? 0;
+    const incomingWeight = weight[incomingStatus] ?? 0;
+    return incomingWeight >= currentWeight ? incomingStatus : existingStatus;
+  }
+
+  normalizeParameterPlace(place) {
+    if (!place) return 'unknown';
+    const value = String(place).trim().toUpperCase();
+    if (['GET', 'POST', 'COOKIE', 'HEADER', 'URI', 'JSON'].includes(value)) {
+      return value;
+    }
+    if (/GET/i.test(value)) return 'GET';
+    if (/POST/i.test(value)) return 'POST';
+    if (/COOKIE/i.test(value)) return 'COOKIE';
+    if (/HEADER|HTTP header/i.test(value)) return 'HEADER';
+    if (/URI|URL/i.test(value)) return 'URI';
+    if (/JSON/i.test(value)) return 'JSON';
+    return 'unknown';
+  }
+
+  normalizeLogLine(line = '') {
+    if (!line) return '';
+    let cleaned = line.replace(ANSI_ESCAPE_REGEX, '');
+    cleaned = cleaned.replace(LEADING_DELIMITER_REGEX, '');
+    cleaned = cleaned.replace(/^\[[0-9:\-.]+\]\s*\[[A-Z]+\]\s*/i, '');
+    cleaned = cleaned.replace(/^\[[A-Z]+\]\s*/i, '');
+    return cleaned.trim();
+  }
+
+  extractTimestampFromLogLine(line = '') {
+    const match = line.match(/^\[([0-9]{2}:[0-9]{2}:[0-9]{2})\]/);
+    if (match) {
+      return match[1];
+    }
+    const isoMatch = line.match(/^\[([0-9]{4}-[0-9]{2}-[0-9]{2}T[^\]]+)\]/);
+    return isoMatch ? isoMatch[1] : null;
+  }
+
+  inferPlaceFromLine(line = '') {
+    const lowered = line.toLowerCase();
+    if (lowered.includes('get parameter')) return 'GET';
+    if (lowered.includes('post parameter')) return 'POST';
+    if (lowered.includes('cookie')) return 'COOKIE';
+    if (lowered.includes('header')) return 'HEADER';
+    if (lowered.includes('uri parameter') || lowered.includes('url parameter')) return 'URI';
+    if (lowered.includes('json parameter')) return 'JSON';
+    return 'unknown';
+  }
+
+  parseLogFile(logContent, sessionId = null) {
+    const findings = [];
+    const analysis = this.createEmptyAnalysis(sessionId);
+
+    const lines = logContent.split(/\r?\n/);
+    let inSummarySection = false;
+    let currentSummaryBlock = null;
+
+    const flushSummaryBlock = () => {
+      if (!currentSummaryBlock) return;
+      const { parameterEntry, data } = currentSummaryBlock;
+      const technique = data.technique || data.type || data.title;
+      const techniqueName = this.mapSqlmapTechnique(technique || '');
+
+      this.addTechnique(parameterEntry, techniqueName);
+      if (data.payload) {
+        this.addPayload(parameterEntry, data.payload);
+      }
+
+      const description = data.rawText || data.raw.join('\n');
+      findings.push({
+        type: 'vulnerability',
+        parameter: parameterEntry.name,
+        technique: techniqueName,
+        severity: 'high',
+        description: description?.trim() || techniqueName
+      });
+
+      this.setParameterStatus(parameterEntry, 'confirmed', description, data.at, {
+        source: 'summary-block'
+      });
+
+      analysis.summary.outcome = this.resolveOutcome(analysis.summary.outcome, 'vulnerable');
+      analysis.summary.reason = analysis.summary.reason || 'SQLMap identified injection point(s).';
+      analysis.summary.rawVerdictLine = analysis.summary.rawVerdictLine || data.verdictLine || null;
+
+      currentSummaryBlock = null;
+    };
+
+    for (const rawLine of lines) {
+      if (!rawLine) continue;
+      const normalized = this.normalizeLogLine(rawLine);
+      if (!normalized) continue;
+
+      const lower = normalized.toLowerCase();
+      const at = this.extractTimestampFromLogLine(rawLine);
+
+      if (!inSummarySection && /sqlmap\s+identified\s+the\s+following\s+injection\s+point/i.test(lower)) {
+        inSummarySection = true;
+        analysis.summary.outcome = this.resolveOutcome(analysis.summary.outcome, 'vulnerable');
+        analysis.summary.rawVerdictLine = analysis.summary.rawVerdictLine || normalized;
+        this.addTimelineEvent(analysis, {
+          type: 'summary-start',
+          detail: normalized,
+          at
+        });
+        continue;
+      }
+
+      if (/all tested parameters do not appear to be injectable/i.test(lower) || /not.*injectable/i.test(lower) && lower.includes('all tested parameters')) {
+        analysis.summary.outcome = this.resolveOutcome(analysis.summary.outcome, 'clean');
+        analysis.summary.reason = normalized;
+        this.addTimelineEvent(analysis, {
+          type: 'summary-clean',
+          detail: normalized,
+          at
+        });
+      }
+
+      if (/no injection point/i.test(lower) || /unable to find any vulnerabilities/i.test(lower)) {
+        analysis.summary.outcome = this.resolveOutcome(analysis.summary.outcome, 'clean');
+        analysis.summary.reason = analysis.summary.reason || normalized;
+      }
+
+      const testingMatch = normalized.match(/testing\s+(?:for\s+SQL injection\s+on\s+)?(?:GET|POST|COOKIE|URI|parameter)\s+['"]?([^'"\s]+)['"]?/i);
+      if (testingMatch) {
+        const name = testingMatch[1];
+        const place = this.inferPlaceFromLine(normalized);
+        const paramEntry = this.ensureParameterEntry(analysis, name, place);
+        this.setParameterStatus(paramEntry, 'testing', normalized, at, { source: 'testing' });
+        this.addTimelineEvent(analysis, {
+          type: 'testing',
+          parameter: paramEntry.name,
+          place: paramEntry.place,
+          detail: normalized,
+          at
+        });
+      }
+
+      const heuristicsSuspectMatch = normalized.match(/heuristic.*?parameter\s+['"`]?(.*?)['"`]?\s+(?:might|may)\s+be\s+injectable/i);
+      if (heuristicsSuspectMatch) {
+        const name = heuristicsSuspectMatch[1];
+        const place = this.inferPlaceFromLine(normalized);
+        const paramEntry = this.ensureParameterEntry(analysis, name, place);
+        paramEntry.heuristics.flagged = true;
+        this.setParameterStatus(paramEntry, 'suspected', normalized, at, {
+          source: 'heuristic'
+        });
+        this.addTimelineEvent(analysis, {
+          type: 'heuristic-suspect',
+          parameter: paramEntry.name,
+          place: paramEntry.place,
+          detail: normalized,
+          at
+        });
+      }
+
+      const dismissMatch = normalized.match(/parameter\s+['"`]?(.*?)['"`]?\s+(?:does\s+not\s+seem|is\s+not|isn'?t)\s+(?:to\s+be\s+)?(?:injectable|vulnerable)/i);
+      if (dismissMatch) {
+        const name = dismissMatch[1];
+        const place = this.inferPlaceFromLine(normalized);
+        const paramEntry = this.ensureParameterEntry(analysis, name, place);
+        paramEntry.heuristics.dismissed = true;
+        this.setParameterStatus(paramEntry, 'dismissed', normalized, at, {
+          source: 'heuristic-dismiss'
+        });
+        this.addTimelineEvent(analysis, {
+          type: 'heuristic-dismiss',
+          parameter: paramEntry.name,
+          place: paramEntry.place,
+          detail: normalized,
+          at
+        });
+      }
+
+      const vulnerableMatch = normalized.match(/(?:GET|POST|COOKIE|URI)?\s*parameter\s+['"`]?(.*?)['"`]?\s+(?:is|appears to be)\s+[\w\s-]*(?:injectable|vulnerable)/i);
+      if (vulnerableMatch) {
+        const name = vulnerableMatch[1];
+        const place = this.inferPlaceFromLine(normalized);
+        const paramEntry = this.ensureParameterEntry(analysis, name, place);
+        this.setParameterStatus(paramEntry, 'confirmed', normalized, at, {
+          source: 'inline-confirmation'
+        });
+        this.addTimelineEvent(analysis, {
+          type: 'confirmed-inline',
+          parameter: paramEntry.name,
+          place: paramEntry.place,
+          detail: normalized,
+          at
+        });
+        const technique = normalized.replace(/.*?(?:is|appears to be)/i, '').replace(/injectable|vulnerable/i, '').trim();
+        const techniqueName = this.mapSqlmapTechnique(technique);
+        this.addTechnique(paramEntry, techniqueName);
         findings.push({
           type: 'vulnerability',
-          parameter: this.extractParameter(line),
-          technique: this.extractTechnique(line),
+          parameter: paramEntry.name,
+          technique: techniqueName,
           severity: 'high',
-          description: line.trim()
+          description: normalized
         });
       }
 
-      // Parse database information
-      if (line.includes('current database:')) {
+      if (inSummarySection) {
+        if (/^---+$/.test(normalized)) {
+          flushSummaryBlock();
+          continue;
+        }
+
+        if ((normalized.startsWith('*') || normalized.startsWith('[')) && !lower.startsWith('parameter:')) {
+          flushSummaryBlock();
+          inSummarySection = false;
+        }
+
+        if (normalized.toLowerCase().startsWith('parameter:')) {
+          flushSummaryBlock();
+
+          const paramMatch = normalized.match(/Parameter:\s*([^()]+?)(?:\(([^)]+)\))?$/);
+          let name = null;
+          let place = 'unknown';
+          if (paramMatch) {
+            name = (paramMatch[1] || '').trim();
+            place = this.normalizeParameterPlace(paramMatch[2] || this.inferPlaceFromLine(normalized));
+          }
+          const paramEntry = this.ensureParameterEntry(analysis, name, place);
+          currentSummaryBlock = {
+            parameterEntry: paramEntry,
+            data: {
+              raw: [normalized],
+              rawText: normalized,
+              at,
+              verdictLine: normalized
+            }
+          };
+          this.setParameterStatus(paramEntry, 'confirmed', normalized, at, {
+            source: 'summary-parameter'
+          });
+          this.addTimelineEvent(analysis, {
+            type: 'summary-parameter',
+            parameter: paramEntry.name,
+            place: paramEntry.place,
+            detail: normalized,
+            at
+          });
+          continue;
+        }
+
+        if (currentSummaryBlock) {
+          currentSummaryBlock.data.raw.push(normalized);
+          currentSummaryBlock.data.rawText = (currentSummaryBlock.data.rawText || '') + '\n' + normalized;
+          if (normalized.toLowerCase().startsWith('type:')) {
+            currentSummaryBlock.data.type = normalized.replace(/^[Tt]ype:\s*/, '');
+          } else if (normalized.toLowerCase().startsWith('title:')) {
+            currentSummaryBlock.data.title = normalized.replace(/^[Tt]itle:\s*/, '');
+          } else if (normalized.toLowerCase().startsWith('payload:')) {
+            currentSummaryBlock.data.payload = normalized.replace(/^[Pp]ayload:\s*/, '');
+          } else if (normalized.toLowerCase().startsWith('vector:')) {
+            currentSummaryBlock.data.vector = normalized.replace(/^[Vv]ector:\s*/, '');
+          }
+        }
+      }
+
+      if (/current database:/i.test(normalized)) {
         findings.push({
           type: 'database_info',
-          info: line.split(':')[1]?.trim(),
+          info: normalized.split(':')[1]?.trim(),
           severity: 'info'
         });
       }
 
-      // Parse version information
-      if (line.includes('back-end DBMS:')) {
+      if (/back-end DBMS:/i.test(normalized)) {
         findings.push({
           type: 'version_info',
-          dbms: line.split(':')[1]?.trim(),
+          dbms: normalized.split(':')[1]?.trim(),
           severity: 'info'
         });
       }
     }
 
-    return findings;
+    flushSummaryBlock();
+
+    return { findings, analysis };
   }
 
-  extractParameter(line) {
-    // Try multiple patterns in order of specificity
-    let match = line.match(/Parameter:\s*(['"]) ?([^'"\s(]+)/i);
-    if (match) return match[2];
-    match = line.match(/\b(?:GET|POST)\s+parameter\s+(['"])([^'"]+)\1/i);
-    if (match) return match[2];
-    match = line.match(/parameter\s+(['"])([^'"]+)\1/i);
-    return match ? match[2] : null;
+  resolveOutcome(existing = 'unknown', incoming = 'unknown') {
+    const priority = {
+      vulnerable: 4,
+      suspected: 3,
+      clean: 2,
+      error: 1,
+      unknown: 0
+    };
+    const eWeight = priority[existing] ?? -1;
+    const iWeight = priority[incoming] ?? -1;
+    return iWeight > eWeight ? incoming : existing;
   }
 
-  extractTechnique(line) {
-    const techniques = ['boolean-based', 'error-based', 'time-based', 'union query', 'stacked queries'];
-    for (const technique of techniques) {
-      if (line.toLowerCase().includes(technique)) {
-        return technique;
+  mapSqlmapTechnique(raw = '') {
+    const text = String(raw || '').toLowerCase();
+    if (text.includes('boolean')) return 'Boolean-based blind SQL injection';
+    if (text.includes('time-based')) return 'Time-based blind SQL injection';
+    if (text.includes('union')) return 'Union query SQL injection';
+    if (text.includes('stacked')) return 'Stacked queries SQL injection';
+    if (text.includes('error')) return 'Error-based SQL injection';
+    if (text.includes('inline query')) return 'Inline query SQL injection';
+    return raw ? raw.trim() : 'SQL injection';
+  }
+
+  mergeAnalyses(targetAnalysis, sourceAnalysis) {
+    if (!targetAnalysis || !sourceAnalysis) return;
+    const sourceIndex = sourceAnalysis._paramIndex || new Map();
+
+    for (const param of sourceIndex.values()) {
+      const existing = this.ensureParameterEntry(targetAnalysis, param.name, param.place);
+      for (const status of param.statuses) {
+        this.setParameterStatus(existing, status.status, status.detail, status.at, {
+          source: status.source
+        });
+      }
+      for (const note of param.notes || []) {
+        if (!existing.notes.includes(note)) existing.notes.push(note);
+      }
+      param.techniques.forEach((tech) => this.addTechnique(existing, tech));
+      param.payloads.forEach((payload) => this.addPayload(existing, payload));
+      existing.heuristics.flagged = existing.heuristics.flagged || param.heuristics.flagged;
+      existing.heuristics.dismissed = existing.heuristics.dismissed || param.heuristics.dismissed;
+      if (param.confidence !== null && param.confidence !== undefined) {
+        existing.confidence = Math.max(existing.confidence ?? 0, Number(param.confidence));
+      }
+      existing.finalStatus = this.resolveStatus(existing.finalStatus, param.finalStatus);
+    }
+
+    targetAnalysis.timeline.push(...(sourceAnalysis.timeline || []));
+    targetAnalysis.summary.outcome = this.resolveOutcome(targetAnalysis.summary.outcome, sourceAnalysis.summary?.outcome || 'unknown');
+    targetAnalysis.summary.reason = targetAnalysis.summary.reason || sourceAnalysis.summary?.reason || null;
+    targetAnalysis.summary.rawVerdictLine = targetAnalysis.summary.rawVerdictLine || sourceAnalysis.summary?.rawVerdictLine || null;
+    if (sourceAnalysis.summary?.evidenceCount) {
+      targetAnalysis.summary.evidenceCount += sourceAnalysis.summary.evidenceCount;
+    }
+  }
+
+  integrateCsvAnalysis(analysis, csvRecords = []) {
+    if (!analysis || !Array.isArray(csvRecords)) return;
+
+    for (const record of csvRecords) {
+      const name = record.parameter || record.param || 'unknown';
+      const place = record.place || record.method || 'unknown';
+      const confidence = Number(record.confidence || record.conf || 0);
+      const technique = record.title || record.type || record.technique || '';
+      const payload = record.payload || record.vector || null;
+
+      const paramEntry = this.ensureParameterEntry(analysis, name, place);
+      this.setParameterStatus(paramEntry, 'confirmed', 'Confirmed via CSV artefact', null, {
+        source: 'csv-results'
+      });
+      if (confidence && !Number.isNaN(confidence)) {
+        paramEntry.confidence = Math.max(paramEntry.confidence ?? 0, confidence);
+      }
+      this.addTechnique(paramEntry, this.mapSqlmapTechnique(technique));
+      if (payload) {
+        this.addPayload(paramEntry, payload);
+      }
+      analysis.summary.outcome = this.resolveOutcome(analysis.summary.outcome, 'vulnerable');
+      analysis.summary.evidenceCount += 1;
+    }
+  }
+
+  parseResultsCsv(csvText = '') {
+    if (!csvText) return [];
+    const rows = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
+    if (rows.length < 2) return [];
+
+    const header = this.splitCsvRow(rows[0]).map((cell) => cell.toLowerCase());
+    const records = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const cells = this.splitCsvRow(rows[i]);
+      if (!cells.length) continue;
+      const record = {};
+      header.forEach((key, index) => {
+        record[key] = cells[index] || '';
+      });
+      records.push(record);
+    }
+
+    return records;
+  }
+
+  splitCsvRow(row = '') {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < row.length; i++) {
+      const char = row[i];
+      if (char === '"') {
+        if (inQuotes && row[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
       }
     }
-    return 'unknown';
+
+    result.push(current.trim());
+    return result;
+  }
+
+  finalizeAnalysis(analysis) {
+    if (!analysis) return;
+
+    const paramIndex = analysis._paramIndex || new Map();
+    const flagged = new Set();
+    const dismissed = new Set();
+
+    for (const param of paramIndex.values()) {
+      if (param.heuristics.flagged) {
+        flagged.add(`${param.place}:${param.name}`);
+      }
+      if (param.heuristics.dismissed || param.finalStatus === 'dismissed') {
+        dismissed.add(`${param.place}:${param.name}`);
+      }
+
+      if (analysis.summary.outcome === 'clean' && param.heuristics.flagged && param.finalStatus !== 'confirmed') {
+        const alreadyDismissed = param.statuses.some((status) => status.status === 'dismissed');
+        if (!alreadyDismissed) {
+          this.setParameterStatus(param, 'dismissed', 'Automatically dismissed after clean verdict', null, {
+            source: 'auto-dismiss'
+          });
+        }
+        param.finalStatus = this.resolveStatus(param.finalStatus, 'dismissed');
+        param.heuristics.dismissed = true;
+        dismissed.add(`${param.place}:${param.name}`);
+      }
+    }
+
+    const parameters = Array.from(paramIndex.values());
+    analysis.parameters = parameters;
+    analysis.stats.confirmed = parameters.filter(p => p.finalStatus === 'confirmed').length;
+    analysis.stats.dismissed = parameters.filter(p => p.finalStatus === 'dismissed').length;
+    analysis.stats.suspected = parameters.filter(p => p.finalStatus === 'suspected').length;
+    analysis.stats.totalTested = parameters.length;
+
+    if (analysis.summary.outcome === 'unknown') {
+      if (analysis.stats.confirmed > 0) {
+        analysis.summary.outcome = 'vulnerable';
+        analysis.summary.reason = analysis.summary.reason || 'Confirmed injection point(s) detected.';
+      } else if (analysis.stats.suspected > 0) {
+        analysis.summary.outcome = 'suspected';
+        analysis.summary.reason = analysis.summary.reason || 'Heuristic signals detected without confirmation.';
+      } else {
+        analysis.summary.outcome = 'clean';
+        analysis.summary.reason = analysis.summary.reason || 'No injection point confirmed.';
+      }
+    }
+
+    analysis.heuristics.flaggedParameters = Array.from(flagged);
+    analysis.heuristics.dismissedParameters = Array.from(dismissed);
+
+    analysis.timeline.sort((a, b) => {
+      if (!a?.at) return 1;
+      if (!b?.at) return -1;
+      return String(a.at).localeCompare(String(b.at));
+    });
+
+    delete analysis._paramIndex;
   }
 
   // Generate structured report from parsed results

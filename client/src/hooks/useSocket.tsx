@@ -157,7 +157,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     })
 
     socketInstance.on('scan-completed', async (data) => {
-      const { scanId, status, reportId, exit_code, target: eventTarget } = data || {}
+      const { scanId, status, reportId, exit_code, target: eventTarget, verdictMeta } = data || {}
       console.log('Scan completed:', data)
 
       const exitCode = typeof exit_code === 'number' ? exit_code : null
@@ -166,6 +166,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         status: status,
         endTime: new Date().toISOString(),
         exitCode: exitCode ?? undefined,
+        verdictMeta: verdictMeta ?? undefined,
       })
 
       if (scanId && useAppStore.getState().activeTerminalSession === scanId) {

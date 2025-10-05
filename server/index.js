@@ -836,11 +836,28 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
           await database.updateScan(scanId, { status: code === 0 ? 'completed' : 'failed', end_time: endTime, exit_code: code });
           const scanData = await database.getScan(scanId);
           let sqlmapResults = null;
+          let verdictMeta = null;
           if (code === 0) {
             try {
               const outDir = scanProcesses.get(scanId)?.outputDir;
               if (outDir && fs.existsSync(outDir)) {
                 sqlmapResults = await sqlmapIntegration.parseResults(outDir, scanId);
+                if (sqlmapResults?.analysis) {
+                  try {
+                    const verdictPayload = {
+                      ...sqlmapResults.analysis,
+                      summary: {
+                        ...(sqlmapResults.analysis.summary || {}),
+                        exitCode: code,
+                        completedAt: endTime,
+                      }
+                    };
+                    await database.updateScan(scanId, { verdict_meta: JSON.stringify(verdictPayload) });
+                    verdictMeta = verdictPayload;
+                  } catch (verdictError) {
+                    Logger.debug('HTTP handler failed to persist verdict metadata', { scanId, error: verdictError?.message });
+                  }
+                }
               }
             } catch (e) {
               Logger.error('Error parsing SQLMap results (HTTP):', e);
@@ -855,7 +872,7 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
             await database.incrementUsageOnComplete(userId, period, Math.max(0, runtime));
           } catch (e) {}
           // Notify via socket if connected
-          try { io.to(`user:${userId}`).emit('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults }); } catch (_) {}
+          try { io.to(`user:${userId}`).emit('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults, verdictMeta }); } catch (_) {}
         } catch (e) {
           Logger.error('HTTP scan close handler error:', e);
         } finally {
@@ -2171,6 +2188,7 @@ io.on('connection', (socket) => {
         // Generate report with structured results
         try {
           let sqlmapResults = null;
+          let verdictMeta = null;
           
           // Parse structured SQLMap results from tracked output directory
           if (code === 0) {
@@ -2180,6 +2198,22 @@ io.on('connection', (socket) => {
               if (outDir && fs.existsSync(outDir)) {
                 sqlmapResults = await sqlmapIntegration.parseResults(outDir, scanId);
                 Logger.info(`Successfully parsed SQLMap results for scan ${scanId}`);
+                if (sqlmapResults?.analysis) {
+                  try {
+                    const verdictPayload = {
+                      ...sqlmapResults.analysis,
+                      summary: {
+                        ...(sqlmapResults.analysis.summary || {}),
+                        exitCode: code,
+                        completedAt: endTime,
+                      }
+                    };
+                    await database.updateScan(scanId, { verdict_meta: JSON.stringify(verdictPayload) });
+                    verdictMeta = verdictPayload;
+                  } catch (verdictError) {
+                    Logger.debug('Socket handler failed to persist verdict metadata', { scanId, error: verdictError?.message });
+                  }
+                }
               } else {
                 Logger.warn(`No valid output directory found for scan ${scanId}`);
               }
@@ -2198,7 +2232,8 @@ io.on('connection', (socket) => {
             status: code === 0 ? 'completed' : 'failed',
             reportId: reportId,
             exit_code: code,
-            hasStructuredResults: !!sqlmapResults
+            hasStructuredResults: !!sqlmapResults,
+            verdictMeta
           });
           try {
             await database.logScanEvent({
@@ -2433,19 +2468,36 @@ io.on('connection', (socket) => {
           scanData = await database.getScan(scanId);
           try {
             let sqlmapResults = null;
+            let verdictMeta = null;
             if (code === 0) {
               try {
                 const processInfo = scanProcesses.get(scanId);
                 const outDir = processInfo?.outputDir;
                 if (outDir && fs.existsSync(outDir)) {
                   sqlmapResults = await sqlmapIntegration.parseResults(outDir, scanId);
+                  if (sqlmapResults?.analysis) {
+                    try {
+                      const verdictPayload = {
+                        ...sqlmapResults.analysis,
+                        summary: {
+                          ...(sqlmapResults.analysis.summary || {}),
+                          exitCode: code,
+                          completedAt: endTime,
+                        }
+                      };
+                      await database.updateScan(scanId, { verdict_meta: JSON.stringify(verdictPayload) });
+                      verdictMeta = verdictPayload;
+                    } catch (verdictError) {
+                      Logger.debug('Restart handler failed to persist verdict metadata', { scanId, error: verdictError?.message });
+                    }
+                  }
                 }
               } catch (e) { Logger.error('Restart parse results error', e); }
             }
             const reportData = await reportGenerator.generateReport(scanId, scanData, sqlmapResults);
             const reportId = await database.createReport({ ...reportData, user_id: userId, org_id: orgId });
-            socket.emit('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults });
-            database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: code === 0 ? 'completed' : 'failed', metadata: { exit_code: code, reportId, hasStructuredResults: !!sqlmapResults, via: 'ws', restartOf: payload.scanId || null } }).catch(()=>{});
+            socket.emit('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults, verdictMeta });
+            database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: code === 0 ? 'completed' : 'failed', metadata: { exit_code: code, reportId, hasStructuredResults: !!sqlmapResults, verdictMeta, via: 'ws', restartOf: payload.scanId || null } }).catch(()=>{});
             try {
               const runtime = (new Date(scanData.end_time).getTime() - new Date(scanData.start_time).getTime()) || 0;
               await database.incrementUsageOnComplete(userId, period, Math.max(0, runtime));

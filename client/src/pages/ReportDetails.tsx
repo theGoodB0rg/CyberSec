@@ -2,7 +2,7 @@ import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw, Image as ImageIcon, ExternalLink, Flag } from 'lucide-react';
+import { ArrowLeft, FileText, FileJson, CheckCircle, RefreshCcw, Image as ImageIcon, ExternalLink, Flag, AlertTriangle, XOctagon, HelpCircle, Activity, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import {
   apiFetch,
@@ -17,6 +17,7 @@ import {
   listQuickVerifyEvidence
 } from '../utils/api';
 import { useAppStore, selectRunningScanCount } from '../store/appStore';
+import type { ScanVerdictMeta, ScanVerdictOutcome } from '../store/appStore';
 import { useScanSocket } from '../hooks/useSocket';
 import { wafPreset } from '../utils/sqlmapFlags';
 
@@ -126,6 +127,89 @@ const getSeverityStyles = (severity?: string): SeverityVisualStyle => {
   if (!severity) return DEFAULT_SEVERITY_STYLE;
   const key = severity.toLowerCase();
   return SEVERITY_STYLE_MAP[key] || DEFAULT_SEVERITY_STYLE;
+};
+
+const VERDICT_OUTCOME_STYLES: Record<ScanVerdictOutcome, { label: string; card: string; badge: string; icon: React.ComponentType<{ className?: string; size?: number }>; description: string }> = {
+  vulnerable: {
+    label: 'Vulnerable',
+    card: 'border border-red-800/70 bg-gradient-to-br from-red-950 via-red-900 to-red-800 text-red-100',
+    badge: 'bg-red-600 text-white border border-red-300',
+    icon: ShieldAlert,
+    description: 'SQLMap confirmed exploitable injection paths for this scan.'
+  },
+  suspected: {
+    label: 'Suspected',
+    card: 'border border-amber-700/70 bg-gradient-to-br from-amber-950 via-amber-900 to-amber-800 text-amber-100',
+    badge: 'bg-amber-500 text-gray-900 border border-amber-200',
+    icon: AlertTriangle,
+    description: 'Potential injection indicators detected. Review manually for confirmation.'
+  },
+  clean: {
+    label: 'Clean',
+    card: 'border border-emerald-700/60 bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-800 text-emerald-100',
+    badge: 'bg-emerald-500 text-emerald-950 border border-emerald-200',
+    icon: ShieldCheck,
+    description: 'No vulnerable parameters survived verification. Heuristics dismissed flagged signals.'
+  },
+  error: {
+    label: 'Scan Error',
+    card: 'border border-rose-800/60 bg-gradient-to-br from-rose-950 via-rose-900 to-rose-800 text-rose-100',
+    badge: 'bg-rose-600 text-white border border-rose-300',
+    icon: XOctagon,
+    description: 'Scan exited with an error. See timeline and raw verdict for details.'
+  },
+  unknown: {
+    label: 'Unknown',
+    card: 'border border-gray-700/70 bg-gradient-to-br from-gray-950 via-gray-900 to-gray-800 text-gray-100',
+    badge: 'bg-gray-600 text-white border border-gray-400',
+    icon: HelpCircle,
+    description: 'Verdict metadata incomplete. Review raw output or rerun the scan.'
+  }
+};
+
+const PARAM_STATUS_STYLES: Record<string, string> = {
+  confirmed: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
+  dismissed: 'bg-slate-700/70 text-slate-200 border border-slate-500/30',
+  suspected: 'bg-amber-500/15 text-amber-200 border border-amber-400/30',
+  testing: 'bg-blue-500/15 text-blue-200 border border-blue-400/30',
+  unknown: 'bg-gray-700/70 text-gray-200 border border-gray-500/30'
+};
+
+const normaliseVerdictMeta = (raw: unknown): ScanVerdictMeta | null => {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as ScanVerdictMeta;
+    } catch (err) {
+      console.warn('Failed to parse verdict_meta JSON string', err);
+      return null;
+    }
+  }
+  if (typeof raw === 'object') return raw as ScanVerdictMeta;
+  return null;
+};
+
+const formatDateTime = (value?: string | null): string | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString();
+};
+
+const formatTimelineLabel = (event: { type?: string; detail?: string; parameter?: string; place?: string }): string => {
+  const parts: string[] = [];
+  if (event.type) parts.push(event.type);
+  if (event.parameter) parts.push(`param: ${event.parameter}`);
+  if (event.place) parts.push(`place: ${event.place}`);
+  if (event.detail) parts.push(event.detail);
+  return parts.join(' · ');
+};
+
+const formatConfidence = (value: number): string => {
+  if (!Number.isFinite(value)) return '';
+  if (value <= 1) return `${Math.round(value * 100)}%`;
+  if (value <= 100) return `${value.toFixed(1)}%`;
+  return value.toFixed(1);
 };
 
 const slugifyForFilename = (raw: string | null | undefined, fallback: string): string => {
@@ -274,6 +358,38 @@ export default function ReportDetails() {
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string | null>>({});
   const shouldShowConsentReminder = quickVerifyPreference?.storeEvidence === false && !!quickVerifyPreference?.promptSuppressed;
 
+  const derivedScanId = useMemo(() => {
+    if (!report) return null;
+    return (
+      (report as any)?.scanId ||
+      (report as any)?.scan_id ||
+      (report as any)?.scanID ||
+      (report as any)?.scan?.id ||
+      (report as any)?.metadata?.scanId ||
+      null
+    );
+  }, [report]);
+
+  const verdictSelector = useCallback(
+    (state: any) => {
+      if (!derivedScanId) return null;
+      const match = Array.isArray(state?.scans)
+        ? state.scans.find((scan: any) => scan?.id === derivedScanId)
+        : null;
+      return match?.verdictMeta ?? null;
+    },
+    [derivedScanId]
+  );
+
+  const storeVerdictMeta = useAppStore(verdictSelector);
+  const [fetchedVerdictMeta, setFetchedVerdictMeta] = useState<ScanVerdictMeta | null>(null);
+  const [verdictFetchState, setVerdictFetchState] = useState<{ scanId: string | null; loading: boolean; error: string | null }>({
+    scanId: null,
+    loading: false,
+    error: null
+  });
+  const { scanId: verdictFetchScanId, loading: verdictFetchLoading, error: verdictFetchError } = verdictFetchState;
+
   useEffect(() => {
     const fetchReport = async () => {
       try {
@@ -331,6 +447,52 @@ export default function ReportDetails() {
       fetchReport();
     }
   }, [reportId]);
+
+  useEffect(() => {
+    if (!derivedScanId) {
+      if (fetchedVerdictMeta) setFetchedVerdictMeta(null);
+      if (verdictFetchScanId || verdictFetchLoading || verdictFetchError) {
+        setVerdictFetchState({ scanId: null, loading: false, error: null });
+      }
+      return;
+    }
+
+    if (storeVerdictMeta) {
+      if (fetchedVerdictMeta) setFetchedVerdictMeta(null);
+      if (verdictFetchScanId !== derivedScanId || verdictFetchLoading || verdictFetchError) {
+        setVerdictFetchState({ scanId: derivedScanId, loading: false, error: null });
+      }
+      return;
+    }
+
+    if (fetchedVerdictMeta && verdictFetchScanId === derivedScanId && !verdictFetchLoading) {
+      return;
+    }
+
+    if (verdictFetchLoading && verdictFetchScanId === derivedScanId) {
+      return;
+    }
+
+    let cancelled = false;
+    setVerdictFetchState({ scanId: derivedScanId, loading: true, error: null });
+
+    apiFetch(`/api/scans/${derivedScanId}`)
+      .then((scan) => {
+        if (cancelled) return;
+        const meta = normaliseVerdictMeta((scan as any)?.verdictMeta ?? (scan as any)?.verdict_meta);
+        setFetchedVerdictMeta(meta);
+        setVerdictFetchState({ scanId: derivedScanId, loading: false, error: null });
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        const message = err?.message ? String(err.message) : 'Unable to load latest scan verdict';
+        setVerdictFetchState({ scanId: derivedScanId, loading: false, error: message });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [derivedScanId, storeVerdictMeta, verdictFetchScanId, verdictFetchLoading, verdictFetchError, fetchedVerdictMeta]);
 
   useEffect(() => {
     let cancelled = false;
@@ -963,6 +1125,38 @@ export default function ReportDetails() {
     }
   };
 
+  const verdictMeta = storeVerdictMeta ?? fetchedVerdictMeta;
+  const verdictLoading = !storeVerdictMeta && verdictFetchLoading;
+  const verdictError = verdictMeta ? null : verdictFetchError;
+  const verdictOutcomeKey = (verdictMeta?.summary?.outcome ?? 'unknown') as ScanVerdictOutcome;
+  const verdictOutcomeConfig = VERDICT_OUTCOME_STYLES[verdictOutcomeKey] ?? VERDICT_OUTCOME_STYLES.unknown;
+  const VerdictIcon = verdictOutcomeConfig.icon;
+  const handleDownloadVerdictMeta = useCallback(() => {
+    if (!verdictMeta) {
+      toast.error('No verdict data is available to download yet.');
+      return;
+    }
+    try {
+      const baseName = slugifyForFilename(
+        report?.title ?? report?.id ?? derivedScanId,
+        'scan'
+      );
+      const fileName = `${baseName}-verdict.json`;
+      const blob = new Blob([JSON.stringify(verdictMeta, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to export verdict metadata';
+      toast.error(message);
+    }
+  }, [derivedScanId, report, verdictMeta]);
+
   if (loading) {
     return <LoadingSpinner />;
   }
@@ -1059,6 +1253,245 @@ export default function ReportDetails() {
           </p>
         </div>
       </div>
+
+      {(verdictMeta || verdictLoading || verdictError) && (
+        <section className="mb-10 space-y-4" aria-live="polite">
+          <div className="flex flex-wrap items-center gap-2">
+            <VerdictIcon size={20} className="text-blue-300" />
+            <h2 className="text-2xl font-semibold text-blue-100">Scan verdict intelligence</h2>
+            <div className="ml-auto flex items-center gap-2">
+              {verdictLoading && <span className="text-xs uppercase tracking-wide text-gray-400">Refreshing…</span>}
+              {verdictMeta && (
+                <button
+                  type="button"
+                  onClick={handleDownloadVerdictMeta}
+                  className="inline-flex items-center gap-2 rounded border border-blue-400/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-100 transition hover:bg-blue-500/20"
+                >
+                  <FileJson size={14} className="text-blue-200" />
+                  Download JSON
+                </button>
+              )}
+            </div>
+          </div>
+          {verdictError && !verdictMeta && (
+            <div className="rounded-lg border border-red-700 bg-red-950/50 px-4 py-3 text-sm text-red-200">
+              {verdictError}
+            </div>
+          )}
+          {verdictMeta && (
+            <div className="space-y-6">
+              <div className={`rounded-lg p-6 shadow-lg shadow-black/40 ${verdictOutcomeConfig.card}`}>
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-3">
+                    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${verdictOutcomeConfig.badge}`}>
+                      <VerdictIcon size={16} className="shrink-0" />
+                      {verdictOutcomeConfig.label}
+                    </span>
+                    {(verdictMeta.summary?.reason || verdictOutcomeConfig.description) && (
+                      <p className="max-w-3xl text-sm leading-relaxed text-white/90 md:text-base">
+                        {verdictMeta.summary?.reason ?? verdictOutcomeConfig.description}
+                      </p>
+                    )}
+                    {verdictMeta.summary?.rawVerdictLine && (
+                      <p className="max-w-3xl break-words rounded border border-white/10 bg-black/30 px-3 py-2 text-xs font-mono text-white/70">
+                        Raw verdict: {verdictMeta.summary.rawVerdictLine}
+                      </p>
+                    )}
+                  </div>
+                  <dl className="grid grid-cols-2 gap-4 text-xs text-white/80 sm:text-sm md:text-right">
+                    {typeof verdictMeta.summary?.exitCode === 'number' && (
+                      <div>
+                        <dt className="uppercase tracking-wide text-white/60">Exit Code</dt>
+                        <dd className="text-lg font-semibold text-white">{verdictMeta.summary.exitCode}</dd>
+                      </div>
+                    )}
+                    {typeof verdictMeta.summary?.evidenceCount === 'number' && (
+                      <div>
+                        <dt className="uppercase tracking-wide text-white/60">Evidence</dt>
+                        <dd className="text-lg font-semibold text-white">{verdictMeta.summary.evidenceCount}</dd>
+                      </div>
+                    )}
+                    {formatDateTime(verdictMeta.summary?.completedAt) && (
+                      <div className="col-span-2">
+                        <dt className="uppercase tracking-wide text-white/60">Completed</dt>
+                        <dd className="font-semibold text-white">{formatDateTime(verdictMeta.summary?.completedAt)}</dd>
+                      </div>
+                    )}
+                    {formatDateTime(verdictMeta.generatedAt) && (
+                      <div className="col-span-2">
+                        <dt className="uppercase tracking-wide text-white/60">Generated</dt>
+                        <dd className="font-semibold text-white">{formatDateTime(verdictMeta.generatedAt)}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+                {(Array.isArray(verdictMeta.heuristics?.flaggedParameters) && verdictMeta.heuristics?.flaggedParameters?.length > 0) ||
+                (Array.isArray(verdictMeta.heuristics?.dismissedParameters) && verdictMeta.heuristics?.dismissedParameters?.length > 0) ? (
+                  <div className="mt-5 flex flex-wrap gap-3 text-xs text-white/80">
+                    {Array.isArray(verdictMeta.heuristics?.flaggedParameters) && verdictMeta.heuristics?.flaggedParameters?.length > 0 && (
+                      <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/30 px-3 py-1">
+                        <Flag size={14} className="text-amber-300" />
+                        {verdictMeta.heuristics?.flaggedParameters?.length} flagged
+                      </span>
+                    )}
+                    {Array.isArray(verdictMeta.heuristics?.dismissedParameters) && verdictMeta.heuristics?.dismissedParameters?.length > 0 && (
+                      <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/30 px-3 py-1">
+                        <CheckCircle size={14} className="text-emerald-300" />
+                        {verdictMeta.heuristics?.dismissedParameters?.length} auto-dismissed
+                      </span>
+                    )}
+                  </div>
+                ) : null}
+                {verdictMeta.stats && (
+                  <div className="mt-6 grid grid-cols-2 gap-4 text-xs text-white/80 sm:grid-cols-4 sm:text-sm">
+                    <div>
+                      <span className="block uppercase tracking-wide text-white/60">Confirmed</span>
+                      <span className="text-lg font-semibold text-white">{verdictMeta.stats.confirmed}</span>
+                    </div>
+                    <div>
+                      <span className="block uppercase tracking-wide text-white/60">Suspected</span>
+                      <span className="text-lg font-semibold text-white">{verdictMeta.stats.suspected}</span>
+                    </div>
+                    <div>
+                      <span className="block uppercase tracking-wide text-white/60">Dismissed</span>
+                      <span className="text-lg font-semibold text-white">{verdictMeta.stats.dismissed}</span>
+                    </div>
+                    <div>
+                      <span className="block uppercase tracking-wide text-white/60">Total Tested</span>
+                      <span className="text-lg font-semibold text-white">{verdictMeta.stats.totalTested}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-5">
+                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
+                    <Flag size={18} className="text-blue-300" />
+                    Parameter outcomes
+                  </h3>
+                  {Array.isArray(verdictMeta.parameters) && verdictMeta.parameters.length > 0 ? (
+                    <div className="space-y-4">
+                      {verdictMeta.parameters.map((param, index) => {
+                        const finalStatusKey = typeof param.finalStatus === 'string' ? param.finalStatus.toLowerCase() : 'unknown';
+                        const badgeClass = PARAM_STATUS_STYLES[finalStatusKey] ?? PARAM_STATUS_STYLES.unknown;
+                        const statusLabel = typeof param.finalStatus === 'string'
+                          ? param.finalStatus.charAt(0).toUpperCase() + param.finalStatus.slice(1)
+                          : 'Unknown';
+                        const parameterKey = `${param.place || 'unknown'}-${param.name || index}`;
+                        return (
+                          <div key={parameterKey} className="rounded-md border border-gray-700/70 bg-black/30 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <p className="text-base font-semibold text-white">{param.name || 'Unnamed parameter'}</p>
+                                <p className="text-xs uppercase tracking-wide text-gray-400">{param.place || 'Unknown location'}</p>
+                              </div>
+                              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize ${badgeClass}`}>
+                                {statusLabel}
+                              </span>
+                            </div>
+                            {typeof param.confidence === 'number' && Number.isFinite(param.confidence) && (
+                              <p className="mt-3 text-sm text-gray-300">
+                                Confidence score: <span className="font-semibold text-white">{formatConfidence(param.confidence)}</span>
+                              </p>
+                            )}
+                            {(param.heuristics?.flagged || param.heuristics?.dismissed) && (
+                              <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-wide">
+                                {param.heuristics?.flagged && (
+                                  <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-amber-200">Flagged heuristics</span>
+                                )}
+                                {param.heuristics?.dismissed && (
+                                  <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-emerald-200">Dismissed heuristics</span>
+                                )}
+                              </div>
+                            )}
+                            {Array.isArray(param.techniques) && param.techniques.length > 0 && (
+                              <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-wide text-blue-200">
+                                {param.techniques.slice(0, 6).map((tech, idx) => (
+                                  <span key={`${parameterKey}-tech-${idx}`} className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2 py-1">
+                                    {tech}
+                                  </span>
+                                ))}
+                                {param.techniques.length > 6 && (
+                                  <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2 py-1">+{param.techniques.length - 6} more</span>
+                                )}
+                              </div>
+                            )}
+                            {Array.isArray(param.payloads) && param.payloads.length > 0 && (
+                              <div className="mt-3">
+                                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Payloads</h4>
+                                <ul className="mt-1 space-y-1 text-xs font-mono text-gray-300">
+                                  {param.payloads.slice(0, 3).map((payload, idx) => (
+                                    <li key={`${parameterKey}-payload-${idx}`} className="break-all">{payload}</li>
+                                  ))}
+                                  {param.payloads.length > 3 && (
+                                    <li className="text-gray-500">+{param.payloads.length - 3} more</li>
+                                  )}
+                                </ul>
+                              </div>
+                            )}
+                            {Array.isArray(param.statuses) && param.statuses.length > 0 && (
+                              <ul className="mt-3 space-y-2 text-xs text-gray-300">
+                                {param.statuses.map((status, idx) => (
+                                  <li key={`${parameterKey}-status-${idx}`} className="rounded border border-gray-700/60 bg-black/20 p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="font-semibold text-white">{status.status || 'Status update'}</span>
+                                      {formatDateTime(status.at ?? null) && (
+                                        <span className="text-gray-400">{formatDateTime(status.at ?? null)}</span>
+                                      )}
+                                    </div>
+                                    {status.detail && <p className="mt-1 leading-relaxed text-gray-400">{status.detail}</p>}
+                                    {status.source && (
+                                      <p className="mt-1 text-[10px] uppercase tracking-wide text-gray-500">Source: {status.source}</p>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {Array.isArray(param.notes) && param.notes.length > 0 && (
+                              <ul className="mt-3 space-y-1 text-xs text-gray-400">
+                                {param.notes.map((note, idx) => (
+                                  <li key={`${parameterKey}-note-${idx}`} className="flex gap-2">
+                                    <span className="text-gray-600">•</span>
+                                    <span>{note}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400">No parameter-level verdict details were captured for this scan.</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-5">
+                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
+                    <Activity size={18} className="text-blue-300" />
+                    Timeline
+                  </h3>
+                  {Array.isArray(verdictMeta.timeline) && verdictMeta.timeline.length > 0 ? (
+                    <ol className="space-y-3 text-sm text-gray-200">
+                      {verdictMeta.timeline.map((event, idx) => (
+                        <li key={`${event.type || 'event'}-${idx}`} className="rounded border border-gray-700/60 bg-black/20 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span>{formatTimelineLabel(event)}</span>
+                            {formatDateTime(event.at ?? null) && (
+                              <span className="text-xs text-gray-400">{formatDateTime(event.at ?? null)}</span>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="text-sm text-gray-400">Timeline not available. This may be a legacy scan.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Tabs */}
       <div className="flex border-b border-gray-700 mb-4">

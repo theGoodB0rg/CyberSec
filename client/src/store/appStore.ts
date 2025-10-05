@@ -71,6 +71,61 @@ export interface ReportNotification {
   exitCode?: number | null
 }
 
+export type ScanVerdictOutcome = 'vulnerable' | 'clean' | 'suspected' | 'error' | 'unknown'
+
+export interface ScanVerdictTimelineEvent {
+  type: string
+  detail?: string
+  parameter?: string
+  place?: string
+  at?: string | null
+}
+
+export interface ScanVerdictParameterStatus {
+  name: string
+  place: string
+  finalStatus: 'confirmed' | 'dismissed' | 'suspected' | 'testing' | 'unknown'
+  statuses: Array<{
+    status: string
+    detail?: string
+    at?: string | null
+    source?: string
+  }>
+  techniques: string[]
+  payloads: string[]
+  confidence: number | null
+  heuristics: {
+    flagged: boolean
+    dismissed: boolean
+  }
+  notes: string[]
+}
+
+export interface ScanVerdictMeta {
+  sessionId?: string | null
+  generatedAt?: string
+  parameters: ScanVerdictParameterStatus[]
+  heuristics: {
+    flaggedParameters: string[]
+    dismissedParameters: string[]
+  }
+  timeline: ScanVerdictTimelineEvent[]
+  summary: {
+    outcome: ScanVerdictOutcome
+    reason?: string | null
+    rawVerdictLine?: string | null
+    evidenceCount?: number
+    exitCode?: number
+    completedAt?: string
+  }
+  stats: {
+    confirmed: number
+    suspected: number
+    dismissed: number
+    totalTested: number
+  }
+}
+
 export interface Scan {
   id: string
   target: string
@@ -84,6 +139,7 @@ export interface Scan {
   output: string
   createdAt: string
   updatedAt: string
+  verdictMeta?: ScanVerdictMeta | null
 }
 
 export interface ScanProfile {
@@ -465,6 +521,7 @@ export const useAppStore = create<AppStore>()(
                 output: '',
                 createdAt: (scan as any).createdAt || new Date().toISOString(),
                 updatedAt: (scan as any).updatedAt || new Date().toISOString(),
+                verdictMeta: (scan as any).verdictMeta ?? null,
               })
             } else {
               Object.assign(state.scans[idx], scan)

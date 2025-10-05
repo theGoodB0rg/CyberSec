@@ -179,18 +179,35 @@ class QueueRunner {
               await this.db.updateScan(scanId, { status: code === 0 ? 'completed' : 'failed', end_time: endTime, exit_code: code });
               const scanData = await this.db.getScan(scanId);
               let sqlmapResults = null;
+              let verdictMeta = null;
               if (code === 0) {
                 try {
                   const outDir = this.scanProcesses.get(scanId)?.outputDir;
                   if (outDir && fs.existsSync(outDir)) {
                     sqlmapResults = await this.sqlmap.parseResults(outDir, scanId);
+                    if (sqlmapResults?.analysis) {
+                      try {
+                        const verdictPayload = {
+                          ...sqlmapResults.analysis,
+                          summary: {
+                            ...(sqlmapResults.analysis.summary || {}),
+                            exitCode: code,
+                            completedAt: endTime,
+                          }
+                        };
+                        await this.db.updateScan(scanId, { verdict_meta: JSON.stringify(verdictPayload) });
+                        verdictMeta = verdictPayload;
+                      } catch (verdictError) {
+                        Logger.debug('Queue failed to persist verdict metadata', { scanId, error: verdictError?.message });
+                      }
+                    }
                   }
                 } catch (e) { Logger.error('Queue parse results error', e); }
               }
               const reportData = await this.reportGenerator.generateReport(scanId, scanData, sqlmapResults);
               const reportId = await this.db.createReport({ ...reportData, user_id: userId, org_id: orgId });
               this.db.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: code === 0 ? 'completed' : 'failed', metadata: { exit_code: code, reportId, hasStructuredResults: !!sqlmapResults, via: 'queue', jobId } }).catch(()=>{});
-              try { this.io?.to?.(`user:${userId}`)?.emit?.('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults }); } catch (_) {}
+              try { this.io?.to?.(`user:${userId}`)?.emit?.('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults, verdictMeta }); } catch (_) {}
 
               // Mark job completion or schedule retry
               if (code === 0) {

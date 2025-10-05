@@ -30,7 +30,7 @@ class Database {
   }
 
   createTables() {
-    const createScansTable = `
+  const createScansTable = `
       CREATE TABLE IF NOT EXISTS scans (
         id TEXT PRIMARY KEY,
         target TEXT NOT NULL,
@@ -45,6 +45,7 @@ class Database {
         exit_code INTEGER,
         error TEXT,
         output TEXT,
+        verdict_meta TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -337,6 +338,7 @@ class Database {
         { table: 'scans', stmt: 'ADD COLUMN user_id TEXT' },
         { table: 'scans', stmt: 'ADD COLUMN org_id TEXT' },
         { table: 'scans', stmt: 'ADD COLUMN output_dir TEXT' },
+        { table: 'scans', stmt: 'ADD COLUMN verdict_meta TEXT' },
         { table: 'reports', stmt: 'ADD COLUMN user_id TEXT' },
         { table: 'reports', stmt: 'ADD COLUMN org_id TEXT' }
       ];
@@ -543,8 +545,8 @@ class Database {
       const { target, options, scanProfile, status, start_time, user_id = 'system', org_id = null, output_dir = null } = scanData;
       
       const stmt = this.db.prepare(`
-        INSERT INTO scans (id, target, options, scan_profile, user_id, org_id, output_dir, status, start_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO scans (id, target, options, scan_profile, user_id, org_id, output_dir, status, start_time, verdict_meta)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run([
@@ -556,7 +558,8 @@ class Database {
         org_id,
         output_dir,
         status,
-        start_time
+        start_time,
+        null
       ], function(err) {
         if (err) {
           reject(err);
@@ -582,6 +585,7 @@ class Database {
               if (row.options) {
                 row.options = JSON.parse(row.options);
               }
+                row.verdictMeta = this.safeJson(row.verdict_meta, null);
               // Provide camelCase aliases expected by frontend
               row.createdAt = row.created_at;
               row.updatedAt = row.updated_at;
@@ -608,6 +612,7 @@ class Database {
               if (row.options) {
                 row.options = JSON.parse(row.options);
               }
+              row.verdictMeta = this.safeJson(row.verdict_meta, null);
               // Add camelCase aliases
               row.createdAt = row.created_at;
               row.updatedAt = row.updated_at;
@@ -640,14 +645,19 @@ class Database {
 
       this.db.all(query, params, (err, rows) => {
         if (err) return reject(err);
-        const scans = rows.map(row => ({
-          ...row,
-          options: row.options ? JSON.parse(row.options) : null,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          startTime: row.start_time,
-          endTime: row.end_time
-        }));
+        const scans = rows.map(row => {
+          const options = row.options ? JSON.parse(row.options) : null;
+          const verdictMeta = this.safeJson(row.verdict_meta, null);
+          return {
+            ...row,
+            options,
+            verdictMeta,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            startTime: row.start_time,
+            endTime: row.end_time
+          };
+        });
         resolve(scans);
       });
     });
