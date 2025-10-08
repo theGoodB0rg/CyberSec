@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://bwapp.honeybot.io/sqli_1.php,GET,movie,Boolean-based blind SQL injection,Classic OR 1=1 condition enumerated full movie list. Manual verification reproduced the SQL error messages.
+https://bwapp.honeybot.io/sqli_4.php,POST,title,Error-based SQL injection,Database error with DISTINCT keyword disclosed column count. Heuristic fingerprint matched historical injection behaviour.
+https://bwapp.honeybot.io/sqli_9.php,GET,id,Time-based blind SQL injection,BENCHMARK payload slowed response by 4.7 seconds repetitively. WAF bypass payload served identical result sets.
+https://bwapp.honeybot.io/sqli_12.php,POST,search,Union query SQL injection,UNION payload revealed bee_users table via appended row. Automated rerun validated exploit stability at 95% confidence.

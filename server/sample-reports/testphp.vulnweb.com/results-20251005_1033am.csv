@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://testphp.vulnweb.com/listproducts.php?cat=1,GET,cat,Boolean-based blind SQL injection,Injected boolean tautology toggled catalogue listing without cache hits. Heuristic fingerprint matched historical injection behaviour.
+https://testphp.vulnweb.com/search.php,POST,searchFor,Time-based blind SQL injection,Payload enforced SLEEP(5) delays while baseline remained <500ms. WAF bypass payload served identical result sets.
+https://testphp.vulnweb.com/userinfo.php,GET,id,Error-based SQL injection,Verbose MySQL error disclosed table structure on malformed UNION payload. Automated rerun validated exploit stability at 95% confidence.
+https://testphp.vulnweb.com/guestbook.php,POST,message,Union query SQL injection,UNION-based exfiltration returned administrator password hashes. Confidence derived from 3/3 positive payloads.

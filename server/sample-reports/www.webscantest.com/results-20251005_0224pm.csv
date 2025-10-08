@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://www.webscantest.com/datastore/search_by_id.php,GET,id,Boolean-based blind SQL injection,True/false toggles altered content length while HTML remained valid. WAF bypass payload served identical result sets.
+https://www.webscantest.com/datastore/search-ajax.php,POST,search,Union query SQL injection,UNION-based payload echoed product SKU list in JSON response. Automated rerun validated exploit stability at 95% confidence.
+https://www.webscantest.com/datastore/deleteinfo.php,GET,uid,Stacked queries,Stacked DELETE;SELECT payload returned injected marker row. Confidence derived from 3/3 positive payloads.
+https://www.webscantest.com/datastore/advancedsearch.php,POST,category,Time-based blind SQL injection,SLEEP(3) payload induced average 3.1s responses across retries. Retest with tamper scripts confirmed consistent delays.

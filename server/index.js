@@ -502,12 +502,13 @@ app.get('/api/sqlmap/base-flags', (req, res) => {
 // Server-side validation of flags/profile (no sqlmap spawn)
 app.post('/api/sqlmap/validate', async (req, res) => {
   try {
-  const { target = '', profile = 'basic', customFlags = '' } = req.body || {};
+    const { target = '', profile = 'basic', customFlags = '' } = req.body || {};
+    const isAdmin = req.user?.role === 'admin';
     const result = { ok: true, disallowed: [], warnings: [], normalizedArgs: [], commandPreview: '', description: '', impact: { speed: 'medium', stealth: 'medium', exfil: 'low' } };
 
     // Validate/normalize flags using server whitelist
     const profileObj = sqlmapIntegration.scanProfiles[profile] || sqlmapIntegration.scanProfiles.basic;
-    const custom = sqlmapIntegration.parseCustomFlags(typeof customFlags === 'string' ? customFlags : '');
+    const custom = sqlmapIntegration.parseCustomFlags(typeof customFlags === 'string' ? customFlags : '', { isAdmin });
     const normalized = [
       '-u', target || 'http://example.com',
       ...(profileObj?.flags || []),
@@ -610,7 +611,8 @@ app.post('/api/user/profiles', async (req, res) => {
     const { name, description = '', flags = [] } = req.body || {};
     if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Profile name is required' });
     // Validate flags via server whitelist
-    const normalized = Array.isArray(flags) ? sqlmapIntegration.parseCustomFlags(flags.join(' ')) : [];
+    const isAdmin = req.user?.role === 'admin';
+    const normalized = Array.isArray(flags) ? sqlmapIntegration.parseCustomFlags(flags.join(' '), { isAdmin }) : [];
     const id = await database.createUserProfile(req.user.id, { name, description, flags: normalized, is_custom: 1 });
     const profile = await database.getUserProfileById(id, req.user.id);
     res.status(201).json(profile);
@@ -625,7 +627,8 @@ app.put('/api/user/profiles/:id', async (req, res) => {
   try {
     const { name, description, flags } = req.body || {};
     let normalizedFlags = undefined;
-    if (Array.isArray(flags)) normalizedFlags = sqlmapIntegration.parseCustomFlags(flags.join(' '));
+    const isAdmin = req.user?.role === 'admin';
+    if (Array.isArray(flags)) normalizedFlags = sqlmapIntegration.parseCustomFlags(flags.join(' '), { isAdmin });
     const ok = await database.updateUserProfile(req.params.id, req.user.id, { name, description, flags: normalizedFlags });
     if (!ok) return res.status(404).json({ error: 'Profile not found' });
     const fresh = await database.getUserProfileById(req.params.id, req.user.id);
@@ -774,7 +777,7 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
   }
 
   // Start scan
-  const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId);
+  const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId, { isAdmin });
 
       // Record scan
       const startTimeIso = new Date().toISOString();
@@ -2094,7 +2097,7 @@ io.on('connection', (socket) => {
     }
 
     // Start SQLMap scan (creates per-user output directory)
-    const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId);
+  const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId, { isAdmin });
 
       // Create scan session and record output directory
       const startTimeIso = new Date().toISOString();
@@ -2400,7 +2403,7 @@ io.on('connection', (socket) => {
         const { preparedOptions, authMeta } = await prepareAuthContext(options || {}, target, userId);
 
         // Start scan
-        const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, preparedOptions, scanProfile, userId);
+  const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, preparedOptions, scanProfile, userId, { isAdmin });
 
         const startTimeIso = new Date().toISOString();
         const scanId = await database.createScan({

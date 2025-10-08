@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://juice-shop.herokuapp.com/rest/products/search,POST,q,Union query SQL injection,GraphQL-style UNION payload extracted hidden product inventory rows. WAF bypass payload served identical result sets.
+https://juice-shop.herokuapp.com/rest/user/login,POST,email,Boolean-based blind SQL injection,Boolean injection bypassed login by forcing true condition. Automated rerun validated exploit stability at 95% confidence.
+https://juice-shop.herokuapp.com/api/Feedbacks/,POST,comment,Error-based SQL injection,SQLite error leak confirmed direct concatenation of comment field. Confidence derived from 3/3 positive payloads.
+https://juice-shop.herokuapp.com/rest/products/{id},URI,id,Time-based blind SQL injection,Route parameter payload added delay via SELECT randomblob with sleep. Retest with tamper scripts confirmed consistent delays.

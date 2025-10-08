@@ -446,7 +446,7 @@ class SQLMapIntegration {
     };
   }
 
-  buildSQLMapCommand(target, options = {}, scanProfile = 'basic') {
+  buildSQLMapCommand(target, options = {}, scanProfile = 'basic', context = {}) {
     this.validateTarget(target);
 
     const command = [];
@@ -510,23 +510,26 @@ class SQLMapIntegration {
 
     if (scanProfile === 'custom' && options.customFlags) {
       // Parse and validate custom flags
-      const customFlags = this.parseCustomFlags(options.customFlags);
+      const customFlags = this.parseCustomFlags(options.customFlags, context);
       command.push(...customFlags);
     }
 
     return { command, outputDir };
   }
 
-  parseCustomFlags(customFlags) {
+  parseCustomFlags(customFlags, context = {}) {
     if (typeof customFlags !== 'string') {
       return [];
     }
 
-    // Split flags and validate
-    const flags = customFlags.split(' ').filter(flag => flag.trim());
+    const { isAdmin = false } = context || {};
+
+    // Tokenize while preserving quoted segments
+    const tokens = customFlags.match(/"[^"]*"|'[^']*'|\S+/g) || [];
+    const sanitizedTokens = tokens.map(token => token.trim()).filter(Boolean);
     const validatedFlags = [];
-    
-    // Whitelist of allowed flags
+
+    // Whitelist of allowed flags for standard users
     const allowedFlags = [
       '--level', '--risk', '--threads', '--delay', '--timeout',
       '--tamper', '--technique', '--dbms', '--os', '--random-agent',
@@ -538,29 +541,53 @@ class SQLMapIntegration {
       '--smart', '--skip-heuristics', '--skip-static', '--unstable'
     ];
 
-    for (let i = 0; i < flags.length; i++) {
-      const flag = flags[i];
-      
-      if (flag.startsWith('--')) {
-        const flagName = flag.split('=')[0];
-        if (allowedFlags.includes(flagName)) {
-          validatedFlags.push(flag);
-          
-          // Check if next item is a value for this flag
-          if (i + 1 < flags.length && !flags[i + 1].startsWith('--')) {
-            validatedFlags.push(flags[i + 1]);
-            i++; // Skip next iteration as we've processed the value
-          }
-        } else {
-          Logger.warn(`Skipping disallowed flag: ${flag}`);
+    const previousFlagRequiresValue = () => {
+      if (!validatedFlags.length) return false;
+      const last = validatedFlags[validatedFlags.length - 1];
+      return typeof last === 'string' && last.startsWith('-') && !last.includes('=');
+    };
+
+    for (let i = 0; i < sanitizedTokens.length; i++) {
+      const token = sanitizedTokens[i];
+      if (!token) continue;
+
+      if (!token.startsWith('-')) {
+        if (isAdmin || previousFlagRequiresValue()) {
+          validatedFlags.push(token);
         }
+        continue;
+      }
+
+      if (isAdmin) {
+        validatedFlags.push(token);
+        continue;
+      }
+
+      if (!token.startsWith('--')) {
+        Logger.warn(`Skipping disallowed flag: ${token}`);
+        continue;
+      }
+
+      const flagName = token.split('=')[0];
+      if (allowedFlags.includes(flagName)) {
+        validatedFlags.push(token);
+
+        if (!token.includes('=') && i + 1 < sanitizedTokens.length) {
+          const valueCandidate = sanitizedTokens[i + 1];
+          if (valueCandidate && !valueCandidate.startsWith('--')) {
+            validatedFlags.push(valueCandidate);
+            i++;
+          }
+        }
+      } else {
+        Logger.warn(`Skipping disallowed flag: ${token}`);
       }
     }
 
     return validatedFlags;
   }
 
-  async startScan(target, options = {}, scanProfile = 'basic', userId = 'system') {
+  async startScan(target, options = {}, scanProfile = 'basic', userId = 'system', context = {}) {
   const sessionId = uuidv4();
   // Use per-user directory inside the configured temp directory
   const outputDir = path.join(this.tempDir, String(userId), sessionId);
@@ -577,7 +604,7 @@ class SQLMapIntegration {
     
     // Merge profile flags with any custom options
     const profileFlags = profile.flags || [];
-    const customFlags = options.customFlags ? this.parseCustomFlags(options.customFlags) : [];
+  const customFlags = options.customFlags ? this.parseCustomFlags(options.customFlags, context) : [];
 
     const args = [
       '-u', target,

@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://zero.webappsecurity.com/login.html,POST,user_login,Boolean-based blind SQL injection,Injected boolean toggles flipped login error responses without rate limiting. Manual verification reproduced the SQL error messages.
+https://zero.webappsecurity.com/bank/transfer-funds.html,POST,amount,Time-based blind SQL injection,"1=IF(1=1,SLEEP(4),0) payload produced deterministic waiting period. Heuristic fingerprint matched historical injection behaviour."
+https://zero.webappsecurity.com/search.html,GET,searchTerm,Union query SQL injection,UNION SELECT returned database user banner appended to search results. WAF bypass payload served identical result sets.
+https://zero.webappsecurity.com/account-activity.html,GET,account,Error-based SQL injection,Malformed payload triggered PGSQL error leaking schema information. Automated rerun validated exploit stability at 95% confidence.

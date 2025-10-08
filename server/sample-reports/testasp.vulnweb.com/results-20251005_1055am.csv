@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://testasp.vulnweb.com/default.aspx?id=2,GET,id,Boolean-based blind SQL injection,Injected condition modified ASP.NET viewstate output predictably. Confidence derived from 3/3 positive payloads.
+https://testasp.vulnweb.com/search.aspx,POST,txtSearch,Time-based blind SQL injection,WAITFOR DELAY payload introduced 4.5 second average latency. Retest with tamper scripts confirmed consistent delays.
+https://testasp.vulnweb.com/cart.aspx,GET,cartID,Stacked queries,"Stacked INSERT payload succeeded, confirming multi-statement execution. Manual verification reproduced the SQL error messages."
+https://testasp.vulnweb.com/feedback.aspx,POST,txtMessage,Union query SQL injection,UNION SELECT returned additional columns beyond expected schema. Heuristic fingerprint matched historical injection behaviour.

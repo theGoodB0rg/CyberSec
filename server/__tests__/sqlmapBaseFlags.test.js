@@ -108,4 +108,14 @@ describe('SQLMap base flag metadata', () => {
     expect(command.some((token) => token.startsWith('--level='))).toBe(true);
     expect(command.some((token) => token.startsWith('--risk='))).toBe(true);
   });
+
+  it('filters disallowed custom flags for standard users', () => {
+    const output = integration.parseCustomFlags('--eval=print(1) --risk=3 --tor');
+    expect(output).toEqual(['--risk=3']);
+  });
+
+  it('allows admins to retain custom flags without whitelist filtering', () => {
+    const output = integration.parseCustomFlags('--eval=print(1) --risk=3 --tor -v 3', { isAdmin: true });
+    expect(output).toEqual(['--eval=print(1)', '--risk=3', '--tor', '-v', '3']);
+  });
 });

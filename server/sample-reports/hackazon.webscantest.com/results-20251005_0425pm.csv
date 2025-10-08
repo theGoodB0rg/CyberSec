@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://hackazon.webscantest.com/category.php,GET,id,Boolean-based blind SQL injection,True/false payloads impacted product carousel rendering speed. Confidence derived from 3/3 positive payloads.
+https://hackazon.webscantest.com/api/cart,POST,product_id,Time-based blind SQL injection,Sleep-based payload blocked cart update thread during exploitation. Retest with tamper scripts confirmed consistent delays.
+https://hackazon.webscantest.com/login.php,POST,username,Boolean-based blind SQL injection,Login accepted payload returning administrator dashboard view. Manual verification reproduced the SQL error messages.
+https://hackazon.webscantest.com/api/products,GET,sort,Union query SQL injection,UNION ALL payload appended system users to JSON array. Heuristic fingerprint matched historical injection behaviour.

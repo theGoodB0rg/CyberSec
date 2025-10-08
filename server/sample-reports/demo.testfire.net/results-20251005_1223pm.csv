@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://demo.testfire.net/bank/login.aspx,POST,uid,Boolean-based blind SQL injection,Account enumeration responded differently to OR-based predicates. Heuristic fingerprint matched historical injection behaviour.
+https://demo.testfire.net/bank/search.aspx,GET,query,Union query SQL injection,UNION payload exposed account table with matching column count. WAF bypass payload served identical result sets.
+https://demo.testfire.net/bank/account.aspx,GET,id,Error-based SQL injection,Server echoed JDBC error revealing Oracle version metadata. Automated rerun validated exploit stability at 95% confidence.
+https://demo.testfire.net/bank/transfer.aspx,POST,amount,Time-based blind SQL injection,Inference payload with dbms_pipe.receive_message delayed response by 6 seconds. Confidence derived from 3/3 positive payloads.

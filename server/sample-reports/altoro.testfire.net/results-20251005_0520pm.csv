@@ -1,0 +1,5 @@
+Target URL,Place,Parameter,Technique(s),Note(s)
+https://altoro.testfire.net/bank/querybalance.aspx,POST,txtAccNum,Boolean-based blind SQL injection,Injected OR clause returned balance data for arbitrary accounts. Confidence derived from 3/3 positive payloads.
+https://altoro.testfire.net/bank/transfer.aspx,POST,amount,Stacked queries,Stacked payload executed INSERT marker into audit log table. Retest with tamper scripts confirmed consistent delays.
+https://altoro.testfire.net/bank/statement.aspx,GET,account,Union query SQL injection,UNION SELECT produced concatenated card numbers in response. Manual verification reproduced the SQL error messages.
+https://altoro.testfire.net/bank/account.aspx,GET,id,Error-based SQL injection,Exception trace disclosed DB2 syntax error with payload markers. Heuristic fingerprint matched historical injection behaviour.

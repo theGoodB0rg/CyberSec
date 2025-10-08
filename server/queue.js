@@ -136,7 +136,7 @@ class QueueRunner {
           } catch (_) {}
 
           // Start scan
-          const { process: proc, outputDir } = await this.sqlmap.startScan(target, preparedOptions, scanProfile || 'basic', userId);
+          const { process: proc, outputDir } = await this.sqlmap.startScan(target, preparedOptions, scanProfile || 'basic', userId, { isAdmin: !!created_by_admin });
 
           // Record scan in DB
           const startTimeIso = new Date().toISOString();
