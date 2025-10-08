@@ -217,12 +217,23 @@ applyTrustProxy(process.env.TRUST_PROXY);
 const PORT = process.env.PORT || 3001;
 
 // Rate limiting
+const skipGlobalRateLimit = (req) => {
+  try {
+    const path = (req.path || req.originalUrl || '').toLowerCase();
+    if (path === '/api/health' || path === '/api/health/') {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+};
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipGlobalRateLimit,
 });
 app.use(limiter);
 
@@ -742,6 +753,24 @@ app.delete('/api/user/profiles/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete profile' });
   }
 });
+
+// Get running scans for current user (admin may see all)
+app.get('/api/scans/running', async (req, res) => {
+  try {
+    const scans = await database.getScansForUser(
+      req.user.id,
+      req.user.orgId,
+      req.user.role === 'admin',
+      200,
+      0
+    );
+    res.json(scans.filter(s => s.status === 'running'));
+  } catch (e) {
+    Logger.error('Error fetching running scans', e);
+    res.status(500).json({ error: 'Failed to fetch running scans' });
+  }
+});
+
 // Get a specific scan (ownership enforced)
 app.get('/api/scans/:id', async (req, res) => {
   try {
@@ -999,23 +1028,6 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
   } catch (error) {
     Logger.error('Error starting HTTP scan:', error);
     return res.status(500).json({ error: 'Failed to start scan', details: error.message });
-  }
-});
-
-// Get running scans for current user (admin may see all)
-app.get('/api/scans/running', async (req, res) => {
-  try {
-    const scans = await database.getScansForUser(
-      req.user.id,
-      req.user.orgId,
-      req.user.role === 'admin',
-      200,
-      0
-    );
-    res.json(scans.filter(s => s.status === 'running'));
-  } catch (e) {
-    Logger.error('Error fetching running scans', e);
-    res.status(500).json({ error: 'Failed to fetch running scans' });
   }
 });
 
@@ -2142,6 +2154,19 @@ io.on('connection', (socket) => {
     socket.emit('auth-ok', { userId: socket.user?.id, role: socket.user?.role, orgId: socket.user?.orgId || null });
   } catch (_) {}
 
+  const emitToUserRoom = (event, payload, targetUserId = null) => {
+    const userId = targetUserId || socket.user?.id || null;
+    if (userId) {
+      try {
+        io.to(`user:${userId}`).emit(event, payload);
+        return;
+      } catch (_) {}
+    }
+    try {
+      socket.emit(event, payload);
+    } catch (_) {}
+  };
+
   // On connect, inform the client about any scans still running for this user
   try {
     const userId = socket.user?.id;
@@ -2159,31 +2184,37 @@ io.on('connection', (socket) => {
   }
 
   // Handle SQLMap scan initiation
-  socket.on('start-sqlmap-scan', async (data) => {
-  try {
-  const { target, options, scanProfile, userProfileId = null, userProfileName = null } = data;
-      
+  socket.on('start-sqlmap-scan', async (data = {}) => {
+    const userRoomId = socket.user?.id || null;
+    const userId = socket.user?.id || 'system';
+    const orgId = socket.user?.orgId || null;
+    const isAdmin = socket.user?.role === 'admin';
+
+    try {
+      const {
+        target,
+        options,
+        scanProfile,
+        userProfileId = null,
+        userProfileName = null
+      } = data || {};
+
       // Validate input
       if (!target || !SecurityMiddleware.isValidURL(target)) {
-        socket.emit('scan-error', { message: 'Invalid target URL provided' });
+        emitToUserRoom('scan-error', { message: 'Invalid target URL provided' }, userRoomId);
         return;
       }
 
       // Enforce proxy requirement if configured
       const proxyCheck = SecurityMiddleware.requireProxyIfEnabled(options || {});
       if (!proxyCheck.ok) {
-        socket.emit('scan-error', { message: proxyCheck.error });
+        emitToUserRoom('scan-error', { message: proxyCheck.error }, userRoomId);
         return;
       }
 
-      // Enforce per-user concurrency and quotas
-      const userId = socket.user?.id || 'system';
-      const orgId = socket.user?.orgId || null;
-      const isAdmin = socket.user?.role === 'admin';
-
       // Acquire per-user lock (best-effort). If already locked, reject quickly.
       if (userStartLocks.get(userId)) {
-        socket.emit('scan-error', { message: 'Another scan is being started. Please wait a moment and try again.' });
+        emitToUserRoom('scan-error', { message: 'Another scan is being started. Please wait a moment and try again.' }, userRoomId);
         return;
       }
       userStartLocks.set(userId, true);
@@ -2191,13 +2222,13 @@ io.on('connection', (socket) => {
 
   const concurrency = await evaluateConcurrencyForUser({ userId, isAdmin, database, scanProcesses });
       if (!concurrency.hasCapacity) {
-        socket.emit('scan-error', {
+        emitToUserRoom('scan-error', {
           message: concurrency.limit === 1
             ? 'You already have an active scan running. Wait for it to finish before starting another.'
             : `Concurrent scan limit reached (${concurrency.limit}). Please wait for existing scans to finish.`,
           limit: concurrency.limit,
           activeScan: concurrency.activeScan
-        });
+        }, userRoomId);
         releaseLock();
         return;
       }
@@ -2208,7 +2239,7 @@ io.on('connection', (socket) => {
       if (!isAdmin) {
         const usage = await database.getUsageForUser(userId, period);
         if ((usage?.scans_started || 0) >= MAX_SCANS_MONTH) {
-          socket.emit('scan-error', { message: `Monthly scan quota reached (${MAX_SCANS_MONTH} in ${period}).` });
+          emitToUserRoom('scan-error', { message: `Monthly scan quota reached (${MAX_SCANS_MONTH} in ${period}).` }, userRoomId);
           releaseLock();
           return;
         }
@@ -2221,7 +2252,7 @@ io.on('connection', (socket) => {
         if (dup) {
           // Telemetry: track duplicate-window detection on WS path
           try { await database.incrementDuplicateWindowRetries(userId, period); } catch (_) {}
-          socket.emit('scan-error', { message: 'A similar scan was just started. Please wait a few seconds before trying again.' });
+          emitToUserRoom('scan-error', { message: 'A similar scan was just started. Please wait a few seconds before trying again.' }, userRoomId);
           releaseLock();
           return;
         }
@@ -2235,7 +2266,7 @@ io.on('connection', (socket) => {
       if (!allowUnverified && !isAdmin) {
         const hostname = extractHostname(target);
         if (!hostname) {
-          socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
+          emitToUserRoom('scan-error', { message: 'Unable to parse target hostname for verification.' }, userRoomId);
           releaseLock();
           return;
         }
@@ -2245,7 +2276,7 @@ io.on('connection', (socket) => {
           if (!verified) {
             // Log security event for visibility/audit
             Logger.suspiciousActivity('unverified-target', { userId, orgId, hostname, target });
-            socket.emit('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
+            emitToUserRoom('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` }, userRoomId);
             releaseLock();
             return;
           }
@@ -2338,7 +2369,7 @@ io.on('connection', (socket) => {
       // Handle real-time output
       proc.stdout.on('data', (data) => {
         const output = data.toString();
-        socket.emit('scan-output', { scanId, output, type: 'stdout' });
+        emitToUserRoom('scan-output', { scanId, output, type: 'stdout' }, userRoomId);
         database.appendScanOutput(scanId, output, 'stdout');
         // Opportunistic event logging with throttling by chunk size
         if (output && output.trim()) {
@@ -2354,7 +2385,7 @@ io.on('connection', (socket) => {
 
       proc.stderr.on('data', (data) => {
         const output = data.toString();
-        socket.emit('scan-output', { scanId, output, type: 'stderr' });
+        emitToUserRoom('scan-output', { scanId, output, type: 'stderr' }, userRoomId);
         database.appendScanOutput(scanId, output, 'stderr');
         if (output && output.trim()) {
           database.logScanEvent({
@@ -2423,14 +2454,14 @@ io.on('connection', (socket) => {
           const reportData = await reportGenerator.generateReport(scanId, scanData, sqlmapResults);
           const reportId = await database.createReport({ ...reportData, user_id: socket.user?.id || 'system', org_id: socket.user?.orgId || null });
           
-          socket.emit('scan-completed', { 
+          emitToUserRoom('scan-completed', { 
             scanId, 
             status: code === 0 ? 'completed' : 'failed',
             reportId: reportId,
             exit_code: code,
             hasStructuredResults: !!sqlmapResults,
             verdictMeta
-          });
+          }, userRoomId);
           try {
             await database.logScanEvent({
               scan_id: scanId,
@@ -2452,10 +2483,10 @@ io.on('connection', (socket) => {
           
         } catch (reportError) {
           Logger.error('Error generating report:', reportError);
-          socket.emit('scan-error', { 
+          emitToUserRoom('scan-error', { 
             scanId, 
             message: 'Scan completed but failed to generate report' 
-          });
+          }, userRoomId);
         } finally {
           // Clean up the scan process tracking
           scanProcesses.delete(scanId);
@@ -2464,7 +2495,7 @@ io.on('connection', (socket) => {
 
       proc.on('error', (error) => {
         Logger.error('SQLMap process error:', error);
-        socket.emit('scan-error', { scanId, message: error.message });
+        emitToUserRoom('scan-error', { scanId, message: error.message }, userRoomId);
         database.updateScan(scanId, { status: 'failed', error: error.message });
         database.logScanEvent({
           scan_id: scanId,
@@ -2480,12 +2511,12 @@ io.on('connection', (socket) => {
       socket.scanProcess = proc;
       socket.scanId = scanId;
 
-  socket.emit('scan-started', { scanId, target, scanProfile: effectiveProfile, startTime: startTimeIso, sessionId });
-  releaseLock();
+      emitToUserRoom('scan-started', { scanId, target, scanProfile: effectiveProfile, startTime: startTimeIso, sessionId }, userRoomId);
+      releaseLock();
 
     } catch (error) {
       Logger.error('Error starting scan:', error);
-      socket.emit('scan-error', { message: error.message });
+      emitToUserRoom('scan-error', { message: error.message }, userRoomId);
       try { userStartLocks.delete(socket.user?.id || 'system'); } catch (_) {}
     }
   });
@@ -2496,6 +2527,7 @@ io.on('connection', (socket) => {
       const userId = socket.user?.id || 'system';
       const orgId = socket.user?.orgId || null;
       const isAdmin = socket.user?.role === 'admin';
+      const userRoomId = socket.user?.id || null;
 
       // Resolve target/options/profile
       let target = payload.target;
@@ -2506,14 +2538,14 @@ io.on('connection', (socket) => {
         // Load previous scan and reuse its parameters
         const prev = await database.getScan(String(payload.scanId));
         if (!prev) {
-          socket.emit('scan-error', { message: 'Previous scan not found' });
+          emitToUserRoom('scan-error', { message: 'Previous scan not found' }, userRoomId);
           return;
         }
         // Ownership check
         const owns = isAdmin || prev.user_id === userId || (orgId && prev.org_id === orgId);
         if (!owns) {
           Logger.unauthorizedAccess('scan-restart', { scanId: payload.scanId, owner: prev.user_id, by: userId, byOrg: orgId });
-          socket.emit('scan-error', { message: 'You do not have permission to restart this scan.' });
+          emitToUserRoom('scan-error', { message: 'You do not have permission to restart this scan.' }, userRoomId);
           return;
         }
         target = prev.target;
@@ -2523,20 +2555,20 @@ io.on('connection', (socket) => {
       }
 
       if (!target || !SecurityMiddleware.isValidURL(target)) {
-        socket.emit('scan-error', { message: 'Invalid or missing target for restart' });
+        emitToUserRoom('scan-error', { message: 'Invalid or missing target for restart' }, userRoomId);
         return;
       }
 
       // Proxy requirement
       const proxyCheck = SecurityMiddleware.requireProxyIfEnabled(options || {});
       if (!proxyCheck.ok) {
-        socket.emit('scan-error', { message: proxyCheck.error });
+        emitToUserRoom('scan-error', { message: proxyCheck.error }, userRoomId);
         return;
       }
 
       // Per-user start lock
       if (userStartLocks.get(userId)) {
-        socket.emit('scan-error', { message: 'Another scan is being started. Please wait a moment and try again.' });
+        emitToUserRoom('scan-error', { message: 'Another scan is being started. Please wait a moment and try again.' }, userRoomId);
         return;
       }
       userStartLocks.set(userId, true);
@@ -2545,13 +2577,13 @@ io.on('connection', (socket) => {
       try {
   const concurrency = await evaluateConcurrencyForUser({ userId, isAdmin, database, scanProcesses });
         if (!concurrency.hasCapacity) {
-          socket.emit('scan-error', {
+          emitToUserRoom('scan-error', {
             message: concurrency.limit === 1
               ? 'You already have an active scan running. Wait for it to finish before starting another.'
               : `Concurrent scan limit reached (${concurrency.limit}). Please wait for existing scans to finish.`,
             limit: concurrency.limit,
             activeScan: concurrency.activeScan
-          });
+          }, userRoomId);
           return;
         }
 
@@ -2561,7 +2593,7 @@ io.on('connection', (socket) => {
         if (!isAdmin) {
           const usage = await database.getUsageForUser(userId, period);
           if ((usage?.scans_started || 0) >= MAX_SCANS_MONTH) {
-            socket.emit('scan-error', { message: `Monthly scan quota reached (${MAX_SCANS_MONTH} in ${period}).` });
+            emitToUserRoom('scan-error', { message: `Monthly scan quota reached (${MAX_SCANS_MONTH} in ${period}).` }, userRoomId);
             return;
           }
         }
@@ -2573,7 +2605,7 @@ io.on('connection', (socket) => {
         if (!allowUnverified && !isAdmin) {
           const hostname = extractHostname(target);
           if (!hostname) {
-            socket.emit('scan-error', { message: 'Unable to parse target hostname for verification.' });
+            emitToUserRoom('scan-error', { message: 'Unable to parse target hostname for verification.' }, userRoomId);
             return;
           }
           const safeHost = isSafeTargetHostname(hostname);
@@ -2581,7 +2613,7 @@ io.on('connection', (socket) => {
             const verified = await database.getVerifiedTargetForUser(hostname, userId, orgId, isAdmin);
             if (!verified) {
               Logger.suspiciousActivity('unverified-target-restart', { userId, orgId, hostname, target });
-              socket.emit('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` });
+              emitToUserRoom('scan-error', { message: `Target ${hostname} is not verified for your account. Verify ownership before scanning.` }, userRoomId);
               return;
             }
           } else {
@@ -2635,7 +2667,7 @@ io.on('connection', (socket) => {
         // Stream output
         proc.stdout.on('data', (data) => {
           const output = data.toString();
-          socket.emit('scan-output', { scanId, output, type: 'stdout' });
+          emitToUserRoom('scan-output', { scanId, output, type: 'stdout' }, userRoomId);
           database.appendScanOutput(scanId, output, 'stdout');
           if (output && output.trim()) {
             database.logScanEvent({
@@ -2649,7 +2681,7 @@ io.on('connection', (socket) => {
         });
         proc.stderr.on('data', (data) => {
           const output = data.toString();
-          socket.emit('scan-output', { scanId, output, type: 'stderr' });
+          emitToUserRoom('scan-output', { scanId, output, type: 'stderr' }, userRoomId);
           database.appendScanOutput(scanId, output, 'stderr');
           if (output && output.trim()) {
             database.logScanEvent({
@@ -2697,7 +2729,7 @@ io.on('connection', (socket) => {
             }
             const reportData = await reportGenerator.generateReport(scanId, scanData, sqlmapResults);
             const reportId = await database.createReport({ ...reportData, user_id: userId, org_id: orgId });
-            socket.emit('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults, verdictMeta });
+            emitToUserRoom('scan-completed', { scanId, status: code === 0 ? 'completed' : 'failed', reportId, exit_code: code, hasStructuredResults: !!sqlmapResults, verdictMeta }, userRoomId);
             database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: code === 0 ? 'completed' : 'failed', metadata: { exit_code: code, reportId, hasStructuredResults: !!sqlmapResults, verdictMeta, via: 'ws', restartOf: payload.scanId || null } }).catch(()=>{});
             try {
               const runtime = (new Date(scanData.end_time).getTime() - new Date(scanData.start_time).getTime()) || 0;
@@ -2705,7 +2737,7 @@ io.on('connection', (socket) => {
             } catch (_) {}
           } catch (e) {
             Logger.error('Restart scan close handler error', e);
-            socket.emit('scan-error', { scanId, message: 'Scan completed but failed to generate report' });
+            emitToUserRoom('scan-error', { scanId, message: 'Scan completed but failed to generate report' }, userRoomId);
           } finally {
             scanProcesses.delete(scanId);
           }
@@ -2713,19 +2745,19 @@ io.on('connection', (socket) => {
 
         proc.on('error', (error) => {
           Logger.error('SQLMap process error (restart):', error);
-          socket.emit('scan-error', { scanId, message: error.message });
+          emitToUserRoom('scan-error', { scanId, message: error.message }, userRoomId);
           database.updateScan(scanId, { status: 'failed', error: error.message });
           database.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: 'process-error', metadata: { message: error.message, via: 'ws', restartOf: payload.scanId || null } }).catch(()=>{});
           scanProcesses.delete(scanId);
         });
 
-  socket.emit('scan-started', { scanId, target, scanProfile, startTime: startTimeIso, sessionId });
+  emitToUserRoom('scan-started', { scanId, target, scanProfile, startTime: startTimeIso, sessionId }, userRoomId);
       } finally {
         releaseLock();
       }
     } catch (e) {
       Logger.error('Restart-scan failed', e);
-      socket.emit('scan-error', { message: e.message || 'Failed to restart scan' });
+      emitToUserRoom('scan-error', { message: e.message || 'Failed to restart scan' }, socket.user?.id || null);
     }
   });
 
@@ -2734,6 +2766,7 @@ io.on('connection', (socket) => {
     // Be robust to non-object payloads or undefined
     const safePayload = (payload && typeof payload === 'object') ? payload : {};
     let reqScanId = safePayload.scanId || socket.scanId;
+    const userRoomId = socket.user?.id || null;
 
     // If scanId wasn't provided and none is bound to the socket, try to infer
     // the most recent running scan for this user
@@ -2751,7 +2784,7 @@ io.on('connection', (socket) => {
     }
 
     if (!procInfo || !reqScanId) {
-      socket.emit('scan-error', { message: 'Scan not found or already finished.' });
+      emitToUserRoom('scan-error', { message: 'Scan not found or already finished.' }, userRoomId);
       return;
     }
 
@@ -2761,7 +2794,7 @@ io.on('connection', (socket) => {
     if (!(isAdmin || sameUser || sameOrg)) {
       // Explicit security log for unauthorized termination attempt
       Logger.unauthorizedAccess('scan-terminate', { scanId: reqScanId, owner: procInfo.userId, by: socket.user?.id, byOrg: socket.user?.orgId || null });
-      socket.emit('scan-error', { message: 'You do not have permission to terminate this scan.' });
+      emitToUserRoom('scan-error', { message: 'You do not have permission to terminate this scan.' }, userRoomId);
       return;
     }
 
@@ -2773,7 +2806,7 @@ io.on('connection', (socket) => {
       } else {
         procInfo.process?.kill?.('SIGTERM');
       }
-      socket.emit('scan-terminated', { scanId: reqScanId });
+  emitToUserRoom('scan-terminated', { scanId: reqScanId }, procInfo.userId || userRoomId);
       database.updateScan(reqScanId, {
         status: 'terminated',
         end_time: new Date().toISOString()
@@ -2787,7 +2820,7 @@ io.on('connection', (socket) => {
       }).catch(()=>{});
       scanProcesses.delete(reqScanId);
     } catch (e) {
-      socket.emit('scan-error', { message: 'Failed to terminate scan.' });
+      emitToUserRoom('scan-error', { message: 'Failed to terminate scan.' }, userRoomId);
     }
   });
 
