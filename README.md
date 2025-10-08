@@ -621,7 +621,12 @@ NODE_ENV=development
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+CyberSec is proprietary software. Evaluation access is provided solely for
+portfolio review. All other rights—including copying, modifying, distributing,
+or running commercially—require a separate written agreement with the author.
+See the [LICENSE](LICENSE) file for the full terms and
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md) for external component licenses
+such as SQLMap, React, Tailwind, and related tooling.
 
 ## 🙏 Acknowledgments
 

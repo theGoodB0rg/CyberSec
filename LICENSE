@@ -1,0 +1,51 @@
+CyberSec – Proprietary License
+Copyright © 2025 theGoodB0rg. All rights reserved.
+
+1. Grant of Rights. theGoodB0rg ("Licensor") retains all right, title, and
+	interest in and to the CyberSec application, its source code, object code,
+	documentation, and associated assets (collectively, the "Software"). No
+	license or other rights are granted to any party to copy, modify, merge,
+	publish, distribute, sublicense, sell, create derivative works from, or
+	otherwise exploit the Software without Licensor’s prior written consent.
+
+2. Portfolio Access. Public repository visibility is provided solely for
+	evaluation of the Licensor’s portfolio. Any other use—including, without
+	limitation, executing the Software in production, reverse engineering, or
+	incorporating any portion of the Software into other projects—is strictly
+	prohibited without a separate written agreement.
+
+3. Commercial Use. Commercial licensing terms may be negotiated directly with
+	Licensor. Contact: theGoodB0rg (github.com/theGoodB0rg or associated public
+	contact channels).
+
+4. Third-Party Components.
+	a. The Software orchestrates third-party tools (e.g., SQLMap) and depends on
+		frontend/backend libraries that are licensed separately (e.g., MIT,
+		Apache 2.0, GPLv2).
+	b. Such third-party components are not covered by this proprietary license
+		and remain subject to their respective licenses. Users must obtain and
+		comply with those licenses before installing, executing, or redistributing
+		those third-party components.
+
+5. Warranty Disclaimer. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+	ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, OR
+	NON-INFRINGEMENT.
+
+6. Limitation of Liability. IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY
+	DAMAGES (INCLUDING, WITHOUT LIMITATION, LOST PROFITS, BUSINESS INTERRUPTION,
+	OR LOSS OF INFORMATION) ARISING OUT OF THE USE OF OR INABILITY TO USE THE
+	SOFTWARE, EVEN IF LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+	DAMAGES.
+
+7. Termination. Licensor may revoke repository access or this limited
+	evaluation right at any time and for any reason. Upon notice of revocation,
+	the recipient must immediately cease all use of the Software and destroy any
+	copies in their possession.
+
+8. Governing Law. This agreement is governed by the laws of England and Wales,
+	without regard to conflict of law principles.
+
+9. Contact. For commercial inquiries, security disclosures, or licensing
+	questions, please reach out via the contact information contained in the
+	project README or the Licensor’s GitHub profile.
