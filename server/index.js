@@ -7,6 +7,10 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 
+const DB_PATH = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(__dirname, 'data', 'cybersecurity.db');
+
 // Import custom modules
 const Database = require('./database');
 const SQLMapIntegration = require('./sqlmap');
