@@ -223,6 +223,9 @@ const skipGlobalRateLimit = (req) => {
     if (path === '/api/health' || path === '/api/health/') {
       return true;
     }
+    if (path.startsWith('/api/admin/scans/running')) {
+      return true;
+    }
   } catch (_) {}
   return false;
 };
