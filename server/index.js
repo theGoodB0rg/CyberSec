@@ -151,6 +151,68 @@ const io = socketIo(server, {
   }
 });
 
+const TRUST_PROXY_AUTO_VALUE = 'loopback, linklocal, uniquelocal';
+
+const resolveTrustProxySetting = (raw) => {
+  if (raw === undefined || raw === null) {
+    return { effective: 'auto', applied: TRUST_PROXY_AUTO_VALUE };
+  }
+
+  const value = String(raw).trim();
+  if (!value) {
+    return { effective: 'auto', applied: TRUST_PROXY_AUTO_VALUE };
+  }
+
+  const lower = value.toLowerCase();
+  if (lower === 'auto') {
+    return { effective: 'auto', applied: TRUST_PROXY_AUTO_VALUE };
+  }
+  if (lower === 'true') {
+    return { effective: 'true', applied: true };
+  }
+  if (lower === 'false') {
+    return { effective: 'false', applied: false };
+  }
+
+  const numeric = Number(value);
+  if (!Number.isNaN(numeric)) {
+    return { effective: value, applied: numeric };
+  }
+
+  if (value.includes(',')) {
+    const tokens = value.split(',').map((token) => token.trim()).filter(Boolean);
+    if (!tokens.length) {
+      return { effective: 'auto', applied: TRUST_PROXY_AUTO_VALUE };
+    }
+    if (tokens.length === 1) {
+      return { effective: tokens[0], applied: tokens[0] };
+    }
+    return { effective: tokens.join(', '), applied: tokens };
+  }
+
+  return { effective: value, applied: value };
+};
+
+let currentTrustProxySetting = 'auto';
+
+const applyTrustProxy = (raw) => {
+  const { effective, applied } = resolveTrustProxySetting(raw);
+  try {
+    app.set('trust proxy', applied);
+    currentTrustProxySetting = effective;
+  } catch (error) {
+    currentTrustProxySetting = 'auto';
+    app.set('trust proxy', TRUST_PROXY_AUTO_VALUE);
+    Logger.warn('Failed to apply trust proxy setting; reverted to auto.', {
+      attempted: raw,
+      error: error.message
+    });
+  }
+  return currentTrustProxySetting;
+};
+
+applyTrustProxy(process.env.TRUST_PROXY);
+
 // Configuration
 const PORT = process.env.PORT || 3001;
 
@@ -1995,7 +2057,7 @@ app.get('/api/admin/settings', async (req, res) => {
           db: requireProxyDb
         },
         trust_proxy: {
-          effective: __currentTrustProxySetting,
+          effective: currentTrustProxySetting,
           env: process.env.TRUST_PROXY || null,
           db: trustProxyDb
         }
