@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'react-hot-toast'
 import { useAppStore } from '@/store/appStore'
 import { apiFetch } from '@/utils/api'
+import RunningScansPanel, { RunningScan } from '@/components/admin/RunningScansPanel'
 
 interface Metrics {
   users: { total: number; admins: number }
@@ -22,6 +23,32 @@ export default function Admin() {
     trust_proxy: { effective: string; env: string | null; db: string | null }
   } | null>(null)
   const [saving, setSaving] = useState(false)
+
+  const handleTerminateScan = useCallback(async (scan: RunningScan) => {
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(`Terminate scan ${scan.scanId}?`)
+      if (!confirmed) return
+    }
+
+    let reason: string | undefined
+    if (typeof window !== 'undefined') {
+      const input = window.prompt('Reason for termination (optional)', 'Terminated by administrator')
+      if (input && input.trim().length > 0) {
+        reason = input.trim()
+      }
+    }
+
+    try {
+      await apiFetch(`/api/admin/scans/${encodeURIComponent(scan.scanId)}/terminate`, {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {})
+      })
+      toast.success(`Termination requested for ${scan.scanId}`)
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to terminate scan')
+      throw e
+    }
+  }, [])
 
   useEffect(() => {
     const load = async () => {
@@ -152,6 +179,8 @@ export default function Admin() {
           ))}
         </div>
       </div>
+
+  <RunningScansPanel onTerminate={handleTerminateScan} />
 
       {/* Settings Panel */}
       <div className="bg-gray-800 p-4 rounded-lg border border-gray-700 space-y-4">

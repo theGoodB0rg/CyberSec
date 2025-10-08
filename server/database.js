@@ -39,6 +39,7 @@ class Database {
         user_id TEXT,
         org_id TEXT,
         output_dir TEXT,
+        session_id TEXT,
         status TEXT DEFAULT 'pending',
         start_time TEXT,
         end_time TEXT,
@@ -338,6 +339,7 @@ class Database {
         { table: 'scans', stmt: 'ADD COLUMN user_id TEXT' },
         { table: 'scans', stmt: 'ADD COLUMN org_id TEXT' },
         { table: 'scans', stmt: 'ADD COLUMN output_dir TEXT' },
+        { table: 'scans', stmt: 'ADD COLUMN session_id TEXT' },
         { table: 'scans', stmt: 'ADD COLUMN verdict_meta TEXT' },
         { table: 'reports', stmt: 'ADD COLUMN user_id TEXT' },
         { table: 'reports', stmt: 'ADD COLUMN org_id TEXT' }
@@ -542,11 +544,11 @@ class Database {
   async createScan(scanData) {
     return new Promise((resolve, reject) => {
       const id = uuidv4();
-      const { target, options, scanProfile, status, start_time, user_id = 'system', org_id = null, output_dir = null } = scanData;
+  const { target, options, scanProfile, status, start_time, user_id = 'system', org_id = null, output_dir = null, session_id = null } = scanData;
       
       const stmt = this.db.prepare(`
-        INSERT INTO scans (id, target, options, scan_profile, user_id, org_id, output_dir, status, start_time, verdict_meta)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO scans (id, target, options, scan_profile, user_id, org_id, output_dir, session_id, status, start_time, verdict_meta)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run([
@@ -557,9 +559,10 @@ class Database {
         user_id,
         org_id,
         output_dir,
-        status,
-        start_time,
-        null
+  status,
+  session_id,
+  start_time,
+  null
       ], function(err) {
         if (err) {
           reject(err);
@@ -591,6 +594,7 @@ class Database {
               row.updatedAt = row.updated_at;
               row.startTime = row.start_time;
               row.endTime = row.end_time;
+              row.sessionId = row.session_id;
             }
             resolve(row);
           }
@@ -618,6 +622,7 @@ class Database {
               row.updatedAt = row.updated_at;
               row.startTime = row.start_time;
               row.endTime = row.end_time;
+              row.sessionId = row.session_id;
               return row;
             });
             resolve(scans);
@@ -655,10 +660,72 @@ class Database {
             createdAt: row.created_at,
             updatedAt: row.updated_at,
             startTime: row.start_time,
-            endTime: row.end_time
+            endTime: row.end_time,
+            sessionId: row.session_id
           };
         });
         resolve(scans);
+      });
+    });
+  }
+
+  async getActiveScanForUser(userId) {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        SELECT * FROM scans
+        WHERE user_id = ? AND status IN ('running','pending')
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+      this.db.get(sql, [userId], (err, row) => {
+        if (err) return reject(err);
+        if (!row) return resolve(null);
+        const options = row.options ? this.safeJson(row.options, {}) : {};
+        const verdictMeta = this.safeJson(row.verdict_meta, null);
+        resolve({
+          ...row,
+          options,
+          verdictMeta,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          startTime: row.start_time,
+          endTime: row.end_time,
+          sessionId: row.session_id
+        });
+      });
+    });
+  }
+
+  async listActiveScans(includeUserDetails = true) {
+    return new Promise((resolve, reject) => {
+      let sql = `
+        SELECT s.*, u.email AS user_email, u.role AS user_role
+        FROM scans s
+        LEFT JOIN users u ON u.id = s.user_id
+        WHERE s.status IN ('running','pending')
+        ORDER BY s.created_at DESC
+      `;
+      if (!includeUserDetails) {
+        sql = `
+          SELECT * FROM scans
+          WHERE status IN ('running','pending')
+          ORDER BY created_at DESC
+        `;
+      }
+
+      this.db.all(sql, [], (err, rows) => {
+        if (err) return reject(err);
+        const mapped = (rows || []).map((row) => ({
+          ...row,
+          options: this.safeJson(row.options, {}),
+          verdictMeta: this.safeJson(row.verdict_meta, null),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          startTime: row.start_time,
+          endTime: row.end_time,
+          sessionId: row.session_id
+        }));
+        resolve(mapped);
       });
     });
   }

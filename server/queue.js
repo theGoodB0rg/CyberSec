@@ -4,6 +4,7 @@ const SQLMapIntegration = require('./sqlmap');
 const ReportGenerator = require('./reports');
 const { sanitizeOptionsForStorage, prepareAuthContext } = require('./helpers/scanHelpers');
 const { isSafeTargetHostname } = require('./utils/demoTargets');
+const { evaluateConcurrencyForUser } = require('./utils/concurrency');
 
 const extractHostname = (target) => {
   if (!target) return null;
@@ -74,9 +75,17 @@ class QueueRunner {
         const { id: jobId, user_id: userId, org_id: orgId, target, options, scan_profile: scanProfile, created_by_admin } = job;
 
         // Enforce per-user concurrency limit
-        const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
-        if (this.runningForUser(userId) >= MAX_CONCURRENT) {
-          // Skip for now; will be picked up next tick
+        const concurrency = await evaluateConcurrencyForUser({
+          userId,
+          isAdmin: !!created_by_admin,
+          database: this.db,
+          scanProcesses: this.scanProcesses
+        });
+        if (!concurrency.hasCapacity) {
+          // Skip for now; will be picked up next tick once capacity frees up
+          if (!created_by_admin) {
+            Logger.debug('Queue skipping job due to concurrency limit', { jobId, userId, limit: concurrency.limit, activeScan: concurrency.activeScan?.id });
+          }
           continue;
         }
 
@@ -136,7 +145,7 @@ class QueueRunner {
           } catch (_) {}
 
           // Start scan
-          const { process: proc, outputDir } = await this.sqlmap.startScan(target, preparedOptions, scanProfile || 'basic', userId, { isAdmin: !!created_by_admin });
+          const { process: proc, outputDir, sessionId } = await this.sqlmap.startScan(target, preparedOptions, scanProfile || 'basic', userId, { isAdmin: !!created_by_admin });
 
           // Record scan in DB
           const startTimeIso = new Date().toISOString();
@@ -148,7 +157,8 @@ class QueueRunner {
             org_id: orgId,
             output_dir: outputDir,
             status: 'running',
-            start_time: startTimeIso
+            start_time: startTimeIso,
+            session_id: sessionId
           });
 
           await this.db.markJobRunning(jobId, scanId);
@@ -157,7 +167,20 @@ class QueueRunner {
           this.db.logScanEvent({ scan_id: scanId, user_id: userId, org_id: orgId, event_type: 'started', metadata: { target, scanProfile, via: 'queue', jobId } }).catch(()=>{});
 
           // Track process
-          this.scanProcesses.set(scanId, { process: proc, outputDir, target, scanProfile, startTime: new Date(), userId, orgId });
+          this.scanProcesses.set(scanId, { process: proc, outputDir, target, scanProfile, startTime: new Date(), userId, orgId, sessionId });
+
+          try {
+            this.io?.to?.(`user:${userId}`)?.emit?.('scan-started', {
+              scanId,
+              target,
+              scanProfile,
+              startTime: startTimeIso,
+              sessionId,
+              via: 'queue'
+            });
+          } catch (notifyError) {
+            Logger.debug('Queue failed to emit scan-started event', { scanId, error: notifyError?.message });
+          }
 
           // Stream output to user room if sockets exist
           proc.stdout.on('data', (data) => {

@@ -30,6 +30,7 @@ const {
   getAllSafeHostnames,
   DEMO_HOSTNAMES
 } = require('./utils/demoTargets');
+const { evaluateConcurrencyForUser } = require('./utils/concurrency');
 
 const normalizeOrigin = (value) => {
   if (!value) return '';
@@ -148,70 +149,6 @@ const io = socketIo(server, {
 
 // Configuration
 const PORT = process.env.PORT || 3001;
-const resolveAppPath = (inputPath, fallback) => {
-  const candidate = typeof inputPath === 'string' ? inputPath.trim() : '';
-  if (!candidate) return fallback;
-  return path.isAbsolute(candidate) ? candidate : path.join(__dirname, candidate);
-};
-
-const DB_PATH = resolveAppPath(process.env.DB_PATH, path.join(__dirname, 'data', 'cybersecurity.db'));
-const DATA_DIR = path.dirname(DB_PATH);
-const APP_TEMP_DIR = resolveAppPath(process.env.TEMP_DIR, path.join(__dirname, 'temp'));
-const QUICK_VERIFY_EVIDENCE_DIR = resolveAppPath(process.env.EVIDENCE_DIR, path.join(APP_TEMP_DIR, 'quick-verify-evidence'));
-const VERIFICATIONS_DIR = path.join(APP_TEMP_DIR, 'verifications');
-
-// Ensure required directories exist
-for (const dir of [DATA_DIR, APP_TEMP_DIR, QUICK_VERIFY_EVIDENCE_DIR, VERIFICATIONS_DIR]) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-// Trust proxy configuration (pre-middleware):
-// Allow configuring Express trust proxy via env and admin settings.
-let __currentTrustProxySetting = String(process.env.TRUST_PROXY || 'auto').toLowerCase();
-const applyTrustProxy = (setting) => {
-  try {
-    let value;
-    const s = String(setting || '').toLowerCase();
-    if (['true','1','yes','on'].includes(s)) value = true;
-    else if (['false','0','no','off'].includes(s)) value = false;
-    else if (s === 'auto' || !s) {
-      // Trust local and private networks (loopback, link-local, unique-local)
-      value = ['loopback','linklocal','uniquelocal'];
-    } else if (s.includes(',')) {
-      value = s.split(',').map(x => x.trim()).filter(Boolean);
-    } else {
-      // Accept single token: ip, cidr, or named preset
-      value = s;
-    }
-    app.set('trust proxy', value);
-    __currentTrustProxySetting = s || 'auto';
-    try { Logger.info('Express trust proxy configured', { setting: value }); } catch (_) {}
-  } catch (e) {
-    try { Logger.warn('Failed to apply trust proxy setting; using default auto', { error: e.message }); } catch (_) {}
-    app.set('trust proxy', ['loopback','linklocal','uniquelocal']);
-    __currentTrustProxySetting = 'auto';
-  }
-};
-applyTrustProxy(__currentTrustProxySetting);
-
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "ws:", "wss:"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
-    },
-  },
-}));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -286,6 +223,96 @@ let scanProcesses = new Map();
 let queueRunner = null;
 // Lightweight per-user start locks to prevent race conditions on rapid clicks
 const userStartLocks = new Map();
+
+const requireAdmin = (req, res, next) => {
+  if (req.user?.role !== 'admin') {
+    Logger.unauthorizedAccess('admin-route', { userId: req.user?.id, path: req.path });
+    return res.status(403).json({ error: 'Admin privileges required' });
+  }
+  return next();
+};
+
+const buildActiveScanSnapshot = async () => {
+  const [dbActive, sqlmapProcesses] = await Promise.all([
+    database.listActiveScans(true),
+    Promise.resolve(sqlmapIntegration.listRunningProcesses())
+  ]);
+
+  const sqlmapBySession = new Map((sqlmapProcesses || []).map((p) => [p.sessionId, p]));
+  const processEntries = Array.from(scanProcesses.entries());
+  const processByScanId = new Map(processEntries);
+  const seen = new Set();
+
+  const items = dbActive.map((row) => {
+    const procInfo = processByScanId.get(row.id);
+    const sqlmapInfo = row.session_id ? sqlmapBySession.get(row.session_id) : null;
+    seen.add(row.id);
+
+    const startTime = procInfo?.startTime instanceof Date
+      ? procInfo.startTime.toISOString()
+      : (procInfo?.startTime || row.start_time);
+
+    return {
+      scanId: row.id,
+      target: row.target,
+      status: row.status,
+      scanProfile: row.scan_profile,
+      sessionId: row.session_id || procInfo?.sessionId || sqlmapInfo?.sessionId || null,
+      userId: row.user_id,
+      userEmail: row.user_email || null,
+      userRole: row.user_role || null,
+      orgId: row.org_id || null,
+      startTime,
+      pid: procInfo?.process?.pid ?? sqlmapInfo?.pid ?? null,
+      processInfo: procInfo ? {
+        pid: procInfo.process?.pid ?? null,
+        startTime: procInfo.startTime instanceof Date ? procInfo.startTime.toISOString() : procInfo.startTime,
+        target: procInfo.target,
+        scanProfile: procInfo.scanProfile
+      } : null,
+      sqlmapContext: sqlmapInfo ? {
+        pid: sqlmapInfo.pid,
+        context: sqlmapInfo.context || {},
+        userId: sqlmapInfo.userId,
+        scanProfile: sqlmapInfo.scanProfile,
+        startTime: sqlmapInfo.startTime instanceof Date ? sqlmapInfo.startTime.toISOString() : sqlmapInfo.startTime
+      } : null
+    };
+  });
+
+  processEntries.forEach(([scanId, info]) => {
+    if (seen.has(scanId)) return;
+    items.push({
+      scanId,
+      target: info.target,
+      status: 'running',
+      scanProfile: info.scanProfile,
+      sessionId: info.sessionId || null,
+      userId: info.userId,
+      userEmail: null,
+      userRole: null,
+      orgId: info.orgId || null,
+      startTime: info.startTime instanceof Date ? info.startTime.toISOString() : info.startTime,
+      pid: info.process?.pid ?? null,
+      processInfo: {
+        pid: info.process?.pid ?? null,
+        startTime: info.startTime instanceof Date ? info.startTime.toISOString() : info.startTime,
+        target: info.target,
+        scanProfile: info.scanProfile
+      },
+      sqlmapContext: null
+    });
+  });
+
+  return {
+    items,
+    totals: {
+      database: dbActive.length,
+      processes: processEntries.length,
+      sqlmap: sqlmapProcesses.length
+    }
+  };
+};
 
 // Security middleware
 app.use('/api', SecurityMiddleware.validateInput);
@@ -693,11 +720,16 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
     const releaseLock = () => userStartLocks.delete(userId);
 
     try {
-      // Concurrency limit
-      const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
-      const runningForUser = Array.from(scanProcesses.values()).filter(p => p.userId === userId).length;
-      if (!isAdmin && runningForUser >= MAX_CONCURRENT) {
-        return res.status(429).json({ error: `Concurrent scan limit reached (${MAX_CONCURRENT}). Please wait for existing scans to finish.` });
+  const concurrency = await evaluateConcurrencyForUser({ userId, isAdmin, database, scanProcesses });
+      if (!concurrency.hasCapacity) {
+        const message = concurrency.limit === 1
+          ? 'You already have an active scan running. Wait for it to finish before starting another.'
+          : `Concurrent scan limit reached (${concurrency.limit}). Please wait for existing scans to finish.`;
+        return res.status(concurrency.limit === 1 ? 429 : 409).json({
+          error: message,
+          limit: concurrency.limit,
+          activeScan: concurrency.activeScan
+        });
       }
 
       // Monthly quota
@@ -777,7 +809,7 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
   }
 
   // Start scan
-  const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId, { isAdmin });
+  const { process: proc, outputDir, sessionId } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId, { isAdmin });
 
       // Record scan
       const startTimeIso = new Date().toISOString();
@@ -789,7 +821,8 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
         org_id: orgId,
         output_dir: outputDir,
         status: 'running',
-        start_time: startTimeIso
+        start_time: startTimeIso,
+        session_id: sessionId
       });
 
       // Audit start
@@ -812,10 +845,11 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
         process: proc,
         outputDir,
         target,
-        scanProfile,
+        scanProfile: effectiveProfile,
         startTime: new Date(),
         userId,
-        orgId
+        orgId,
+        sessionId
       });
 
       // Stream output to user room if socket connection exists
@@ -892,7 +926,7 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
       });
 
       // Respond immediately with scan info
-      return res.status(202).json({ scanId, status: 'running', startTime: startTimeIso, target, scanProfile });
+  return res.status(202).json({ scanId, status: 'running', startTime: startTimeIso, target, scanProfile: effectiveProfile });
     } finally {
       releaseLock();
     }
@@ -977,7 +1011,7 @@ app.get('/api/usage', async (req, res) => {
     const period = new Date().toISOString().slice(0,7);
     const usage = await database.getUsageForUser(req.user.id, period);
     const limits = {
-      concurrent: parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10),
+  concurrent: parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '1', 10),
       monthly: parseInt(process.env.MAX_SCANS_PER_MONTH || '100', 10)
     };
     res.json({ period, usage, limits });
@@ -1826,6 +1860,93 @@ app.get('/api/admin/metrics', async (req, res) => {
   }
 });
 
+app.get('/api/admin/scans/running', requireAdmin, async (req, res) => {
+  try {
+    const snapshot = await buildActiveScanSnapshot();
+    res.json(snapshot);
+  } catch (error) {
+    Logger.error('Admin running scans fetch failed', error);
+    res.status(500).json({ error: 'Failed to fetch running scans' });
+  }
+});
+
+app.post('/api/admin/scans/:scanId/terminate', requireAdmin, async (req, res) => {
+  const scanId = String(req.params.scanId);
+  const reasonRaw = req.body?.reason;
+  const reason = typeof reasonRaw === 'string' && reasonRaw.trim().length > 0
+    ? reasonRaw.trim()
+    : 'Terminated by administrator';
+
+  try {
+    const scan = await database.getScan(scanId);
+    if (!scan) {
+      return res.status(404).json({ error: 'Scan not found' });
+    }
+
+    let terminated = false;
+    const procInfo = scanProcesses.get(scanId);
+    const sessionId = scan.session_id || procInfo?.sessionId || null;
+
+    if (sessionId) {
+      try {
+        const result = await sqlmapIntegration.stopScan(sessionId);
+        if (result) terminated = true;
+      } catch (error) {
+        Logger.warn('Admin stopScan failed', { scanId, sessionId, error: error.message });
+      }
+    }
+
+    if (procInfo?.process) {
+      const pid = procInfo.process.pid;
+      try {
+        if (pid) {
+          await killPid(pid, 'SIGTERM', 6000);
+        } else if (typeof procInfo.process.kill === 'function') {
+          procInfo.process.kill('SIGTERM');
+        }
+        terminated = true;
+      } catch (error) {
+        Logger.warn('Admin SIGTERM failed', { scanId, pid, error: error.message });
+        try {
+          if (typeof procInfo.process.kill === 'function') {
+            procInfo.process.kill('SIGKILL');
+          }
+        } catch (_) {}
+      }
+    }
+
+    scanProcesses.delete(scanId);
+
+    const endTime = new Date().toISOString();
+    await database.updateScan(scanId, { status: 'terminated', end_time: endTime });
+
+    try {
+      await database.logScanEvent({
+        scan_id: scanId,
+        user_id: scan.user_id,
+        org_id: scan.org_id,
+        event_type: 'terminated',
+        metadata: {
+          by: req.user.id,
+          role: req.user.role,
+          reason
+        }
+      });
+    } catch (error) {
+      Logger.warn('Admin termination event logging failed', { scanId, error: error.message });
+    }
+
+    try {
+      io.to(`user:${scan.user_id}`).emit('scan-terminated', { scanId, reason });
+    } catch (_) {}
+
+    res.json({ scanId, status: 'terminated', reason, terminated });
+  } catch (error) {
+    Logger.error('Admin scan termination failed', error);
+    res.status(500).json({ error: 'Failed to terminate scan' });
+  }
+});
+
 app.get('/api/admin/visits', async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
@@ -2002,11 +2123,15 @@ io.on('connection', (socket) => {
       userStartLocks.set(userId, true);
       const releaseLock = () => userStartLocks.delete(userId);
 
-      // Concurrency limit
-      const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
-      const runningForUser = Array.from(scanProcesses.values()).filter(p => p.userId === userId).length;
-      if (!isAdmin && runningForUser >= MAX_CONCURRENT) {
-        socket.emit('scan-error', { message: `Concurrent scan limit reached (${MAX_CONCURRENT}). Please wait for existing scans to finish.` });
+  const concurrency = await evaluateConcurrencyForUser({ userId, isAdmin, database, scanProcesses });
+      if (!concurrency.hasCapacity) {
+        socket.emit('scan-error', {
+          message: concurrency.limit === 1
+            ? 'You already have an active scan running. Wait for it to finish before starting another.'
+            : `Concurrent scan limit reached (${concurrency.limit}). Please wait for existing scans to finish.`,
+          limit: concurrency.limit,
+          activeScan: concurrency.activeScan
+        });
         releaseLock();
         return;
       }
@@ -2097,7 +2222,7 @@ io.on('connection', (socket) => {
     }
 
     // Start SQLMap scan (creates per-user output directory)
-  const { process: proc, outputDir, sessionId: _sessionId } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId, { isAdmin });
+    const { process: proc, outputDir, sessionId } = await sqlmapIntegration.startScan(target, mergedOptions, effectiveProfile, userId, { isAdmin });
 
       // Create scan session and record output directory
       const startTimeIso = new Date().toISOString();
@@ -2109,7 +2234,8 @@ io.on('connection', (socket) => {
         org_id: orgId,
         output_dir: outputDir,
         status: 'running',
-        start_time: startTimeIso
+        start_time: startTimeIso,
+        session_id: sessionId
       });
 
       // Log audit event: started
@@ -2139,7 +2265,8 @@ io.on('connection', (socket) => {
         scanProfile: effectiveProfile,
         startTime: new Date(),
         userId,
-        orgId
+        orgId,
+        sessionId
       });
       
       // Handle real-time output
@@ -2287,7 +2414,7 @@ io.on('connection', (socket) => {
       socket.scanProcess = proc;
       socket.scanId = scanId;
 
-  socket.emit('scan-started', { scanId, target, scanProfile: effectiveProfile, startTime: startTimeIso });
+  socket.emit('scan-started', { scanId, target, scanProfile: effectiveProfile, startTime: startTimeIso, sessionId });
   releaseLock();
 
     } catch (error) {
@@ -2350,11 +2477,15 @@ io.on('connection', (socket) => {
       const releaseLock = () => userStartLocks.delete(userId);
 
       try {
-        // Concurrency
-        const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_SCANS_PER_USER || '2', 10);
-        const runningForUser = Array.from(scanProcesses.values()).filter(p => p.userId === userId).length;
-        if (!isAdmin && runningForUser >= MAX_CONCURRENT) {
-          socket.emit('scan-error', { message: `Concurrent scan limit reached (${MAX_CONCURRENT}). Please wait for existing scans to finish.` });
+  const concurrency = await evaluateConcurrencyForUser({ userId, isAdmin, database, scanProcesses });
+        if (!concurrency.hasCapacity) {
+          socket.emit('scan-error', {
+            message: concurrency.limit === 1
+              ? 'You already have an active scan running. Wait for it to finish before starting another.'
+              : `Concurrent scan limit reached (${concurrency.limit}). Please wait for existing scans to finish.`,
+            limit: concurrency.limit,
+            activeScan: concurrency.activeScan
+          });
           return;
         }
 
@@ -2402,8 +2533,8 @@ io.on('connection', (socket) => {
         // Prepare auth context
         const { preparedOptions, authMeta } = await prepareAuthContext(options || {}, target, userId);
 
-        // Start scan
-  const { process: proc, outputDir } = await sqlmapIntegration.startScan(target, preparedOptions, scanProfile, userId, { isAdmin });
+    // Start scan
+    const { process: proc, outputDir, sessionId } = await sqlmapIntegration.startScan(target, preparedOptions, scanProfile, userId, { isAdmin });
 
         const startTimeIso = new Date().toISOString();
         const scanId = await database.createScan({
@@ -2414,7 +2545,8 @@ io.on('connection', (socket) => {
           org_id: orgId,
           output_dir: outputDir,
           status: 'running',
-          start_time: startTimeIso
+          start_time: startTimeIso,
+          session_id: sessionId
         });
 
         // Audit event: restarted
@@ -2432,7 +2564,7 @@ io.on('connection', (socket) => {
         // Usage increment
         database.incrementUsageOnStart(userId, period).catch(()=>{});
 
-        scanProcesses.set(scanId, { process: proc, outputDir, target, scanProfile, startTime: new Date(), userId, orgId });
+  scanProcesses.set(scanId, { process: proc, outputDir, target, scanProfile, startTime: new Date(), userId, orgId, sessionId });
 
         // Stream output
         proc.stdout.on('data', (data) => {
@@ -2521,7 +2653,7 @@ io.on('connection', (socket) => {
           scanProcesses.delete(scanId);
         });
 
-        socket.emit('scan-started', { scanId, target, scanProfile, startTime: startTimeIso });
+  socket.emit('scan-started', { scanId, target, scanProfile, startTime: startTimeIso, sessionId });
       } finally {
         releaseLock();
       }

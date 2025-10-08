@@ -717,7 +717,8 @@ class SQLMapIntegration {
       target,
       scanProfile,
       startTime: new Date(),
-      userId
+      userId,
+      context
     });
 
     // On close, remove from map
@@ -726,6 +727,47 @@ class SQLMapIntegration {
     });
 
     return { process: childProcess, outputDir, sessionId };
+  }
+
+  stopScan(sessionId, signal = 'SIGTERM') {
+    return new Promise((resolve, reject) => {
+      const entry = this.runningProcesses.get(sessionId);
+      if (!entry || !entry.process) {
+        return resolve(false);
+      }
+
+      const proc = entry.process;
+      const finalize = (err) => {
+        if (err) {
+          return reject(err);
+        }
+        this.runningProcesses.delete(sessionId);
+        resolve(true);
+      };
+
+      try {
+        if (proc.pid) {
+          killTree(proc.pid, signal, (err) => finalize(err));
+        } else {
+          const result = proc.kill?.(signal) ?? false;
+          finalize(result ? null : new Error('Failed to send kill signal'));
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  listRunningProcesses() {
+    return Array.from(this.runningProcesses.entries()).map(([sessionId, entry]) => ({
+      sessionId,
+      target: entry.target,
+      scanProfile: entry.scanProfile,
+      startTime: entry.startTime,
+      userId: entry.userId,
+      context: entry.context || {},
+      pid: entry.process?.pid ?? null,
+    }));
   }
 
   // Parse SQLMap results for structured report generation
