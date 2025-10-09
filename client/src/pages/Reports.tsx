@@ -9,11 +9,13 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon,
   ClockIcon,
-  CalendarIcon
+  CalendarIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import { useAppStore } from '../store/appStore'
 import { parseServerDate } from '@/utils/dates'
 
 const FILTER_OPTIONS = [
@@ -50,6 +52,8 @@ export default function Reports() {
   const [reports, setReports] = useState<ReportItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  const { removeReport } = useAppStore()
 
   useEffect(() => {
     loadReports()
@@ -92,8 +96,30 @@ export default function Reports() {
       document.body.removeChild(a)
       
       toast.success(`Report downloaded as ${ext.toUpperCase()}`)
-    } catch (err) {
+    } catch {
       toast.error('Failed to download report')
+    }
+  }
+
+  const deleteReport = async (reportId: string) => {
+    const confirmed = window.confirm('Are you sure you want to delete this report? This action cannot be undone.')
+    if (!confirmed) return
+
+    try {
+      await apiFetch(`/api/reports/${reportId}`, {
+        method: 'DELETE'
+      })
+      
+      // Remove the report from the store (this will update Dashboard)
+      removeReport(reportId)
+      
+      // Also update local state
+      setReports(reports.filter(report => report.id !== reportId))
+      
+      toast.success('Report deleted successfully')
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete report'
+      toast.error(errorMessage)
     }
   }
 
@@ -330,6 +356,14 @@ export default function Reports() {
                           >
                             <EyeIcon className="h-4 w-4" />
                           </Link>
+                          
+                          <button
+                            onClick={() => deleteReport(report.id)}
+                            className="text-red-400 hover:text-red-300 transition-colors"
+                            title="Delete Report"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
                           
                           <div className="relative group">
                             <button 
