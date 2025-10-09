@@ -64,7 +64,7 @@ Both tracks share the same backend, so you can start in Learning Mode for educat
 ### Prerequisites
 - Node.js (v16 or higher)
 - npm (v8 or higher)
-- Latest SQLMap dev build available on the PATH (install via `python3 -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master"` or `py -m pip ...` on Windows)
+- Latest SQLMap dev build available on the PATH (clone `https://github.com/sqlmapproject/sqlmap.git` and point `SQLMAP_PATH` at a wrapper such as `python3 /opt/sqlmap/sqlmap.py`; on Windows you can install via `py -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master"`)
 - Git for version control
 
 ### Quick Start
@@ -602,7 +602,7 @@ NODE_ENV=development
 ```
 
 ## 📈 Notes & Caveats
-- SQLMap must be installed and reachable (PATH or SQLMAP_PATH). Install the upstream dev branch via `python3 -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master"`; on Windows, use `py -m pip ...` and `py -m sqlmap`.
+- SQLMap must be installed and reachable (PATH or SQLMAP_PATH). Clone the upstream dev branch (`git clone https://github.com/sqlmapproject/sqlmap.git /opt/sqlmap`) and expose it via a wrapper like `/usr/local/bin/sqlmap` → `python3 /opt/sqlmap/sqlmap.py`; on Windows, use `py -m pip ...` and `py -m sqlmap`.
 - PDF export uses Puppeteer; when headless is unavailable, the server falls back to HTML export and sets `X-PDF-Fallback: true`.
 - Scanning non‑verified targets is blocked unless ALLOW_UNVERIFIED_TARGETS=true or you’re admin.
 

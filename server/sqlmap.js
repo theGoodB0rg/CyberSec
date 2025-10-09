@@ -278,8 +278,9 @@ class SQLMapIntegration {
       Logger.info('3. Or clone SQLMap dev: https://github.com/sqlmapproject/sqlmap and run python sqlmap.py');
     } else {
       Logger.info('To install SQLMap on Linux/Mac:');
-      Logger.info('1. python3 -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master"');
-      Logger.info('2. Alternatively clone https://github.com/sqlmapproject/sqlmap and run python3 sqlmap.py');
+      Logger.info('1. git clone https://github.com/sqlmapproject/sqlmap.git /opt/sqlmap');
+      Logger.info('2. Add a wrapper script: echo "#!/bin/sh" > /usr/local/bin/sqlmap && echo "exec python3 /opt/sqlmap/sqlmap.py \"$@\"" >> /usr/local/bin/sqlmap && chmod +x /usr/local/bin/sqlmap');
+      Logger.info('3. (Optional) python3 -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master" if your distro allows pip system installs');
     }
   }
 

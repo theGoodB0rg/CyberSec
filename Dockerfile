@@ -45,7 +45,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libasound2 libpangocairo-1.0-0 libgtk-3-0 libatk-bridge2.0-0 \
       libatspi2.0-0 libxrender1 libpango-1.0-0 libpangoft2-1.0-0 \
       libfontconfig1 libfreetype6 fonts-liberation \
-    && pip install --no-cache-dir --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master" \
+    && git clone --depth=1 https://github.com/sqlmapproject/sqlmap.git /opt/sqlmap \
+    && printf '#!/bin/sh\nexec python3 /opt/sqlmap/sqlmap.py "$@"\n' > /usr/local/bin/sqlmap \
+    && printf '#!/bin/sh\nexec python3 /opt/sqlmap/sqlmapapi.py "$@"\n' > /usr/local/bin/sqlmapapi \
+    && chmod +x /usr/local/bin/sqlmap /usr/local/bin/sqlmapapi \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
