@@ -5,11 +5,11 @@ WORKDIR /app
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 \
-      make \
-      g++ \
-      bzip2 \
-      ca-certificates \
+    python3 \
+    make \
+    g++ \
+    bzip2 \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
@@ -35,7 +35,7 @@ FROM node:20-bookworm-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-pip sqlmap \
+    python3 python3-pip git \
       chromium \
       sqlite3 \
       bzip2 \
@@ -45,10 +45,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libasound2 libpangocairo-1.0-0 libgtk-3-0 libatk-bridge2.0-0 \
       libatspi2.0-0 libxrender1 libpango-1.0-0 libpangoft2-1.0-0 \
       libfontconfig1 libfreetype6 fonts-liberation \
+    && pip install --no-cache-dir --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master" \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
-    SQLMAP_PATH=/usr/bin/sqlmap \
+    SQLMAP_PATH=/usr/local/bin/sqlmap \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     PUPPETEER_SKIP_DOWNLOAD=true \
     PORT=3001

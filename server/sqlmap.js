@@ -274,13 +274,12 @@ class SQLMapIntegration {
     if (isWindows) {
       Logger.info('To install SQLMap on Windows:');
       Logger.info('1. Install Python: https://python.org/downloads/');
-      Logger.info('2. Run: pip install sqlmapapi');
-      Logger.info('3. Or download SQLMap: https://github.com/sqlmapproject/sqlmap');
+      Logger.info('2. Run: py -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master"');
+      Logger.info('3. Or clone SQLMap dev: https://github.com/sqlmapproject/sqlmap and run python sqlmap.py');
     } else {
       Logger.info('To install SQLMap on Linux/Mac:');
-      Logger.info('1. sudo apt install sqlmap  (Ubuntu/Debian)');
-      Logger.info('2. brew install sqlmap  (macOS)');
-      Logger.info('3. pip install sqlmapapi');
+      Logger.info('1. python3 -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master"');
+      Logger.info('2. Alternatively clone https://github.com/sqlmapproject/sqlmap and run python3 sqlmap.py');
     }
   }
 
@@ -322,11 +321,11 @@ class SQLMapIntegration {
     } else {
       // Unix/Linux paths
       const unixPaths = [
-      '/usr/bin/sqlmap',
-      '/usr/local/bin/sqlmap',
-      '/opt/sqlmap/sqlmap.py',
+        '/usr/local/bin/sqlmap',
+        '/usr/bin/sqlmap',
+        '/opt/sqlmap/sqlmap.py',
         'sqlmap'
-    ];
+      ];
 
       for (const sqlmapPath of unixPaths) {
       try {

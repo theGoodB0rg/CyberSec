@@ -64,7 +64,7 @@ Both tracks share the same backend, so you can start in Learning Mode for educat
 ### Prerequisites
 - Node.js (v16 or higher)
 - npm (v8 or higher)
-- SQLMap installed on the system
+- Latest SQLMap dev build available on the PATH (install via `python3 -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master"` or `py -m pip ...` on Windows)
 - Git for version control
 
 ### Quick Start
@@ -124,7 +124,7 @@ The repository now ships with a Dockerfile, Fly launch configuration (`fly.toml`
    - `DB_PATH = "/data/cybersecurity.db"`
    - `TEMP_DIR = "/data/temp"`
    - `EVIDENCE_DIR = "/data/evidence"`
-   - `SQLMAP_PATH = "/usr/bin/sqlmap"`
+   - `SQLMAP_PATH = "/usr/local/bin/sqlmap"`
    - `PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"`
 5. Configure secrets for the initial admin and JWT signing key:
    ```powershell
@@ -375,6 +375,7 @@ RATE_LIMIT_WINDOW=900000
 RATE_LIMIT_MAX=100
 
 # SQLMap Configuration
+# Should resolve to the latest sqlmap dev build (e.g. /usr/local/bin/sqlmap or python3 -m sqlmap)
 SQLMAP_PATH=sqlmap
 # Optional: enforce proxy usage for scans
 REQUIRE_PROXY=false
@@ -451,7 +452,7 @@ Returns `200 OK` when core subsystems (SQLite, job queue, SQLMap integration) ar
    },
    "sqlmap": {
       "available": true,
-      "path": "/usr/bin/sqlmap",
+      "path": "/usr/local/bin/sqlmap",
       "ok": true
    }
 }
@@ -601,7 +602,7 @@ NODE_ENV=development
 ```
 
 ## 📈 Notes & Caveats
-- SQLMap must be installed and reachable (PATH or SQLMAP_PATH). On Windows, `py -m sqlmap` may be detected automatically.
+- SQLMap must be installed and reachable (PATH or SQLMAP_PATH). Install the upstream dev branch via `python3 -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master"`; on Windows, use `py -m pip ...` and `py -m sqlmap`.
 - PDF export uses Puppeteer; when headless is unavailable, the server falls back to HTML export and sets `X-PDF-Fallback: true`.
 - Scanning non‑verified targets is blocked unless ALLOW_UNVERIFIED_TARGETS=true or you’re admin.
 

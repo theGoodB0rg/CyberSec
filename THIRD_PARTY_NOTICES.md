@@ -9,7 +9,7 @@ these components.
 
 | Component | License | Notes |
 |-----------|---------|-------|
-| SQLMap | GPLv2 | CyberSec shells out to a system installation of SQLMap. The SQLMap project is not bundled with this repository. You must obtain SQLMap separately and comply with the GPLv2 license terms when using it. |
+| SQLMap | GPLv2 | Docker builds install the latest SQLMap dev branch (`git+https://github.com/sqlmapproject/sqlmap.git`). For other environments CyberSec shells out to whatever SQLMap binary you configure. Ensure you comply with the GPLv2 license terms when using or redistributing SQLMap. |
 | Puppeteer / Chromium | Apache 2.0 / BSD-like | Required for PDF exports. Installed via npm when building the project. |
 
 ## Backend Libraries (npm)
