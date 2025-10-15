@@ -471,6 +471,71 @@ app.get('/api/health', async (req, res) => {
 
 app.use('/api/contact', createContactRouter(contactMailer, database));
 
+// Public validation endpoint (no auth required)
+app.post('/api/sqlmap/validate', async (req, res) => {
+  try {
+    const { target = '', profile = 'basic', customFlags = '' } = req.body || {};
+    const isAdmin = false; // Public endpoint, not authenticated
+    const result = { ok: true, disallowed: [], warnings: [], normalizedArgs: [], commandPreview: '', description: '', impact: { speed: 'medium', stealth: 'medium', exfil: 'low' } };
+
+    // Validate/normalize flags using server whitelist
+    const profileObj = sqlmapIntegration.scanProfiles[profile] || sqlmapIntegration.scanProfiles.basic;
+    const custom = sqlmapIntegration.parseCustomFlags(typeof customFlags === 'string' ? customFlags : '', { isAdmin });
+    const normalized = [
+      '-u', target || 'http://example.com',
+      ...(profileObj?.flags || []),
+      ...custom
+    ];
+
+    // Collect disallowed (client may send flags that were dropped)
+    if (customFlags) {
+      const tokens = String(customFlags).trim().split(/\s+/);
+      for (const t of tokens) {
+        if (t.startsWith('--')) {
+          const name = t.split('=')[0];
+          // If not present in normalized and appears to be a flag, consider disallowed
+          if (!normalized.find(x => x === name || x.startsWith(name + '='))) {
+            result.disallowed.push(name);
+          }
+        }
+      }
+    }
+
+    // Basic numeric sanity checks
+    const findNum = (prefix) => {
+      const tok = normalized.find(x => x.startsWith(prefix));
+      if (!tok) return null;
+      const val = Number(tok.split('=')[1]);
+      return Number.isFinite(val) ? val : null;
+    };
+    const level = findNum('--level=') ?? 2;
+    const risk = findNum('--risk=') ?? 2;
+    const threads = findNum('--threads=') ?? 1;
+    if (level < 1 || level > 5) result.warnings.push('Level should be between 1 and 5.');
+    if (risk < 1 || risk > 3) result.warnings.push('Risk should be between 1 and 3.');
+    if (threads > 5) result.warnings.push('High threads can be noisy and unstable.');
+
+    // Impact heuristics
+    const hasDump = normalized.includes('--dump') || normalized.includes('--dump-all');
+    const hasTamper = normalized.some(x => x.startsWith('--tamper='));
+    const hasDelay = normalized.some(x => x.startsWith('--delay='));
+    result.impact = {
+      speed: threads >= 3 || level >= 4 ? 'high' : level <= 2 ? 'low' : 'medium',
+      stealth: hasTamper || hasDelay ? 'higher' : threads >= 3 ? 'lower' : 'medium',
+      exfil: hasDump ? 'high' : 'low'
+    };
+
+    // Command preview (no output-dir/session flags)
+    result.normalizedArgs = normalized;
+    result.commandPreview = `${sqlmapIntegration.sqlmapPath} ${normalized.join(' ')}`.trim();
+    result.description = `Profile '${profileObj?.name || profile}' with ${hasTamper ? 'tamper scripts' : 'no tamper'}, level ${level}, risk ${risk}, ${threads} thread(s)${hasDump ? ' and data extraction' : ''}.`;
+    result.ok = result.disallowed.length === 0;
+    res.json(result);
+  } catch (e) {
+    Logger.warn('SQLMap validate failed', { error: e.message });
+    res.status(400).json({ error: 'Validation failed', details: e.message });
+  }
+});
 
 // Authenticated routes
 app.use('/api', AuthMiddleware.requireAuth);
@@ -623,72 +688,6 @@ app.get('/api/sqlmap/base-flags', (req, res) => {
   } catch (e) {
     Logger.error('Failed to fetch sqlmap base flags', e);
     res.status(500).json({ error: 'Failed to fetch base flags' });
-  }
-});
-
-// Server-side validation of flags/profile (no sqlmap spawn)
-app.post('/api/sqlmap/validate', async (req, res) => {
-  try {
-    const { target = '', profile = 'basic', customFlags = '' } = req.body || {};
-    const isAdmin = req.user?.role === 'admin';
-    const result = { ok: true, disallowed: [], warnings: [], normalizedArgs: [], commandPreview: '', description: '', impact: { speed: 'medium', stealth: 'medium', exfil: 'low' } };
-
-    // Validate/normalize flags using server whitelist
-    const profileObj = sqlmapIntegration.scanProfiles[profile] || sqlmapIntegration.scanProfiles.basic;
-    const custom = sqlmapIntegration.parseCustomFlags(typeof customFlags === 'string' ? customFlags : '', { isAdmin });
-    const normalized = [
-      '-u', target || 'http://example.com',
-      ...(profileObj?.flags || []),
-      ...custom
-    ];
-
-    // Collect disallowed (client may send flags that were dropped)
-    if (customFlags) {
-      const tokens = String(customFlags).trim().split(/\s+/);
-      for (const t of tokens) {
-        if (t.startsWith('--')) {
-          const name = t.split('=')[0];
-          // If not present in normalized and appears to be a flag, consider disallowed
-          if (!normalized.find(x => x === name || x.startsWith(name + '='))) {
-            result.disallowed.push(name);
-          }
-        }
-      }
-    }
-
-    // Basic numeric sanity checks
-    const findNum = (prefix) => {
-      const tok = normalized.find(x => x.startsWith(prefix));
-      if (!tok) return null;
-      const val = Number(tok.split('=')[1]);
-      return Number.isFinite(val) ? val : null;
-    };
-    const level = findNum('--level=') ?? 2;
-    const risk = findNum('--risk=') ?? 2;
-    const threads = findNum('--threads=') ?? 1;
-    if (level < 1 || level > 5) result.warnings.push('Level should be between 1 and 5.');
-    if (risk < 1 || risk > 3) result.warnings.push('Risk should be between 1 and 3.');
-    if (threads > 5) result.warnings.push('High threads can be noisy and unstable.');
-
-    // Impact heuristics
-    const hasDump = normalized.includes('--dump') || normalized.includes('--dump-all');
-    const hasTamper = normalized.some(x => x.startsWith('--tamper='));
-    const hasDelay = normalized.some(x => x.startsWith('--delay='));
-    result.impact = {
-      speed: threads >= 3 || level >= 4 ? 'high' : level <= 2 ? 'low' : 'medium',
-      stealth: hasTamper || hasDelay ? 'higher' : threads >= 3 ? 'lower' : 'medium',
-      exfil: hasDump ? 'high' : 'low'
-    };
-
-    // Command preview (no output-dir/session flags)
-    result.normalizedArgs = normalized;
-    result.commandPreview = `${sqlmapIntegration.sqlmapPath} ${normalized.join(' ')}`.trim();
-    result.description = `Profile '${profileObj?.name || profile}' with ${hasTamper ? 'tamper scripts' : 'no tamper'}, level ${level}, risk ${risk}, ${threads} thread(s)${hasDump ? ' and data extraction' : ''}.`;
-    result.ok = result.disallowed.length === 0;
-    res.json(result);
-  } catch (e) {
-    Logger.warn('SQLMap validate failed', { error: e.message });
-    res.status(400).json({ error: 'Validation failed', details: e.message });
   }
 });
 

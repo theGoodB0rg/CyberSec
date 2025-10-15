@@ -1,4 +1,4 @@
-export type ApiOptions = RequestInit & { auth?: boolean };
+export type ApiOptions = RequestInit & { auth?: boolean; suppressUnauthorizedEvent?: boolean };
 
 const API_BASE_URL = (() => {
   const raw = import.meta.env?.VITE_API_BASE_URL;
@@ -32,7 +32,7 @@ function getToken() {
 }
 
 export async function apiFetch<T = any>(input: string, init: ApiOptions = {}): Promise<T> {
-  const { auth = true, headers: initHeaders, ...rest } = init;
+  const { auth = true, suppressUnauthorizedEvent = false, headers: initHeaders, ...rest } = init;
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -50,7 +50,7 @@ export async function apiFetch<T = any>(input: string, init: ApiOptions = {}): P
   const isJson = contentType.includes('application/json');
   const body = isJson ? await res.json().catch(() => ({})) : await res.text();
   // Auto-handle unauthorized responses globally so the UI can react (logout, redirect)
-  if (res.status === 401 || res.status === 403) {
+  if ((res.status === 401 || res.status === 403) && !suppressUnauthorizedEvent) {
     try {
       window.dispatchEvent(
         new CustomEvent('app:unauthorized', {
@@ -395,5 +395,5 @@ export type SqlmapValidateResult = {
   impact: { speed: 'low' | 'medium' | 'high'; stealth: 'lower' | 'medium' | 'higher'; exfil: 'low' | 'high' }
 }
 export async function validateSqlmap(input: { target?: string, profile: string, customFlags?: string, options?: any }): Promise<SqlmapValidateResult> {
-  return apiFetch<SqlmapValidateResult>(`/api/sqlmap/validate`, { method: 'POST', body: JSON.stringify(input) })
+  return apiFetch<SqlmapValidateResult>(`/api/sqlmap/validate`, { method: 'POST', body: JSON.stringify(input), auth: false, suppressUnauthorizedEvent: true })
 }
