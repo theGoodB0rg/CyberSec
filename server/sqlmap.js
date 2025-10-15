@@ -1013,11 +1013,46 @@ class SQLMapIntegration {
   ensureParameterEntry(analysis, name = 'unknown', place = 'unknown') {
     const normalizedName = String(name || 'unknown').trim() || 'unknown';
     const normalizedPlace = this.normalizeParameterPlace(place);
-    const key = `${normalizedPlace}::${normalizedName.toLowerCase()}`;
+    const lowerName = normalizedName.toLowerCase();
+    const desiredKey = `${normalizedPlace}::${lowerName}`;
     const paramIndex = analysis?._paramIndex;
 
-    if (!paramIndex.has(key)) {
-      paramIndex.set(key, {
+    const findExistingKeyForName = () => {
+      for (const [existingKey, entry] of paramIndex.entries()) {
+        if ((entry.name || '').toLowerCase() === lowerName) {
+          return existingKey;
+        }
+      }
+      return null;
+    };
+
+    if (normalizedPlace === 'unknown') {
+      const preferredKey = paramIndex.has(desiredKey) ? desiredKey : findExistingKeyForName();
+      if (preferredKey) {
+        const existing = paramIndex.get(preferredKey);
+        if (normalizedName !== 'unknown' && existing.name === 'unknown') {
+          existing.name = normalizedName;
+        }
+        return existing;
+      }
+    }
+
+    if (!paramIndex.has(desiredKey)) {
+      if (normalizedPlace !== 'unknown') {
+        const unknownKey = `unknown::${lowerName}`;
+        if (paramIndex.has(unknownKey)) {
+          const existing = paramIndex.get(unknownKey);
+          paramIndex.delete(unknownKey);
+          existing.place = normalizedPlace;
+          if (normalizedName !== 'unknown' && existing.name === 'unknown') {
+            existing.name = normalizedName;
+          }
+          paramIndex.set(desiredKey, existing);
+          return existing;
+        }
+      }
+
+      paramIndex.set(desiredKey, {
         name: normalizedName,
         place: normalizedPlace,
         finalStatus: 'unknown',
@@ -1031,9 +1066,9 @@ class SQLMapIntegration {
         },
         notes: []
       });
-      analysis.parameters.push(paramIndex.get(key));
+      analysis.parameters.push(paramIndex.get(desiredKey));
     } else {
-      const existing = paramIndex.get(key);
+      const existing = paramIndex.get(desiredKey);
       if (normalizedPlace !== 'unknown' && existing.place === 'unknown') {
         existing.place = normalizedPlace;
       }
@@ -1042,7 +1077,7 @@ class SQLMapIntegration {
       }
     }
 
-    return paramIndex.get(key);
+    return paramIndex.get(desiredKey);
   }
 
   addTimelineEvent(analysis, event) {
@@ -1147,27 +1182,114 @@ class SQLMapIntegration {
     let inSummarySection = false;
     let currentSummaryBlock = null;
 
+    const finalizeTechniqueGroup = () => {
+      if (!currentSummaryBlock) return;
+      const { data } = currentSummaryBlock;
+      const hasContent = Boolean(
+        (data.type && data.type.trim().length) ||
+        (data.title && data.title.trim().length) ||
+        (data.payload && data.payload.trim().length) ||
+        (data.vector && data.vector.trim().length) ||
+        (Array.isArray(data.currentTechniqueLines) && data.currentTechniqueLines.length)
+      );
+
+      if (!hasContent) {
+        data.currentTechniqueLines = [];
+        data.technique = null;
+        data.type = null;
+        data.title = null;
+        data.payload = null;
+        data.vector = null;
+        return;
+      }
+
+      const entry = {
+        technique: data.technique || data.type || data.title || null,
+        type: data.type || null,
+        title: data.title || null,
+        payload: data.payload || null,
+        vector: data.vector || null,
+        rawLines: Array.isArray(data.currentTechniqueLines) ? [...data.currentTechniqueLines] : []
+      };
+      entry.rawText = entry.rawLines.join('\n').trim();
+
+      data.techniqueEntries = data.techniqueEntries || [];
+      data.techniqueEntries.push(entry);
+
+      data.currentTechniqueLines = [];
+      data.technique = null;
+      data.type = null;
+      data.title = null;
+      data.payload = null;
+      data.vector = null;
+    };
+
     const flushSummaryBlock = () => {
       if (!currentSummaryBlock) return;
       const { parameterEntry, data } = currentSummaryBlock;
-      const technique = data.technique || data.type || data.title;
-      const techniqueName = this.mapSqlmapTechnique(technique || '');
 
-      this.addTechnique(parameterEntry, techniqueName);
-      if (data.payload) {
-        this.addPayload(parameterEntry, data.payload);
+      finalizeTechniqueGroup();
+
+      let entries = Array.isArray(data.techniqueEntries) ? [...data.techniqueEntries] : [];
+      if (!entries.length && (data.technique || data.type || data.title || data.payload || data.vector)) {
+        const fallbackLines = Array.isArray(data.raw)
+          ? data.raw.filter(line => !/^parameter:/i.test(line))
+          : [];
+        entries.push({
+          technique: data.technique || data.type || data.title || null,
+          type: data.type || null,
+          title: data.title || null,
+          payload: data.payload || null,
+          vector: data.vector || null,
+          rawLines: fallbackLines,
+          rawText: fallbackLines.join('\n').trim()
+        });
       }
 
-      const description = data.rawText || data.raw.join('\n');
-      findings.push({
-        type: 'vulnerability',
-        parameter: parameterEntry.name,
-        technique: techniqueName,
-        severity: 'high',
-        description: description?.trim() || techniqueName
-      });
+      if (!entries.length) {
+        currentSummaryBlock = null;
+        return;
+      }
 
-      this.setParameterStatus(parameterEntry, 'confirmed', description, data.at, {
+      const combinedDescriptions = [];
+
+      for (const entry of entries) {
+        const techniqueLabel = entry.technique || entry.type || entry.title || '';
+        const techniqueName = this.mapSqlmapTechnique(techniqueLabel);
+
+        this.addTechnique(parameterEntry, techniqueName);
+        if (entry.payload) {
+          this.addPayload(parameterEntry, entry.payload);
+        }
+
+        const entryLines = [];
+        if (data.parameterLine) {
+          entryLines.push(data.parameterLine);
+        }
+        if (entry.rawLines && entry.rawLines.length) {
+          entryLines.push(...entry.rawLines);
+        } else {
+          if (entry.type) entryLines.push(`Type: ${entry.type}`);
+          if (entry.title) entryLines.push(`Title: ${entry.title}`);
+          if (entry.payload) entryLines.push(`Payload: ${entry.payload}`);
+          if (entry.vector) entryLines.push(`Vector: ${entry.vector}`);
+        }
+
+        const description = entryLines.join('\n').trim();
+        combinedDescriptions.push(description || techniqueName);
+
+        findings.push({
+          type: 'vulnerability',
+          parameter: parameterEntry.name,
+          technique: techniqueName,
+          severity: 'high',
+          description: description || techniqueName
+        });
+      }
+
+      const statusDescription = combinedDescriptions.join('\n\n') || data.rawText?.trim();
+
+      this.setParameterStatus(parameterEntry, 'confirmed', statusDescription, data.at, {
         source: 'summary-block'
       });
 
@@ -1319,7 +1441,15 @@ class SQLMapIntegration {
               raw: [normalized],
               rawText: normalized,
               at,
-              verdictLine: normalized
+              verdictLine: normalized,
+              parameterLine: normalized,
+              techniqueEntries: [],
+              currentTechniqueLines: [],
+              technique: null,
+              type: null,
+              title: null,
+              payload: null,
+              vector: null
             }
           };
           this.setParameterStatus(paramEntry, 'confirmed', normalized, at, {
@@ -1336,16 +1466,40 @@ class SQLMapIntegration {
         }
 
         if (currentSummaryBlock) {
-          currentSummaryBlock.data.raw.push(normalized);
-          currentSummaryBlock.data.rawText = (currentSummaryBlock.data.rawText || '') + '\n' + normalized;
-          if (normalized.toLowerCase().startsWith('type:')) {
-            currentSummaryBlock.data.type = normalized.replace(/^[Tt]ype:\s*/, '');
-          } else if (normalized.toLowerCase().startsWith('title:')) {
-            currentSummaryBlock.data.title = normalized.replace(/^[Tt]itle:\s*/, '');
-          } else if (normalized.toLowerCase().startsWith('payload:')) {
-            currentSummaryBlock.data.payload = normalized.replace(/^[Pp]ayload:\s*/, '');
-          } else if (normalized.toLowerCase().startsWith('vector:')) {
-            currentSummaryBlock.data.vector = normalized.replace(/^[Vv]ector:\s*/, '');
+          const { data } = currentSummaryBlock;
+          data.raw.push(normalized);
+          data.rawText = (data.rawText || '') + '\n' + normalized;
+          const lowerNormalized = normalized.toLowerCase();
+
+          if (lowerNormalized.startsWith('type:')) {
+            if (
+              (data.type && data.type.length) ||
+              (data.title && data.title.length) ||
+              (data.payload && data.payload.length) ||
+              (data.vector && data.vector.length) ||
+              (Array.isArray(data.currentTechniqueLines) && data.currentTechniqueLines.length)
+            ) {
+              finalizeTechniqueGroup();
+            }
+            const trimmedType = normalized.replace(/^[Tt]ype:\s*/, '').trim();
+            data.technique = trimmedType;
+            data.type = trimmedType;
+            data.currentTechniqueLines = data.currentTechniqueLines || [];
+            data.currentTechniqueLines.push(normalized);
+          } else if (lowerNormalized.startsWith('title:')) {
+            data.title = normalized.replace(/^[Tt]itle:\s*/, '').trim();
+            data.currentTechniqueLines = data.currentTechniqueLines || [];
+            data.currentTechniqueLines.push(normalized);
+          } else if (lowerNormalized.startsWith('payload:')) {
+            data.payload = normalized.replace(/^[Pp]ayload:\s*/, '');
+            data.currentTechniqueLines = data.currentTechniqueLines || [];
+            data.currentTechniqueLines.push(normalized);
+          } else if (lowerNormalized.startsWith('vector:')) {
+            data.vector = normalized.replace(/^[Vv]ector:\s*/, '');
+            data.currentTechniqueLines = data.currentTechniqueLines || [];
+            data.currentTechniqueLines.push(normalized);
+          } else if (Array.isArray(data.currentTechniqueLines) && data.currentTechniqueLines.length) {
+            data.currentTechniqueLines.push(normalized);
           }
         }
       }
