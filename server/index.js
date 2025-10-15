@@ -735,12 +735,12 @@ app.get('/api/user/profiles', async (req, res) => {
 
 app.post('/api/user/profiles', async (req, res) => {
   try {
-    const { name, description = '', flags = [] } = req.body || {};
+    const { name, description = '', flags = [], flagToggles = {} } = req.body || {};
     if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Profile name is required' });
     // Validate flags via server whitelist
     const isAdmin = req.user?.role === 'admin';
     const normalized = Array.isArray(flags) ? sqlmapIntegration.parseCustomFlags(flags.join(' '), { isAdmin }) : [];
-    const id = await database.createUserProfile(req.user.id, { name, description, flags: normalized, is_custom: 1 });
+    const id = await database.createUserProfile(req.user.id, { name, description, flags: normalized, flagToggles, is_custom: 1 });
     const profile = await database.getUserProfileById(id, req.user.id);
     res.status(201).json(profile);
   } catch (e) {
@@ -752,11 +752,11 @@ app.post('/api/user/profiles', async (req, res) => {
 
 app.put('/api/user/profiles/:id', async (req, res) => {
   try {
-    const { name, description, flags } = req.body || {};
+    const { name, description, flags, flagToggles } = req.body || {};
     let normalizedFlags = undefined;
     const isAdmin = req.user?.role === 'admin';
     if (Array.isArray(flags)) normalizedFlags = sqlmapIntegration.parseCustomFlags(flags.join(' '), { isAdmin });
-    const ok = await database.updateUserProfile(req.params.id, req.user.id, { name, description, flags: normalizedFlags });
+    const ok = await database.updateUserProfile(req.params.id, req.user.id, { name, description, flags: normalizedFlags, flagToggles });
     if (!ok) return res.status(404).json({ error: 'Profile not found' });
     const fresh = await database.getUserProfileById(req.params.id, req.user.id);
     res.json(fresh);
@@ -920,6 +920,10 @@ app.post('/api/scans', SecurityMiddleware.createScanRateLimit(), async (req, res
         effectiveProfile = 'custom';
         const joined = profile.flags.join(' ');
         mergedOptions.customFlags = mergedOptions.customFlags ? `${mergedOptions.customFlags} ${joined}` : joined;
+        // Also pass flag toggles from the profile
+        if (profile.flagToggles && typeof profile.flagToggles === 'object') {
+          mergedOptions.flagToggles = profile.flagToggles;
+        }
       }
     } catch (e) {
       Logger.warn('Failed to apply user profile flags', { error: e.message });
@@ -2351,6 +2355,10 @@ io.on('connection', (socket) => {
           effectiveProfile = 'custom';
           const joined = profile.flags.join(' ');
           mergedOptions.customFlags = mergedOptions.customFlags ? `${mergedOptions.customFlags} ${joined}` : joined;
+          // Also pass flag toggles from the profile
+          if (profile.flagToggles && typeof profile.flagToggles === 'object') {
+            mergedOptions.flagToggles = profile.flagToggles;
+          }
         }
       }
     } catch (e) {

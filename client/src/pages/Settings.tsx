@@ -35,7 +35,7 @@ export default function Settings() {
   const [builderProfile, setBuilderProfile] = useState('basic')
   const [customFlags, setCustomFlags] = useState('')
   const [validation, setValidation] = useState<{ ok: boolean; disallowed: string[]; warnings: string[]; commandPreview: string; description: string; impact?: any; normalizedArgs?: string[] } | null>(null)
-  const [creatingProfile, setCreatingProfile] = useState<{ name: string; description: string } | null>(null)
+  const [creatingProfile, setCreatingProfile] = useState<{ name: string; description: string; flagToggles?: Record<string, boolean> } | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -361,7 +361,7 @@ export default function Settings() {
                   </Link>
                 </div>
                 <div className="mt-3 flex gap-2 items-center">
-                  <button onClick={() => setCreatingProfile({ name: '', description: '' })} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded">Save as New Profile</button>
+                  <button onClick={() => setCreatingProfile({ name: '', description: '', flagToggles: {} })} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded">Save as New Profile</button>
                 </div>
 
                 {creatingProfile && (
@@ -376,11 +376,42 @@ export default function Settings() {
                         <input id="newProfileDescription" placeholder="Explain the tradeoffs" value={creatingProfile.description} onChange={e => setCreatingProfile({ ...creatingProfile, description: e.target.value })} className="w-full bg-gray-950 border border-gray-700 text-white rounded p-2" />
                       </div>
                     </div>
-                    <div className="mt-2 flex gap-2">
+                    {validation?.normalizedArgs && (
+                      <div className="mt-3">
+                        <p className="text-sm text-gray-300 mb-2"><strong>Configure which flags to use:</strong></p>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {validation.normalizedArgs
+                            .filter((flag: string) => flag.startsWith('--'))
+                            .map((flag: string) => {
+                              const flagName = flag.split('=')[0]
+                              const isEnabled = creatingProfile.flagToggles?.[flagName] !== false
+                              return (
+                                <div key={flagName} className="flex items-center gap-2 p-2 bg-gray-800 rounded">
+                                  <input
+                                    type="checkbox"
+                                    checked={isEnabled}
+                                    onChange={e => {
+                                      const newToggles = { ...creatingProfile.flagToggles || {} }
+                                      newToggles[flagName] = e.target.checked
+                                      setCreatingProfile({ ...creatingProfile, flagToggles: newToggles })
+                                    }}
+                                    className="w-4 h-4"
+                                    id={`flag-${flagName}`}
+                                  />
+                                  <label htmlFor={`flag-${flagName}`} className="text-xs text-gray-300 cursor-pointer flex-1">
+                                    {flag}
+                                  </label>
+                                </div>
+                              )
+                            })}
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-3 flex gap-2">
                       <button onClick={async () => {
                         try {
                           const flags = (validation?.normalizedArgs || []).filter((x: string) => x.startsWith('--'))
-                          const saved = await createUserProfile({ name: creatingProfile.name, description: creatingProfile.description, flags })
+                          const saved = await createUserProfile({ name: creatingProfile.name, description: creatingProfile.description, flags, flagToggles: creatingProfile.flagToggles })
                           setUserProfiles(prev => [{ id: saved.id, name: saved.name, description: saved.description, flags: saved.flags }, ...prev])
                           setCreatingProfile(null)
                         } catch (e) {

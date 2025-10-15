@@ -8,7 +8,8 @@ import { useAppStore, isScanRunning } from '../store/appStore'
 import { validateFlagsString, wafPreset } from '../utils/sqlmapFlags'
 import toast from 'react-hot-toast'
 import 'xterm/css/xterm.css'
-import { apiFetch, getUserScanSettings } from '../utils/api'
+import { apiFetch, getUserScanSettings, listUserProfiles } from '../utils/api'
+import type { UserProfile } from '../utils/api'
 
 const SCAN_PROFILES = [
   { value: 'basic', label: 'Basic Scan', description: 'Quick vulnerability detection' },
@@ -78,6 +79,8 @@ export default function Terminal() {
   const [baseFlagLoading, setBaseFlagLoading] = useState(false)
   const [baseFlagError, setBaseFlagError] = useState<string | null>(null)
   const [baseFlagCopyState, setBaseFlagCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([])
+  const [selectedUserProfile, setSelectedUserProfile] = useState<UserProfile | null>(null)
   
   const { on, off, startScan: sendStartScan, terminateScan, restartScan: emitRestart } = useScanSocket()
   const { addScan, updateScan, isConnected, upsertScanFromEvent } = useAppStore()
@@ -172,6 +175,18 @@ export default function Terminal() {
       setIsScanning(false)
     }
   }, [scans, activeTerminalSession, isScanning, targetUrl])
+
+  // Load user profiles on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const profiles = await listUserProfiles()
+        setUserProfiles(profiles)
+      } catch (e) {
+        console.warn('Failed to load user profiles:', e)
+      }
+    })()
+  }, [])
 
   useEffect(() => {
     const term = xtermRef.current
@@ -389,6 +404,11 @@ export default function Terminal() {
       ...(selectedProfile === 'custom' && customFlags.trim() && {
         customFlags: customFlags.trim()
       })
+    }
+
+    // Add flag toggles if a user profile is selected
+    if (selectedUserProfile && selectedUserProfile.flagToggles) {
+      scanOptions.flagToggles = selectedUserProfile.flagToggles
     }
 
     // Attach auth block

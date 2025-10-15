@@ -161,6 +161,7 @@ class Database {
         name TEXT NOT NULL,
         description TEXT,
         flags_json TEXT, -- JSON array of normalized flags (e.g., ["--level=2","--tamper=space2comment"])
+        flag_toggles_json TEXT, -- JSON object mapping flag names to enabled state (e.g., {"--level": true, "--tamper": false})
         is_custom INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -365,6 +366,19 @@ class Database {
           }
         } else {
           Logger.info('Successfully added metadata column to reports table');
+        }
+      });
+
+      // Add flag_toggles_json column to user_profiles if it doesn't exist (migration)
+      this.db.run(`ALTER TABLE user_profiles ADD COLUMN flag_toggles_json TEXT`, (err) => {
+        if (err) {
+          if (/duplicate column/i.test(err.message)) {
+            Logger.info('flag_toggles_json column already exists in user_profiles table');
+          } else {
+            Logger.error('Error adding flag_toggles_json column to user_profiles:', err);
+          }
+        } else {
+          Logger.info('Successfully added flag_toggles_json column to user_profiles table');
         }
       });
     });
@@ -1746,7 +1760,7 @@ class Database {
 
   async getUserProfiles(userId) {
     return new Promise((resolve, reject) => {
-      const sql = `SELECT id, user_id, name, description, flags_json, is_custom, created_at, updated_at FROM user_profiles WHERE user_id = ? ORDER BY updated_at DESC`;
+      const sql = `SELECT id, user_id, name, description, flags_json, flag_toggles_json, is_custom, created_at, updated_at FROM user_profiles WHERE user_id = ? ORDER BY updated_at DESC`;
       this.db.all(sql, [userId], (err, rows) => {
         if (err) return reject(err);
         const profiles = (rows || []).map(r => ({
@@ -1755,6 +1769,7 @@ class Database {
           name: r.name,
           description: r.description || '',
           flags: this.safeJson(r.flags_json, []),
+          flagToggles: this.safeJson(r.flag_toggles_json, {}),
           is_custom: !!r.is_custom,
           created_at: r.created_at,
           updated_at: r.updated_at
@@ -1766,7 +1781,7 @@ class Database {
 
   async getUserProfileById(id, userId) {
     return new Promise((resolve, reject) => {
-      const sql = `SELECT id, user_id, name, description, flags_json, is_custom, created_at, updated_at FROM user_profiles WHERE id = ? AND user_id = ?`;
+      const sql = `SELECT id, user_id, name, description, flags_json, flag_toggles_json, is_custom, created_at, updated_at FROM user_profiles WHERE id = ? AND user_id = ?`;
       this.db.get(sql, [id, userId], (err, row) => {
         if (err) return reject(err);
         if (!row) return resolve(null);
@@ -1776,6 +1791,7 @@ class Database {
           name: row.name,
           description: row.description || '',
           flags: this.safeJson(row.flags_json, []),
+          flagToggles: this.safeJson(row.flag_toggles_json, {}),
           is_custom: !!row.is_custom,
           created_at: row.created_at,
           updated_at: row.updated_at
@@ -1784,15 +1800,16 @@ class Database {
     });
   }
 
-  async createUserProfile(userId, { id = uuidv4(), name, description = '', flags = [], is_custom = 1 }) {
+  async createUserProfile(userId, { id = uuidv4(), name, description = '', flags = [], flagToggles = {}, is_custom = 1 }) {
     return new Promise((resolve, reject) => {
       const now = new Date().toISOString();
       const payload = JSON.stringify(Array.isArray(flags) ? flags : []);
+      const togglesPayload = JSON.stringify(typeof flagToggles === 'object' ? flagToggles : {});
       const stmt = this.db.prepare(`
-        INSERT INTO user_profiles (id, user_id, name, description, flags_json, is_custom, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO user_profiles (id, user_id, name, description, flags_json, flag_toggles_json, is_custom, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      stmt.run([id, userId, name, description, payload, is_custom ? 1 : 0, now, now], function(err) {
+      stmt.run([id, userId, name, description, payload, togglesPayload, is_custom ? 1 : 0, now, now], function(err) {
         if (err) return reject(err);
         resolve(id);
       });
@@ -1800,13 +1817,14 @@ class Database {
     });
   }
 
-  async updateUserProfile(id, userId, { name, description, flags }) {
+  async updateUserProfile(id, userId, { name, description, flags, flagToggles }) {
     return new Promise((resolve, reject) => {
       const fields = [];
       const params = [];
       if (typeof name === 'string') { fields.push('name = ?'); params.push(name); }
       if (typeof description === 'string') { fields.push('description = ?'); params.push(description); }
       if (Array.isArray(flags)) { fields.push('flags_json = ?'); params.push(JSON.stringify(flags)); }
+      if (typeof flagToggles === 'object') { fields.push('flag_toggles_json = ?'); params.push(JSON.stringify(flagToggles)); }
       if (!fields.length) return resolve(false);
       fields.push('updated_at = ?'); params.push(new Date().toISOString());
       params.push(id, userId);

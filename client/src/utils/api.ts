@@ -368,16 +368,16 @@ export async function getServerSqlmapProfiles(): Promise<ServerProfile[]> {
   return apiFetch<ServerProfile[]>(`/api/sqlmap/profiles`)
 }
 
-export type UserProfile = { id: string, user_id: string, name: string, description: string, flags: string[], is_custom: boolean, created_at: string, updated_at: string }
+export type UserProfile = { id: string, user_id: string, name: string, description: string, flags: string[], flagToggles?: Record<string, boolean>, is_custom: boolean, created_at: string, updated_at: string }
 export async function listUserProfiles(): Promise<UserProfile[]> {
   return apiFetch<UserProfile[]>(`/api/user/profiles`)
 }
 
-export async function createUserProfile(input: { name: string, description?: string, flags: string[] }): Promise<UserProfile> {
+export async function createUserProfile(input: { name: string, description?: string, flags: string[], flagToggles?: Record<string, boolean> }): Promise<UserProfile> {
   return apiFetch<UserProfile>(`/api/user/profiles`, { method: 'POST', body: JSON.stringify(input) })
 }
 
-export async function updateUserProfile(id: string, input: { name?: string, description?: string, flags?: string[] }): Promise<UserProfile> {
+export async function updateUserProfile(id: string, input: { name?: string, description?: string, flags?: string[], flagToggles?: Record<string, boolean> }): Promise<UserProfile> {
   return apiFetch<UserProfile>(`/api/user/profiles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) })
 }
 

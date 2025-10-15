@@ -460,7 +460,7 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
   let dom = { checked: false };
   let remediationSuspected = false;
   let strongPayloadConfirmed = false;  // Track if actual SQLMap payload works
-  let dataExtractionAttempted = false; // Track if we can access data
+  let _dataExtractionAttempted = false; // Track if we can access data (reserved for future use)
   // Aggregate simple WAF indicators across attempts for auditing/UI hints
   const wafFlags = { header: false, body: false, status: false };
   const wafSources = new Set();

@@ -666,6 +666,60 @@ class SQLMapIntegration {
     return validatedFlags;
   }
 
+  // Filter an array of flags based on flag toggles configuration
+  // flagToggles: { "--level": true, "--risk": false, "--threads": true }
+  // Disabled flags and their values will be removed from the flags array
+  applyFlagToggles(flags, flagToggles = {}) {
+    if (!Array.isArray(flags) || typeof flagToggles !== 'object') {
+      return flags;
+    }
+
+    const result = [];
+    let skipNext = false;
+
+    for (let i = 0; i < flags.length; i++) {
+      if (skipNext) {
+        skipNext = false;
+        continue;
+      }
+
+      const flag = flags[i];
+      if (typeof flag !== 'string') {
+        result.push(flag);
+        continue;
+      }
+
+      // Extract the flag name (e.g., "--level=3" -> "--level", or "--level" -> "--level")
+      const flagName = flag.includes('=') ? flag.split('=')[0] : flag;
+
+      // Check if this flag is explicitly disabled in toggles
+      // Default to true (enabled) if not specified
+      const isEnabled = Object.prototype.hasOwnProperty.call(flagToggles, flagName) ? flagToggles[flagName] : true;
+
+      if (isEnabled) {
+        result.push(flag);
+        // If the flag doesn't have a value and the next item looks like a value, include it
+        if (!flag.includes('=') && i + 1 < flags.length) {
+          const nextItem = flags[i + 1];
+          if (typeof nextItem === 'string' && !nextItem.startsWith('--')) {
+            // Peek to see if next is a value, but don't consume here - let natural flow handle it
+          }
+        }
+      } else {
+        // Flag is disabled, skip it and potentially its value
+        if (!flag.includes('=') && i + 1 < flags.length) {
+          const nextItem = flags[i + 1];
+          if (typeof nextItem === 'string' && !nextItem.startsWith('--')) {
+            // Skip the next item as it's the value for this disabled flag
+            skipNext = true;
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
   async startScan(target, options = {}, scanProfile = 'basic', userId = 'system', context = {}) {
   const sessionId = uuidv4();
   // Use per-user directory inside the configured temp directory
@@ -685,12 +739,17 @@ class SQLMapIntegration {
     const profileFlags = profile.flags || [];
   const customFlags = options.customFlags ? this.parseCustomFlags(options.customFlags, context) : [];
 
+    // Apply flag toggles if provided (filters out disabled flags)
+    const flagToggles = typeof options.flagToggles === 'object' ? options.flagToggles : {};
+    const filteredProfileFlags = this.applyFlagToggles(profileFlags, flagToggles);
+    const filteredCustomFlags = this.applyFlagToggles(customFlags, flagToggles);
+
     const safeTargetForArgs = String(target).replace(/"/g, '\\"');
     let args = [
       '-u', `"${safeTargetForArgs}"`,
       ...defaultFlags,
-      ...profileFlags,
-      ...customFlags
+      ...filteredProfileFlags,
+      ...filteredCustomFlags
     ];
 
     // Map selected HTTP/auth options into sqlmap arguments (Phase 1 Auth support)
