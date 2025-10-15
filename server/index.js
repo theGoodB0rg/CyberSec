@@ -1487,6 +1487,22 @@ app.post('/api/findings/:findingId/verify', async (req, res) => {
         }
       }
     }
+    // Also extract payloads from the description field (SQLMap often includes them there)
+    if (typeof finding.description === 'string' && finding.description.includes('Payload:')) {
+      const payloadMatches = finding.description.match(/Payload:\s*([^\n]+)/g) || [];
+      payloadMatches.forEach((match) => {
+        const payload = match.replace(/^Payload:\s*/, '').trim();
+        if (payload.length > 0) {
+          // Extract just the parameter value part if it includes the full query string
+          const paramMatch = payload.match(new RegExp(`${param}=([^&]+)`, 'i'));
+          if (paramMatch && paramMatch[1]) {
+            payloadCandidates.push(decodeURIComponent(paramMatch[1]));
+          } else {
+            payloadCandidates.push(payload);
+          }
+        }
+      });
+    }
     const seedPayloads = Array.from(new Set(payloadCandidates)).slice(0, 5);
 
     const originalConfidence = {

@@ -459,6 +459,8 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
   let wafDetected = false;
   let dom = { checked: false };
   let remediationSuspected = false;
+  let strongPayloadConfirmed = false;  // Track if actual SQLMap payload works
+  let dataExtractionAttempted = false; // Track if we can access data
   // Aggregate simple WAF indicators across attempts for auditing/UI hints
   const wafFlags = { header: false, body: false, status: false };
   const wafSources = new Set();
@@ -581,13 +583,18 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
 
     // Boolean-based test
     if (runBoolean) {
+      // Try both replacement and injection styles
       const truePayloads = [
         '1 AND 1=1',
-        "' OR '1'='1"
+        "' OR '1'='1",
+        "bee' AND 1=1-- ",
+        "bee' OR 1=1-- "
       ];
       const falsePayloads = [
         '1 AND 1=2',
-        "' OR '1'='2"
+        "' OR '1'='2",
+        "bee' AND 1=2-- ",
+        "bee' OR 1=2-- "
       ];
 
       const vTrue = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: truePayloads[Math.floor(Math.random() * truePayloads.length)], method, headers, data: baseData, cookie: requestContext.cookie });
@@ -743,7 +750,10 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
 
     // Error-based test
     if (runError) {
-      const vErr = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: "'", method, headers, data: baseData, cookie: requestContext.cookie });
+      // Try both replacement and injection styles
+      const errorPayloads = ["'", "bee'", "bee' AND extractvalue(1,1)-- "];
+      const errorPayload = errorPayloads[Math.floor(Math.random() * errorPayloads.length)];
+      const vErr = buildRequestVariant({ baseUrl: targetUrl, parameter, payload: errorPayload, method, headers, data: baseData, cookie: requestContext.cookie });
       const errRes = await httpRequest(vErr);
       const body = (errRes.body || '').toString();
       const errorPatterns = /(sql syntax|mysql|postgres|oracle|sqlite|mssql|odbc|warning|unclosed quotation|unterminated string)/i;
@@ -850,6 +860,63 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
       }
     }
 
+    // Test strongest SQLMap payloads if provided (highest confidence verification)
+    if (seededPayloads && seededPayloads.length > 0 && !strongPayloadConfirmed && !wafDetected) {
+      try {
+        for (const strongPayload of seededPayloads.slice(0, 1)) {
+          const vStrong = buildRequestVariant({
+            baseUrl: targetUrl,
+            parameter,
+            payload: strongPayload,
+            method,
+            headers,
+            data: baseData,
+            cookie: requestContext.cookie
+          });
+          const rStrong = await httpRequest(vStrong);
+          const snapshotStrong = snapshotResponse(rStrong);
+          const diffStrong = baselineSnapshot
+            ? diffSnapshots(baselineSnapshot, snapshotStrong)
+            : null;
+
+          const strongRawKey = recordRawBody('payload-strong', 'sqlmap-verified', rStrong, vStrong);
+          evidence.signals.payloads.push({
+            payload: strongPayload,
+            isStrongPayload: true,
+            keywordHit: false,
+            diff: simpleDiffSummary(baselineNormalized || '', normalizeHtml(rStrong.body)),
+            fingerprintDiff: diffStrong,
+            preview: buildResponsePreview(rStrong, vStrong),
+            rawKey: strongRawKey
+          });
+
+          const sWaf = detectWafIndicators(rStrong);
+          if (sWaf.any) {
+            wafDetected = true;
+            wafSources.add('strong-payload');
+            break;
+          }
+
+          // If the actual SQLMap payload produces different results, that's STRONG evidence
+          if (diffStrong && (diffStrong.statusChanged || Math.abs(diffStrong.lengthDelta) > 50)) {
+            strongPayloadConfirmed = true;
+            confirmations.push('strong-payload');
+            confidenceScore += 0.5; // Highest weight: proves actual vulnerability
+            extraSignals.push({
+              type: 'strong-payload-verified',
+              description: `Actual SQLMap payload confirmed: ${strongPayload.slice(0, 50)}...`,
+              payload: strongPayload,
+              impact: diffStrong
+            });
+            break;
+          }
+        }
+      } catch (err) {
+        // Non-fatal: strong payload test failed, continue with other signals
+        Logger.debug('Strong payload verification failed', { error: err.message });
+      }
+    }
+
     if (baselineResponse && baselineSnapshot) {
       try {
         const driftVariant = buildRequestVariant({
@@ -915,11 +982,14 @@ async function verifyFinding({ targetUrl, parameter, strategy = 'auto', requestC
     // Cap score to 1.0
     confidenceScore = Math.min(1.0, confidenceScore);
 
-    let label = confidenceScore >= 0.85 && confirmations.length >= 2
-      ? 'Confirmed'
-      : confidenceScore >= 0.5
-        ? 'Likely'
-        : 'Suspected';
+    // Upgrade label if actual SQLMap payload was confirmed
+    let label = strongPayloadConfirmed
+      ? 'Confirmed'  // Actual payload worked - highest confidence
+      : confidenceScore >= 0.85 && confirmations.length >= 2
+        ? 'Confirmed'
+        : confidenceScore >= 0.5
+          ? 'Likely'
+          : 'Suspected';
 
     if (wafDetected) {
       label = 'Inconclusive';
