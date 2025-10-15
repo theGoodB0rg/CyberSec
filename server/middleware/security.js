@@ -216,6 +216,11 @@ class SecurityMiddleware {
 
       // Additional security checks
       const parsedUrl = new URL(url);
+      const hostname = parsedUrl.hostname.toLowerCase();
+      const allowLocal = (
+        ['true', '1', 'yes', 'on'].includes(String(process.env.ALLOW_LOCALHOST_TARGETS).toLowerCase())
+        || process.env.NODE_ENV !== 'production'
+      );
       
       // Block private/local IP ranges
       const privateRanges = [
@@ -230,22 +235,22 @@ class SecurityMiddleware {
       ];
 
       // Check if hostname is an IP address
-      if (validator.isIP(parsedUrl.hostname)) {
+      if (validator.isIP(hostname)) {
+        // Allow loopback when enabled
+        if (allowLocal && (/^127\./.test(hostname) || hostname === '::1')) {
+          return true;
+        }
         for (const range of privateRanges) {
-          if (range.test(parsedUrl.hostname)) {
+          if (range.test(hostname)) {
             return false; // Block private IPs
           }
         }
       }
 
       // Block localhost variations
-      const localhostVariations = [
-        'localhost', '0.0.0.0', '127.0.0.1', '::1',
-        'local', 'internal', 'admin', 'test'
-      ];
-      
-      if (localhostVariations.includes(parsedUrl.hostname.toLowerCase())) {
-        return false;
+      const localhostVariations = ['localhost', '0.0.0.0', '127.0.0.1', '::1'];
+      if (localhostVariations.includes(hostname)) {
+        return allowLocal ? true : false;
       }
 
       return true;
