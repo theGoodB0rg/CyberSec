@@ -279,7 +279,10 @@ class SQLMapIntegration {
     } else {
       Logger.info('To install SQLMap on Linux/Mac:');
       Logger.info('1. git clone https://github.com/sqlmapproject/sqlmap.git /opt/sqlmap');
-      Logger.info('2. Add a wrapper script: echo "#!/bin/sh" > /usr/local/bin/sqlmap && echo "exec python3 /opt/sqlmap/sqlmap.py \"$@\"" >> /usr/local/bin/sqlmap && chmod +x /usr/local/bin/sqlmap');
+      Logger.info('2. Create a wrapper at /usr/local/bin/sqlmap with:');
+      Logger.info('   #!/bin/sh');
+      Logger.info('   exec python3 /opt/sqlmap/sqlmap.py "$@"');
+      Logger.info('   Then run: chmod +x /usr/local/bin/sqlmap');
       Logger.info('3. (Optional) python3 -m pip install --upgrade "git+https://github.com/sqlmapproject/sqlmap.git@master" if your distro allows pip system installs');
     }
   }
@@ -352,7 +355,9 @@ class SQLMapIntegration {
     }
 
     // Check for dangerous characters
-    const dangerousChars = [';', '&', '|', '`', '$', '(', ')', '{', '}'];
+    // Allow common URL characters like & ? = # since we will quote the value when spawning the process.
+    // Still block obvious shell metacharacters that could lead to command injection if mishandled.
+    const dangerousChars = [';', '|', '`', '$', '{', '}'];
     for (const char of dangerousChars) {
       if (target.includes(char)) {
         throw new Error(`Target URL contains potentially dangerous character: ${char}`);
@@ -461,8 +466,9 @@ class SQLMapIntegration {
       command.push(this.sqlmapPath);
     }
 
-    // Add target URL
-    command.push('-u', target);
+  // Add target URL (quote to avoid shell interpretation of & and other characters)
+  const safeTarget = String(target).replace(/"/g, '\\"');
+  command.push('-u', `"${safeTarget}"`);
 
     // Add output directory and base flags
     const outputDir = path.join(this.tempDir, uuidv4());
@@ -606,8 +612,9 @@ class SQLMapIntegration {
     const profileFlags = profile.flags || [];
   const customFlags = options.customFlags ? this.parseCustomFlags(options.customFlags, context) : [];
 
+    const safeTargetForArgs = String(target).replace(/"/g, '\\"');
     const args = [
-      '-u', target,
+      '-u', `"${safeTargetForArgs}"`,
       ...defaultFlags,
       ...profileFlags,
       ...customFlags
