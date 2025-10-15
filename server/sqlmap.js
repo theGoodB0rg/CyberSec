@@ -451,6 +451,63 @@ class SQLMapIntegration {
     };
   }
 
+  // Deduplicate sqlmap arguments while preserving the last occurrence of non-repeatable flags.
+  // Repeatable flags (like --header) are preserved in all occurrences.
+  // Flags can be in '--flag=value' form or '--flag', 'value' split form.
+  dedupeSqlmapArgs(args) {
+    if (!Array.isArray(args) || args.length === 0) return args || [];
+    const repeatableFlags = new Set(['--header']);
+
+    // Parse args into entries: [{name, tokens}] for flags; plain strings for others
+    const entries = [];
+    for (let i = 0; i < args.length; i++) {
+      const tok = args[i];
+      if (typeof tok === 'string' && tok.trim().startsWith('-')) {
+        // It's a flag
+        const trimmed = tok.trim();
+        let name = trimmed;
+        let tokens = [trimmed];
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 1) {
+          name = trimmed.slice(0, eqIdx);
+          // keep as a single token ('--flag=value')
+        } else {
+          // lookahead for a value token that's not another flag
+          const next = args[i + 1];
+          if (next != null && typeof next === 'string' && !next.trim().startsWith('-')) {
+            tokens = [trimmed, next];
+            i++; // consume the value
+          }
+        }
+        entries.push({ kind: 'flag', name, tokens });
+      } else {
+        entries.push({ kind: 'raw', tokens: [tok] });
+      }
+    }
+
+    // Determine last index for each non-repeatable flag
+    const lastIdx = new Map();
+    entries.forEach((entry, idx) => {
+      if (entry.kind === 'flag') {
+        if (repeatableFlags.has(entry.name)) return;
+        lastIdx.set(entry.name, idx);
+      }
+    });
+
+    // Reconstruct result, skipping earlier duplicates of non-repeatable flags
+    const result = [];
+    entries.forEach((entry, idx) => {
+      if (entry.kind === 'flag') {
+        if (repeatableFlags.has(entry.name) || lastIdx.get(entry.name) === idx) {
+          result.push(...entry.tokens);
+        }
+      } else {
+        result.push(...entry.tokens);
+      }
+    });
+    return result;
+  }
+
   buildSQLMapCommand(target, options = {}, scanProfile = 'basic', context = {}) {
     this.validateTarget(target);
 
@@ -470,11 +527,11 @@ class SQLMapIntegration {
   const safeTarget = String(target).replace(/"/g, '\\"');
   command.push('-u', `"${safeTarget}"`);
 
-    // Add output directory and base flags
+  // Add output directory and base flags
     const outputDir = path.join(this.tempDir, uuidv4());
     fs.mkdirSync(outputDir, { recursive: true });
     const baseFlags = this.buildBaseFlags(outputDir);
-    command.push(...baseFlags);
+  command.push(...baseFlags);
 
     // Add profile flags
     command.push(...profile.flags);
@@ -520,7 +577,23 @@ class SQLMapIntegration {
       command.push(...customFlags);
     }
 
-    return { command, outputDir };
+  // Dedupe flags while preserving the path/command tokens and -u target
+    // We built command as [sqlmapExecutableOrPython, maybeModule, -u, target, ...flags]
+    // Find the index of '-u' and preserve everything up to and including target
+    const uIdx = command.findIndex(t => typeof t === 'string' && t.trim() === '-u');
+    let head = [];
+    let tail = [];
+    if (uIdx >= 0 && uIdx + 1 < command.length) {
+      head = command.slice(0, uIdx + 2);
+      tail = command.slice(uIdx + 2);
+    } else {
+      head = command.slice(0, 1);
+      tail = command.slice(1);
+    }
+    const dedupedTail = this.dedupeSqlmapArgs(tail);
+    const finalCommand = [...head, ...dedupedTail];
+
+    return { command: finalCommand, outputDir };
   }
 
   parseCustomFlags(customFlags, context = {}) {
@@ -613,7 +686,7 @@ class SQLMapIntegration {
   const customFlags = options.customFlags ? this.parseCustomFlags(options.customFlags, context) : [];
 
     const safeTargetForArgs = String(target).replace(/"/g, '\\"');
-    const args = [
+    let args = [
       '-u', `"${safeTargetForArgs}"`,
       ...defaultFlags,
       ...profileFlags,
@@ -693,7 +766,10 @@ class SQLMapIntegration {
       commandArgs = args;
     }
 
-    Logger.info(`Spawning: ${command} with args: ${commandArgs.join(' ')}`);
+  // Dedupe args before spawn to avoid conflicting flags
+  commandArgs = this.dedupeSqlmapArgs(commandArgs);
+
+  Logger.info(`Spawning: ${command} with args: ${commandArgs.join(' ')}`);
 
     // Enhanced spawn configuration for better output capture
     const spawnOptions = {
