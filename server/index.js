@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
-const helmet = require('helmet');
+const _helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
@@ -10,6 +10,26 @@ const fs = require('fs');
 const DB_PATH = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
   : path.join(__dirname, 'data', 'cybersecurity.db');
+
+// Derived application directories (ensure they exist)
+const DATA_DIR = path.dirname(DB_PATH);
+const APP_TEMP_DIR = process.env.TEMP_DIR
+  ? (path.isAbsolute(process.env.TEMP_DIR)
+      ? process.env.TEMP_DIR
+      : path.join(__dirname, process.env.TEMP_DIR))
+  : path.join(__dirname, 'temp');
+const QUICK_VERIFY_EVIDENCE_DIR = process.env.EVIDENCE_DIR
+  ? (path.isAbsolute(process.env.EVIDENCE_DIR)
+      ? process.env.EVIDENCE_DIR
+      : path.join(__dirname, process.env.EVIDENCE_DIR))
+  : path.join(APP_TEMP_DIR, 'quick-verify-evidence');
+const VERIFICATIONS_DIR = path.join(APP_TEMP_DIR, 'verifications');
+
+for (const dir of [DATA_DIR, APP_TEMP_DIR, QUICK_VERIFY_EVIDENCE_DIR, VERIFICATIONS_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
 
 // Import custom modules
 const Database = require('./database');
