@@ -419,10 +419,7 @@ class SecurityMiddleware {
       const isAuthEndpoint = req.path && (/^\/auth\//.test(req.path));
       // Skip validation endpoint - it's designed to safely validate potentially malicious commands
       const isValidationEndpoint = req.path === '/api/sqlmap/validate' || req.path === '/sqlmap/validate';
-      // Skip profile endpoints - they legitimately contain sqlmap flags with special characters
-      const isProfileEndpoint = req.path && (/^\/user\/profiles/.test(req.path));
-      
-      if (isHealth || isAuthEndpoint || isValidationEndpoint || isProfileEndpoint) {
+      if (isHealth || isAuthEndpoint || isValidationEndpoint) {
         return next();
       }
 

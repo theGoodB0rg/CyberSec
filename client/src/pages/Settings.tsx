@@ -407,21 +407,18 @@ export default function Settings() {
                         </div>
                       </div>
                     )}
-                    <div className="mt-3 flex gap-2 flex-col">
-                      <div className="flex gap-2">
-                        <button onClick={async () => {
-                          try {
-                            const flags = (validation?.normalizedArgs || []).filter((x: string) => x.startsWith('--'))
-                            const saved = await createUserProfile({ name: creatingProfile.name, description: creatingProfile.description, flags, flagToggles: creatingProfile.flagToggles })
-                            setUserProfiles(prev => [{ id: saved.id, name: saved.name, description: saved.description, flags: saved.flags }, ...prev])
-                            setCreatingProfile(null)
-                          } catch (e: any) {
-                            console.error(e)
-                            alert(`Failed to create profile: ${e.message || e.toString()}`)
-                          }
-                        }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Create Profile</button>
-                        <button onClick={() => setCreatingProfile(null)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded">Cancel</button>
-                      </div>
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={async () => {
+                        try {
+                          const flags = (validation?.normalizedArgs || []).filter((x: string) => x.startsWith('--'))
+                          const saved = await createUserProfile({ name: creatingProfile.name, description: creatingProfile.description, flags, flagToggles: creatingProfile.flagToggles })
+                          setUserProfiles(prev => [{ id: saved.id, name: saved.name, description: saved.description, flags: saved.flags }, ...prev])
+                          setCreatingProfile(null)
+                        } catch (e) {
+                          console.error(e)
+                        }
+                      }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Create Profile</button>
+                      <button onClick={() => setCreatingProfile(null)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded">Cancel</button>
                     </div>
                   </div>
                 )}
