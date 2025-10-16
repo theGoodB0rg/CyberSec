@@ -268,6 +268,15 @@ const telemetryLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Rate limit for public validation endpoint to prevent abuse
+const validationLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 100, // allow up to 100 validation requests per minute per IP (reasonable for live typing)
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many validation requests, please try again later.',
+});
+
 // CORS configuration (allow any localhost port while developing)
 app.use(cors({
   origin: corsOriginCallback,
@@ -471,8 +480,8 @@ app.get('/api/health', async (req, res) => {
 
 app.use('/api/contact', createContactRouter(contactMailer, database));
 
-// Public validation endpoint (no auth required)
-app.post('/api/sqlmap/validate', async (req, res) => {
+// Public validation endpoint (no auth required, but rate-limited)
+app.post('/api/sqlmap/validate', validationLimiter, async (req, res) => {
   try {
     const { target = '', profile = 'basic', customFlags = '' } = req.body || {};
     const isAdmin = false; // Public endpoint, not authenticated

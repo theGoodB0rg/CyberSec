@@ -417,7 +417,9 @@ class SecurityMiddleware {
       // Skip lightweight endpoints that should never be blocked
       const isHealth = req.path === '/health' || (req.originalUrl && req.originalUrl.startsWith('/api/health'));
       const isAuthEndpoint = req.path && (/^\/auth\//.test(req.path));
-      if (isHealth || isAuthEndpoint) {
+      // Skip validation endpoint - it's designed to safely validate potentially malicious commands
+      const isValidationEndpoint = req.path === '/api/sqlmap/validate' || req.path === '/sqlmap/validate';
+      if (isHealth || isAuthEndpoint || isValidationEndpoint) {
         return next();
       }
 
