@@ -615,15 +615,42 @@ export default function Terminal() {
               id="scanProfile"
               aria-label="Scan Profile"
               value={selectedProfile}
-              onChange={(e) => setTerminalProfile(e.target.value)}
+              onChange={(e) => {
+                const profileValue = e.target.value
+                setTerminalProfile(profileValue)
+                
+                // If a user profile is selected, set the custom flags from that profile
+                if (profileValue.startsWith('profile-')) {
+                  const userProfile = userProfiles.find(p => `profile-${p.id}` === profileValue)
+                  if (userProfile) {
+                    setSelectedUserProfile(userProfile)
+                    // Set custom flags from the user profile
+                    const flagsStr = userProfile.flags.join(' ')
+                    setTerminalCustomFlags(flagsStr)
+                  }
+                } else {
+                  setSelectedUserProfile(null)
+                }
+              }}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isScanning}
             >
-              {SCAN_PROFILES.map((profile) => (
-                <option key={profile.value} value={profile.value}>
-                  {profile.label}
-                </option>
-              ))}
+              <optgroup label="Built-in Profiles">
+                {SCAN_PROFILES.map((profile) => (
+                  <option key={profile.value} value={profile.value}>
+                    {profile.label}
+                  </option>
+                ))}
+              </optgroup>
+              {userProfiles.length > 0 && (
+                <optgroup label="Custom Profiles">
+                  {userProfiles.map((profile) => (
+                    <option key={profile.id} value={`profile-${profile.id}`}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
 
@@ -971,12 +998,28 @@ export default function Terminal() {
 
         {/* Profile Description */}
         <div className="mt-3">
-          <p className="text-sm text-gray-400">
-            <span className="font-medium">
-              {SCAN_PROFILES.find(p => p.value === selectedProfile)?.label}:
-            </span>{' '}
-            {SCAN_PROFILES.find(p => p.value === selectedProfile)?.description}
-          </p>
+          {selectedUserProfile ? (
+            <div className="p-3 bg-blue-900 border border-blue-700 rounded-md">
+              <p className="text-sm text-blue-300">
+                <span className="font-medium">Custom Profile:</span> {selectedUserProfile.name}
+              </p>
+              {selectedUserProfile.description && (
+                <p className="text-sm text-blue-200 mt-1">{selectedUserProfile.description}</p>
+              )}
+              {selectedUserProfile.flags.length > 0 && (
+                <div className="text-xs text-blue-100 mt-2 max-h-20 overflow-y-auto font-mono bg-black bg-opacity-30 p-2 rounded">
+                  {selectedUserProfile.flags.join(' ')}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">
+              <span className="font-medium">
+                {SCAN_PROFILES.find(p => p.value === selectedProfile)?.label}:
+              </span>{' '}
+              {SCAN_PROFILES.find(p => p.value === selectedProfile)?.description}
+            </p>
+          )}
         </div>
 
       {/* Terminal */}
