@@ -78,7 +78,7 @@ class SecurityMiddleware {
           userAgent: 512,
           cookie: 2048,
           data: 8192,
-          customFlags: 1024,
+          customFlags: 4096, // Increased to support complex commands with cookies and long URLs
           command: 256
         };
 
@@ -419,7 +419,10 @@ class SecurityMiddleware {
       const isAuthEndpoint = req.path && (/^\/auth\//.test(req.path));
       // Skip validation endpoint - it's designed to safely validate potentially malicious commands
       const isValidationEndpoint = req.path === '/api/sqlmap/validate' || req.path === '/sqlmap/validate';
-      if (isHealth || isAuthEndpoint || isValidationEndpoint) {
+      // Skip profile endpoints - they legitimately contain sqlmap flags with special characters
+      const isProfileEndpoint = req.path && (/^\/user\/profiles/.test(req.path));
+      
+      if (isHealth || isAuthEndpoint || isValidationEndpoint || isProfileEndpoint) {
         return next();
       }
 
